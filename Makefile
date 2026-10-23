@@ -1,7 +1,7 @@
 .PHONY: install serve start stop app doctor chat test e2e e2e-setup demo ollama bench bench-validate
 
-install:  ## Create .venv with all providers + dev tools
-	uv sync --all-extras
+install:  ## Create .venv with all providers + unit-test tools (browser-test tools install only with make e2e)
+	uv sync --extra anthropic --extra openai --extra dev
 
 serve:  ## Start the web UI (http://127.0.0.1:8765)
 	uv run codepilot serve
@@ -24,11 +24,11 @@ chat:  ## Terminal chat instead of the browser
 test:  ## Run codepilot's own unit tests (no AWS needed)
 	uv run pytest -q
 
-e2e-setup:  ## One-time: download the Chromium that the browser tests drive
-	uv run playwright install chromium
+e2e-setup:  ## One-time: install Playwright and the Chromium that the browser tests drive
+	uv run --extra e2e playwright install chromium
 
 e2e:  ## Browser tests: drive the real UI end to end (no AWS needed; see tests/e2e)
-	uv run pytest -q -m e2e tests/e2e
+	uv run --extra e2e pytest -q -m e2e tests/e2e
 
 demo:  ## Try it locally for free: Ollama + the bundled demo agent
 	CODEPILOT_PROVIDER=ollama CODEPILOT_REPO=$(CURDIR)/examples/demo-agent CODEPILOT_TEST_CMD="python3 -m pytest -q" \

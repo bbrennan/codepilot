@@ -9,6 +9,7 @@ Start with `make doctor`. It tests each piece and prints the fix for most proble
 | `uv: command not found` | `brew install uv` or `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 | uv fails with certificate or SSL errors | Corporate TLS inspection: `export UV_NATIVE_TLS=1` and retry |
 | `requires-python >=3.11` | Install Python 3.11+ (`brew install python@3.12`); uv picks it up |
+| `failed to download "<package>==<version>"` | Usually a company package mirror that doesn't have that release yet (many hold back new versions for a few weeks), or a proxy blocking `files.pythonhosted.org`. `make install` doesn't install the browser-test tools (Playwright, greenlet), so update codepilot first (`git pull`). If another package fails, ask for it to be allowed, or point uv at your mirror with `UV_INDEX_URL` |
 | `The anthropic package isn't installed` | `uv sync --extra anthropic` (or `make install`) |
 | `The openai package isn't installed` | `uv sync --extra openai` (or `make install`) |
 
@@ -63,6 +64,7 @@ Start with `make doctor`. It tests each piece and prints the fix for most proble
 | `address already in use` | Another codepilot is running, or something else uses the port: `codepilot status`; `codepilot stop` for a background one; otherwise `CODEPILOT_PORT=8766 make serve`, or stop the other one (`pkill -f "codepilot serve"`) |
 | Page loads but nothing works | Hard-reload the browser (an old cached UI); check the log (`codepilot logs`, or the terminal where `make serve` runs) |
 | The terminal fills with `HTTP Request: POST https://bedrock-…` or `Loading cached SSO token` | Older versions logged every request. Update (`git pull && make install`); set `CODEPILOT_VERBOSE=1` only when you want those lines |
+| Codepilot.app is blocked by your company's security software | You don't need it: run `make start` once and close the terminal, then use a bookmark or Chrome's **Install page as app** ([details](setup.md#run-without-a-terminal)) |
 | Codepilot.app opens nothing | See `~/.codepilot/launcher.log` and `codepilot logs`. If you moved the checkout or rebuilt `.venv`, run `codepilot app` again |
 | From Codepilot.app, tests or `gh` aren't found, or the wrong AWS profile is used | The launcher imports your login shell's environment. Check that `zsh -ilc 'echo $PATH'` shows what you expect, or put the settings in `.env` |
 | "At most 12 terminals can run at once" | Kill some from the Terminal menu (**Kill All Terminals**) |

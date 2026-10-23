@@ -43,15 +43,21 @@ git --version
 git clone https://github.com/bbrennan/codepilot.git
 cd codepilot
 cp .env.example .env      # your private settings; git-ignored
-make install              # = uv sync --all-extras  (creates .venv)
+make install              # = uv sync --extra anthropic --extra openai --extra dev  (creates .venv)
 ```
 
-`make install` installs everything, including the Anthropic and OpenAI SDKs. To install less:
+`make install` installs everything codepilot needs, including the Anthropic and OpenAI SDKs and the unit-test
+tools. The browser-test tools (Playwright) aren't included; `make e2e` installs them only if you run those
+tests. To install less:
 `uv sync --extra dev` (Bedrock and Ollama only), and add `--extra anthropic` and/or `--extra openai` as
 needed.
 
 > **Behind a corporate proxy that inspects TLS?** If `uv` fails with certificate errors, run
 > `export UV_NATIVE_TLS=1` first (it's also set in `.env.example`), so uv trusts your OS certificate store.
+>
+> **Company package mirror?** If a download fails (`failed to download "<package>==<version>"`), the mirror
+> may not carry that release yet; many hold back new versions for a few weeks. See
+> [troubleshooting](troubleshooting.md#install).
 
 ## 3. Choose a model provider
 
@@ -338,6 +344,18 @@ similar settings therefore work as they do in a terminal. Settings in `.env` wor
 `codepilot app` if you move the checkout or recreate its virtualenv.
 
 To start codepilot when you log in, add **Codepilot.app** to System Settings → General → Login Items.
+
+**On a managed work laptop.** `codepilot app` downloads nothing and needs no admin rights. It writes a
+small launcher script into your own `~/Applications` folder. Because it's created locally, macOS doesn't
+quarantine it, but some company security tools still block unrecognised apps. If yours does, or you'd
+rather not use it, you don't need it:
+
+1. Run `make start` (or `codepilot start`) in any terminal, once per login. You can close the terminal
+   straight away: the server keeps running in the background until you run `codepilot stop` or log out.
+2. Bookmark `http://127.0.0.1:8765`, or in Chrome or Edge use **⋮ → Cast, save and share → Install page
+   as app** (Edge: **Apps → Install this site as an app**). That gives codepilot its own window and Dock icon
+   through the browser, with no separate app to install.
+3. Optional shortcut, in `~/.zshrc`: `alias cp-up='~/path/to/codepilot/.venv/bin/codepilot start'`.
 
 ## 8. Updating
 

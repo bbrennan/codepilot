@@ -4,7 +4,7 @@
 
 ```bash
 git clone https://github.com/bbrennan/codepilot.git && cd codepilot
-make install          # uv sync --all-extras
+make install          # providers + unit-test tools (make e2e adds Playwright when needed)
 make test             # all unit tests; no cloud access or API keys needed
 make e2e-setup        # once: download the Chromium the browser tests drive
 make e2e              # browser tests against the real UI
