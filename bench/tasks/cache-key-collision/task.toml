@@ -1,0 +1,12 @@
+id = "cache-key-collision"
+title = "Prices cached across currencies"
+category = "bug-report"
+difficulty = "medium"
+mode = "debug"
+test_cmd = "python3 -m pytest -q"
+grade_cmd = "python -m pytest -q -p no:cacheprovider tests_hidden tests"
+prompt = """
+Customer complaint: after someone looks at a product in EUR, other shoppers see the EUR amount
+labelled as USD. Prices come from pricing/prices.py. Find the cause and fix it without losing caching
+(the upstream price service is slow, so each sku+currency should be fetched once).
+"""

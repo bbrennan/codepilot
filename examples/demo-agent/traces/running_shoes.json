@@ -1,0 +1,39 @@
+{
+ "journey": "running_shoes",
+ "spans": [
+  {
+   "traceId": "38ebb80d11d042e6ba41f5ee8b2c3e89",
+   "spanId": "root",
+   "name": "invoke_agent",
+   "startTimeUnixNano": 1792714892121196000,
+   "endTimeUnixNano": 1792714892121209000,
+   "status": {
+    "code": "OK",
+    "message": ""
+   },
+   "attributes": {
+    "journey": "running_shoes",
+    "user_message": "find running shoes",
+    "answer": "Found 2 item(s)."
+   }
+  },
+  {
+   "traceId": "38ebb80d11d042e6ba41f5ee8b2c3e89",
+   "spanId": "tool",
+   "parentSpanId": "root",
+   "name": "tool.search_products",
+   "startTimeUnixNano": 1792714892121197000,
+   "endTimeUnixNano": 1792714892121208000,
+   "status": {
+    "code": "OK"
+   },
+   "attributes": {
+    "result_count": 2,
+    "prices": [
+     59.0,
+     75.0
+    ]
+   }
+  }
+ ]
+}

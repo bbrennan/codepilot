@@ -1,0 +1,11 @@
+id = "pagination-off-by-one"
+title = "Pagination skips the first page and drops the last"
+category = "failing-test"
+difficulty = "easy"
+mode = "debug"
+test_cmd = "python3 -m pytest -q"
+grade_cmd = "python -m pytest -q -p no:cacheprovider tests_hidden tests"
+prompt = """
+Users report two problems with product listing pages: page 1 shows the wrong items, and the last
+partial page of results is missing from the page count. tests/test_pagination.py is failing. Fix it.
+"""

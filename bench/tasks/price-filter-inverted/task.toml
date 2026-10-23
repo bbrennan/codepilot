@@ -1,0 +1,11 @@
+id = "price-filter-inverted"
+title = "Budget filter returns items over budget"
+category = "bug-report"
+difficulty = "easy"
+mode = "debug"
+test_cmd = "python3 -m pytest -q"
+grade_cmd = "python -m pytest -q -p no:cacheprovider tests_hidden tests"
+prompt = """
+Bug report: searching "red shoes under $100" returns the $140 leather shoes and hides the $59 running
+shoes. The max_price filter should keep items priced at or below the limit. Please fix.
+"""

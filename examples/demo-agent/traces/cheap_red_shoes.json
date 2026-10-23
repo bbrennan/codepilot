@@ -1,0 +1,38 @@
+{
+ "journey": "cheap_red_shoes",
+ "spans": [
+  {
+   "traceId": "ad14cea0fb9b4daf9c97c22498bafadb",
+   "spanId": "root",
+   "name": "invoke_agent",
+   "startTimeUnixNano": 1792714892120658000,
+   "endTimeUnixNano": 1792714892120813000,
+   "status": {
+    "code": "ERROR",
+    "message": "journey expectation failed: results missing or over budget"
+   },
+   "attributes": {
+    "journey": "cheap_red_shoes",
+    "user_message": "find red shoes under $100",
+    "answer": "Found 1 item(s)."
+   }
+  },
+  {
+   "traceId": "ad14cea0fb9b4daf9c97c22498bafadb",
+   "spanId": "tool",
+   "parentSpanId": "root",
+   "name": "tool.search_products",
+   "startTimeUnixNano": 1792714892120659000,
+   "endTimeUnixNano": 1792714892120812000,
+   "status": {
+    "code": "OK"
+   },
+   "attributes": {
+    "result_count": 1,
+    "prices": [
+     140.0
+    ]
+   }
+  }
+ ]
+}

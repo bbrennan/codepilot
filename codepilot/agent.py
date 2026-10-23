@@ -1,0 +1,509 @@
+"""The agent loop: model <-> tools, with approval pauses, an explore sub-agent, and rolling-summary memory.
+
+Every public method is a generator of UI events (dicts with a "type" key), so the web server and
+the terminal REPL render the same stream.
+"""
+
+from __future__ import annotations
+
+import json
+import time
+from collections.abc import Callable, Generator, Iterator
+from pathlib import Path
+from typing import Any
+
+from . import checks, mentions, modes, prompts, repomap, skills
+from .bedrock import Bedrock, BedrockError, make_client
+from .config import Config
+from .store import Session, Store
+from .tools import SKIP_DIRS, Tool, ToolContext, build_tools, detect_test_cmd, execute, trace_roots
+
+UI_OUTPUT_LIMIT = 6000
+KEEP_TURNS = 4
+EXPLORE_MAX_STEPS = 12
+
+
+
+def make_llm(cfg: Config) -> Any:
+    if cfg.provider == "ollama":
+        from .ollama import Ollama
+
+        return Ollama(cfg)
+    if cfg.provider == "anthropic":
+        from .anthropic_api import AnthropicAPI
+
+        return AnthropicAPI(cfg)
+    if cfg.provider == "openai":
+        from .openai_api import OpenAIAPI
+
+        return OpenAIAPI(cfg)
+    return Bedrock(cfg)
+
+
+def is_user_turn(message: dict) -> bool:
+    return message["role"] == "user" and any("text" in b for b in message["content"])
+
+
+def arg_summary(tool_input: dict) -> str:
+    for key in ("path", "pattern", "query", "command", "args", "task", "name", "log_group", "note"):
+        if tool_input.get(key):
+            return str(tool_input[key])[:160]
+    return json.dumps(tool_input)[:160]
+
+
+class Agent:
+    def __init__(self, cfg: Config, store: Store, llm: Any | None = None,
+                 logs_client_factory: Callable[[], Any] | None = None):
+        self.cfg = cfg
+        self.store = store
+        self.llm = llm or make_llm(cfg)
+        self.tools: dict[str, Tool] = {t.name: t for t in build_tools(cfg)}
+        self._logs_client = None
+        self._logs_factory = logs_client_factory or self._default_logs_client
+        self._cancelled: set[str] = set()
+
+    def cancel(self, session_id: str) -> None:
+        """Ask a running turn to stop at the next safe point."""
+        self._cancelled.add(session_id)
+
+    def _default_logs_client(self) -> Any:
+        if self._logs_client is None:
+            self._logs_client = make_client(self.cfg, "logs")
+        return self._logs_client
+
+    # -- public API -----------------------------------------------------------------------------
+
+    def chat(self, session_id: str, text: str, tier: str | None = None) -> Iterator[dict]:
+        sess = self.store.get_session(session_id)
+        self._cancelled.discard(session_id)
+        if sess.pending:
+            yield {"type": "error", "message": "A tool call is waiting for approval. Approve or deny it first."}
+            return
+        if not sess.title:
+            self.store.update_session(session_id, title=text.strip().splitlines()[0][:80])
+        if tier and tier != sess.tier:
+            self.store.update_session(session_id, tier=tier)
+        try:
+            yield from self._maybe_compact(sess)
+        except BedrockError as exc:
+            yield {"type": "notice", "message": f"Skipped memory compaction: {exc}"}
+        content = [{"text": text}]
+        root = self._ctx(sess).root
+        slash = skills.slash_command(text, root, self.cfg.home)
+        if slash:
+            skill, rest = slash
+            intro = f"The user invoked the /{skill.name} skill{': ' + rest if rest else ''}."
+            content.append({"text": f'<skill name="{skill.name}">\n{intro} Follow these instructions:\n\n'
+                                    f"{skill.body}\n</skill>"})
+            yield {"type": "skill", "name": skill.name}
+        block, labels = mentions.attachment_block(root, text)
+        if block:
+            content.append({"text": block})
+            yield {"type": "attached", "paths": labels}
+        turn_context = self._turn_context(self.store.get_session(session_id), root)
+        if turn_context:
+            content.append({"text": turn_context})
+        last = self.store.last_message(session_id)
+        if last and last[1]["role"] == "user":
+            # A stop or error left the conversation ending on our side; Bedrock needs alternating roles.
+            self.store.replace_content(last[0], last[1]["content"] + content)
+        else:
+            self.store.add_message(session_id, "user", content)
+        yield from self._loop(session_id)
+
+    def _turn_context(self, sess: Session, root: Path | None) -> str:
+        """Per-turn facts that change (mode, git state, applied proposals), sent in the user message.
+
+        Keeping them out of the system prompt keeps every earlier request a byte-identical prefix of the next
+        one: prompt caching stays warm, and newer Claude models keep their earlier reasoning valid.
+        """
+        state = dict(sess.context_state or {})
+        lines = []
+        mode = modes.get(sess.mode, root, self.cfg.home)
+        if state.get("mode") != mode.name:
+            lines.append(f"Mode is now {mode.label}.\n" + modes.system_text(mode, root, self.cfg.home))
+            state["mode"] = mode.name
+        else:
+            lines.append(f"Mode: {mode.label} (unchanged).")
+        git = _git_summary(root)
+        if git and git != state.get("git"):
+            lines.append("Git:\n" + git)
+            state["git"] = git
+        outcomes = self.store.take_unreported_outcomes(sess.id)
+        for p in outcomes:
+            note = f"Proposal #{p.id} ({p.path}) was {p.status} by the user."
+            if p.status == "applied" and p.check_text:
+                note += f" Automatic checks on the file found:\n{p.check_text}"
+            lines.append(note)
+        self.store.update_session(sess.id, context_state=state)
+        return "<turn_context>\n" + "\n\n".join(lines) + "\n</turn_context>" if lines else ""
+
+    def context_usage(self, session_id: str) -> dict:
+        """How full the live conversation is relative to the compaction threshold."""
+        size = sum(len(json.dumps(m["content"], default=str)) for m in self.store.live_messages(session_id))
+        return {"type": "context", "chars": size, "limit": self.cfg.context_chars,
+                "has_summary": bool(self.store.get_session(session_id).summary)}
+
+    def resume(self, session_id: str, approve: bool) -> Iterator[dict]:
+        sess = self.store.get_session(session_id)
+        self._cancelled.discard(session_id)
+        pending = sess.pending
+        if not pending:
+            yield {"type": "error", "message": "Nothing is waiting for approval."}
+            return
+        ctx = self._ctx(sess)
+        results = list(pending["results"])
+        for tu in pending["awaiting"]:
+            if approve:
+                yield {"type": "tool_running", "id": tu["toolUseId"], "name": tu["name"]}
+                output, is_error, took = yield from self._exec(ctx, tu)
+            else:
+                output, is_error, took = "The user declined this tool call.", True, 0.0
+            yield from self._drain(ctx)
+            yield self._result_event(tu, output, is_error, took)
+            results.append(_tool_result(tu["toolUseId"], output, is_error))
+        self.store.update_session(session_id, pending=None)
+        self.store.add_message(session_id, "user", _order_results(pending["order"], results))
+        yield from self._loop(session_id)
+
+    def describe(self, tu: dict, root: Path | None) -> str:
+        """Human-readable form of an approval-gated call."""
+        inp = tu["input"]
+        if tu["name"] == "run_command":
+            return inp.get("command", "")
+        if tu["name"] == "open_workspace":
+            return f"open workspace {inp.get('path', '')}"
+        if tu["name"] == "run_tests":
+            cmd = detect_test_cmd(root, self.cfg) or "(no test command detected)"
+            return f"{cmd} {inp.get('args', '')}".strip()
+        if tu["name"] == "github":
+            return f"gh {str(inp.get('args', '')).removeprefix('gh ')}"
+        if tu["name"] == "run_checks":
+            names = ", ".join(c.name for c in checks.detect(root)) if root else ""
+            return f"run checks ({inp.get('kind', 'all')}): {names or 'none detected'}"
+        return f"{tu['name']} {json.dumps(inp)}"
+
+    # -- internals ------------------------------------------------------------------------------
+
+    def _ctx(self, sess: Session) -> ToolContext:
+        root = Path(sess.repo).expanduser().resolve() if sess.repo else None
+        return ToolContext(root=root, cfg=self.cfg, store=self.store, session_id=sess.id,
+                           logs_client_factory=self._logs_factory)
+
+    def _system(self, sess: Session, ctx: ToolContext) -> list[dict]:
+        root = ctx.root
+        top: list[str] = []
+        if root is not None:
+            try:
+                top = sorted(p.name + ("/" if p.is_dir() else "") for p in root.iterdir() if p.name not in SKIP_DIRS)
+            except OSError:
+                pass
+        return prompts.build_system(
+            root, detect_test_cmd(root, self.cfg), self.cfg.eval_cmd, trace_roots(ctx) if root else [],
+            self.cfg.log_groups, self.store.read_notes(str(root)) if root else "", sess.summary, top,
+            skills.discover(root, self.cfg.home), skills.project_instructions(root, self.cfg.home),
+            repo_map=repomap.build(root) if root else "",
+            checks=[c.name for c in checks.detect(root)] if root else [], auto_apply=self.cfg.auto_apply_edits)
+
+    def _session_system(self, sess: Session, ctx: ToolContext) -> list[dict]:
+        """The system prompt, frozen per session. It is rebuilt only at a boundary (new workspace, or memory
+        compaction), and then reasoning blocks from the old prefix are dropped once so they can't fail
+        Claude's conversation check."""
+        state = dict(sess.context_state or {})
+        key = f"{ctx.root}|{hash(sess.summary)}"
+        if state.get("system") and state.get("key") == key:
+            return state["system"]
+        system = self._system(sess, ctx)
+        if state.get("system"):
+            self._strip_reasoning(sess.id)
+        state.update({"system": system, "key": key})
+        self.store.update_session(sess.id, context_state=state)
+        return system
+
+    def _strip_reasoning(self, session_id: str) -> None:
+        for mid, msg in self.store.messages(session_id):
+            kept = [b for b in msg["content"] if "reasoningContent" not in b]
+            if len(kept) != len(msg["content"]):
+                self.store.replace_content(mid, kept or [{"text": "(reasoning omitted)"}])
+
+    @staticmethod
+    def _drain(ctx: ToolContext) -> Iterator[dict]:
+        events, ctx.events = ctx.events, []
+        yield from events
+
+    def _loop(self, session_id: str) -> Iterator[dict]:
+        sess = self.store.get_session(session_id)
+        ctx = self._ctx(sess)
+        if ctx.root is not None and not ctx.root.is_dir():
+            yield {"type": "error", "message": f"Workspace path does not exist: {ctx.root}"}
+            return
+        mode = modes.get(sess.mode, ctx.root, self.cfg.home)
+        model = self.cfg.models[mode.tier or sess.tier]
+        system = self._session_system(sess, ctx)
+        specs = [t.spec() for t in self.tools.values()]
+        for _ in range(self.cfg.max_steps):
+            final = None
+            partial = ""
+            started = time.monotonic()
+            try:
+                for event in self.llm.stream(model, system, self.store.live_messages(session_id), specs):
+                    if session_id in self._cancelled:
+                        break
+                    if event["type"] == "message":
+                        final = event
+                    else:
+                        if event["type"] == "text":
+                            partial += event["text"]
+                        yield event
+            except BedrockError as exc:
+                yield {"type": "error", "message": str(exc)}
+                yield self.context_usage(session_id)
+                yield {"type": "done"}
+                return
+            if session_id in self._cancelled:
+                self.store.add_message(session_id, "assistant", [{"text": (partial + "\n\n_(stopped)_").strip()}])
+                yield from self._stopped(session_id)
+                return
+            content = final["content"] if final else []
+            if not content:
+                content = [{"text": "(no response)"}]
+            tool_uses = [b["toolUse"] for b in content if "toolUse" in b]
+            invalid = {tu["toolUseId"]: tu.pop("_invalid_input") for tu in tool_uses if "_invalid_input" in tu}
+            self.store.add_message(session_id, "assistant", content)
+            usage = (final or {}).get("usage") or {}
+            if usage:
+                self.store.add_usage(session_id, model, usage)
+            yield {"type": "usage", "model": model, "usage": usage, "seconds": round(time.monotonic() - started, 1)}
+            stop = (final or {}).get("stop_reason")
+            if not tool_uses:
+                if stop == "max_tokens":
+                    yield {"type": "notice", "message": "Reply hit the max token limit (CODEPILOT_MAX_TOKENS)."}
+                yield self.context_usage(session_id)
+                yield {"type": "done"}
+                return
+
+            root_before = ctx.root
+            results, awaiting = [], []
+            for tu in tool_uses:
+                yield {"type": "tool_call", "id": tu["toolUseId"], "name": tu["name"], "input": tu["input"]}
+                tool = self.tools.get(tu["name"])
+                if session_id in self._cancelled:
+                    output, is_error, took = "Cancelled: the user stopped this turn.", True, 0.0
+                elif tu["name"] in mode.blocked:
+                    output, is_error, took = (f"{tu['name']} is disabled in {mode.label} mode. Work within the mode; "
+                                              "the user can switch modes if they want this."), True, 0.0
+                elif tu["toolUseId"] in invalid:
+                    output, is_error, took = ("Tool input was not valid JSON (possibly truncated by the token "
+                                              "limit). Retry with smaller input."), True, 0.0
+                elif tool is None:
+                    output, is_error, took = f"Unknown tool {tu['name']!r}.", True, 0.0
+                elif tool.requires_approval(tu["input"], sess.auto_approve) and not _reopens(tu, ctx.root):
+                    awaiting.append(tu)
+                    continue
+                else:
+                    output, is_error, took = yield from self._exec(ctx, tu)
+                yield from self._drain(ctx)
+                yield self._result_event(tu, output, is_error, took)
+                results.append(_tool_result(tu["toolUseId"], output, is_error))
+            if awaiting:
+                self.store.update_session(session_id, pending={
+                    "results": results, "awaiting": awaiting, "order": [tu["toolUseId"] for tu in tool_uses]})
+                yield {"type": "approval_needed",
+                       "tools": [{"id": tu["toolUseId"], "name": tu["name"], "input": tu["input"],
+                                  "command": self.describe(tu, ctx.root)} for tu in awaiting]}
+                return
+            self.store.add_message(session_id, "user", results)
+            if session_id in self._cancelled:
+                yield from self._stopped(session_id)
+                return
+            if ctx.root != root_before:
+                system = self._session_system(self.store.get_session(session_id), ctx)
+        yield {"type": "notice", "message": f"Stopped after {self.cfg.max_steps} steps (CODEPILOT_MAX_STEPS). "
+                                            "Say 'continue' to keep going."}
+        yield self.context_usage(session_id)
+        yield {"type": "done"}
+
+    def _stopped(self, session_id: str) -> Iterator[dict]:
+        self._cancelled.discard(session_id)
+        yield {"type": "notice", "message": "Stopped."}
+        yield self.context_usage(session_id)
+        yield {"type": "done"}
+
+    def _exec(self, ctx: ToolContext, tu: dict) -> Generator[dict, None, tuple[str, bool, float]]:
+        started = time.monotonic()
+        if tu["name"] == "explore":
+            output, is_error = yield from self._explore(ctx, tu)
+        else:
+            output, is_error = execute(self.tools[tu["name"]], ctx, tu["input"])
+        return output, is_error, time.monotonic() - started
+
+    # -- explore sub-agent ----------------------------------------------------------------------
+
+    def _explore(self, ctx: ToolContext, tu: dict) -> Generator[dict, None, tuple[str, bool]]:
+        """A read-only nested loop on the fast model. Only its final report enters the main conversation."""
+        task = str(tu["input"].get("task", "")).strip()
+        if not task:
+            return "explore needs a task", True
+        if ctx.root is None:
+            return "No workspace is open; call open_workspace first.", True
+        tools = {n: t for n, t in self.tools.items() if t.read_only and not t.needs_approval and t.fn is not None
+                 and n not in ("load_skill",)}
+        specs = [t.spec() for t in tools.values()]
+        model = self.cfg.models["fast"]
+        system = [{"text": prompts.EXPLORE}, {"text": f"Workspace: {ctx.root}", "dynamic": True}]
+        messages: list[dict] = [{"role": "user", "content": [{"text": task}]}]
+        for step in range(EXPLORE_MAX_STEPS):
+            if ctx.session_id in self._cancelled:
+                return "Cancelled: the user stopped this turn.", True
+            if step == EXPLORE_MAX_STEPS - 1:
+                messages[-1]["content"].append({"text": "Step limit reached: write your final report now."})
+            final = None
+            try:
+                for event in self.llm.stream(model, system, messages, specs):
+                    if event["type"] == "message":
+                        final = event
+            except BedrockError as exc:
+                return f"explore failed: {exc}", True
+            content = (final or {}).get("content") or [{"text": "(no response)"}]
+            if final and final.get("usage"):
+                self.store.add_usage(ctx.session_id, model, final["usage"])
+            calls = [b["toolUse"] for b in content if "toolUse" in b]
+            for c in calls:
+                c.pop("_invalid_input", None)
+            messages.append({"role": "assistant", "content": content})
+            if not calls:
+                return "".join(b["text"] for b in content if "text" in b).strip() or "(empty report)", False
+            results = []
+            for c in calls:
+                yield {"type": "sub_tool", "parent": tu["toolUseId"], "name": c["name"],
+                       "detail": arg_summary(c["input"])}
+                tool = tools.get(c["name"])
+                if tool and tool.requires_approval(c["input"], False):
+                    out, err = "This call needs the user's approval, so explore can't make it.", True
+                elif tool:
+                    out, err = execute(tool, ctx, c["input"])
+                else:
+                    out, err = f"Tool {c['name']!r} is not available here.", True
+                results.append(_tool_result(c["toolUseId"], out, err))
+            messages.append({"role": "user", "content": results})
+        return "explore stopped without a report", True
+
+    @staticmethod
+    def _result_event(tu: dict, output: str, is_error: bool, took: float) -> dict:
+        shown = output if len(output) <= UI_OUTPUT_LIMIT else output[:UI_OUTPUT_LIMIT] + "\n[... truncated in UI]"
+        return {"type": "tool_result", "id": tu["toolUseId"], "name": tu["name"], "output": shown,
+                "is_error": is_error, "seconds": round(took, 2)}
+
+    # -- short-term memory: rolling summary ----------------------------------------------------
+
+    def _maybe_compact(self, sess: Session) -> Iterator[dict]:
+        """When the live conversation is large, summarise all but the last few turns into the session summary."""
+        rows = self.store.messages(sess.id)
+        size = sum(len(json.dumps(m["content"], default=str)) for _, m in rows)
+        if size <= self.cfg.context_chars:
+            return
+        turn_starts = [i for i, (_, m) in enumerate(rows) if is_user_turn(m)]
+        if len(turn_starts) <= 1:
+            return
+        cut = turn_starts[-min(KEEP_TURNS, len(turn_starts) - 1)]
+        old = rows[:cut]
+        yield {"type": "notice", "message": f"Compacting memory: summarising {len(old)} earlier messages."}
+        transcript = render_transcript([m for _, m in old])
+        prompt = (f"Existing summary (may be empty):\n{sess.summary}\n\nConversation to fold in:\n{transcript}"
+                  "\n\nWrite the updated summary.")
+        summary = self.llm.complete(self.cfg.models["fast"], prompts.SUMMARIZE, prompt, max_tokens=3000)
+        self.store.update_session(sess.id, summary=summary)
+        self.store.archive_messages(sess.id, [mid for mid, _ in old])
+        sess.summary = summary
+
+
+def _reopens(tu: dict, root: Path | None) -> bool:
+    """open_workspace on the folder that's already open needs no approval (models often call it redundantly)."""
+    if tu["name"] != "open_workspace" or root is None:
+        return False
+    try:
+        return Path(str(tu["input"].get("path", ""))).expanduser().resolve() == root
+    except (OSError, RuntimeError):
+        return False
+
+
+def _git_summary(root: Path | None) -> str:
+    """Branch, short status and recent commits: cheap orientation for reviews and debugging."""
+    if root is None or not (root / ".git").exists():
+        return ""
+    import subprocess
+
+    def run(*args: str) -> str:
+        try:
+            proc = subprocess.run(["git", "--no-pager", "-C", str(root), *args], capture_output=True, text=True,
+                                  timeout=10, errors="replace", check=False)
+        except (OSError, subprocess.SubprocessError):
+            return ""
+        return proc.stdout.strip() if proc.returncode == 0 else ""
+
+    branch = run("rev-parse", "--abbrev-ref", "HEAD")
+    status = run("status", "--short").splitlines()
+    log = run("log", "--oneline", "-5")
+    parts = [f"branch {branch or '?'}"]
+    if status:
+        parts.append(f"uncommitted ({len(status)}): " + ", ".join(line[3:] for line in status[:25])
+                     + (" ..." if len(status) > 25 else ""))
+    else:
+        parts.append("working tree clean")
+    if log:
+        parts.append("recent commits:\n" + log)
+    return "\n".join(parts)
+
+
+def render_transcript(messages: list[dict], limit: int = 120_000) -> str:
+    lines = []
+    for m in messages:
+        for b in m["content"]:
+            if "text" in b:
+                lines.append(f"{m['role'].upper()}: {b['text']}")
+            elif "toolUse" in b:
+                lines.append(f"TOOL CALL {b['toolUse']['name']}: {json.dumps(b['toolUse']['input'])[:400]}")
+            elif "toolResult" in b:
+                body = " ".join(c.get("text", "") for c in b["toolResult"].get("content", []))
+                lines.append(f"TOOL RESULT: {body[:800]}")
+    text = "\n".join(lines)
+    return text if len(text) <= limit else text[-limit:]
+
+
+def _tool_result(tool_use_id: str, output: str, is_error: bool) -> dict:
+    return {"toolResult": {"toolUseId": tool_use_id, "content": [{"text": output or "(empty)"}],
+                           "status": "error" if is_error else "success"}}
+
+
+def _order_results(order: list[str], results: list[dict]) -> list[dict]:
+    by_id = {r["toolResult"]["toolUseId"]: r for r in results}
+    return [by_id[i] for i in order if i in by_id]
+
+
+def history_events(store: Store, session_id: str) -> list[dict]:
+    """Rebuild UI events from stored messages (including archived ones) to redraw a session."""
+    events: list[dict] = []
+    names: dict[str, str] = {}
+    for _, m in store.messages(session_id, include_archived=True):
+        for b in m["content"]:
+            if "text" in b and m["role"] == "user" and b["text"].startswith("<turn_context>"):
+                continue
+            if "text" in b and m["role"] == "user" and b["text"].startswith("<skill name="):
+                events.append({"type": "skill", "name": b["text"].split('"')[1]})
+            elif "text" in b and m["role"] == "user" and b["text"].startswith(mentions.ATTACH_OPEN):
+                events.append({"type": "attached", "paths": mentions.attached_labels(b["text"])})
+            elif "text" in b:
+                kind = "user" if m["role"] == "user" else "assistant"
+                events.append({"type": kind, "text": b["text"]})
+            elif "toolUse" in b:
+                tu = b["toolUse"]
+                names[tu["toolUseId"]] = tu["name"]
+                events.append({"type": "tool_call", "id": tu["toolUseId"], "name": tu["name"], "input": tu["input"]})
+                if tu["name"] == "update_plan" and isinstance(tu["input"].get("items"), list):
+                    events.append({"type": "plan", "items": tu["input"]["items"]})
+            elif "toolResult" in b:
+                tr = b["toolResult"]
+                out = " ".join(c.get("text", "") for c in tr.get("content", []))
+                tu = {"toolUseId": tr["toolUseId"], "name": names.get(tr["toolUseId"], "")}
+                events.append(Agent._result_event(tu, out, tr.get("status") == "error", 0.0))
+    return events

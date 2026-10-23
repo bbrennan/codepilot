@@ -1,0 +1,13 @@
+id = "retry-returns-none"
+title = "Retry helper returns None instead of raising"
+category = "bug-report"
+difficulty = "medium"
+mode = "debug"
+test_cmd = "python3 -m pytest -q"
+grade_cmd = "python -m pytest -q -p no:cacheprovider tests_hidden tests"
+prompt = """
+When the inventory service is down, fetch_inventory() returns None and callers crash much later with
+"TypeError: 'NoneType' object is not iterable". After the last failed attempt, call_with_retry should
+raise the error. It also seems to sleep once more after the final attempt, which wastes time.
+Non-transient errors must not be retried. Fix net/retry.py.
+"""

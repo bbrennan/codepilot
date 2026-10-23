@@ -1,0 +1,12 @@
+id = "email-validation"
+title = "Email validator accepts invalid addresses"
+category = "failing-test"
+difficulty = "easy"
+mode = "debug"
+test_cmd = "python3 -m pytest -q"
+grade_cmd = "python -m pytest -q -p no:cacheprovider tests_hidden tests"
+prompt = """
+tests/test_validate.py is failing: our sign-up form accepts addresses like "a@b" and
+"user@example.com " (trailing space). Make is_valid_email reject malformed addresses while still
+accepting normal ones such as "user.name+tag@sub.example.org". Keep it a simple, readable check.
+"""

@@ -1,0 +1,10 @@
+id = "csv-export-feature"
+title = "Implement CSV export"
+category = "feature"
+difficulty = "medium"
+mode = "build"
+test_cmd = "python3 -m pytest -q"
+grade_cmd = "python -m pytest -q -p no:cacheprovider tests_hidden tests"
+prompt = """
+Implement export_csv in reports/export.py as described in its docstring, and add tests for it.
+"""

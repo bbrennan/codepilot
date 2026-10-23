@@ -1,0 +1,12 @@
+id = "path-traversal"
+title = "Static file reader allows path traversal"
+category = "security"
+difficulty = "medium"
+mode = "debug"
+test_cmd = "python3 -m pytest -q"
+grade_cmd = "python -m pytest -q -p no:cacheprovider tests_hidden tests"
+prompt = """
+A security review flagged files/serve.py: read_public_file("../secrets.txt") returns the secrets file.
+Fix it so only files inside the public/ folder can be read (raise PermissionError for anything else),
+without breaking normal nested paths like "img/logo.txt".
+"""

@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Codepilot</title>
+<meta name="codepilot-token" content="__CODEPILOT_TOKEN__">
+<link rel="stylesheet" href="/static/vendor/xterm.css">
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/vendor/highlight.min.js"></script>
+<script src="/static/vendor/xterm.js"></script>
+<script src="/static/vendor/addon-fit.js"></script>
+</head>
+<body>
+<div class="ide" id="ide">
+  <!-- Title bar -->
+  <header class="titlebar">
+    <div class="brand"><span class="logo" data-icon="logo"></span>codepilot</div>
+    <button class="workspace-btn" id="workspaceBtn" title="Open folder"><span data-icon="folder"></span><span id="workspaceName">No folder</span></button>
+    <button class="palette-btn" id="paletteBtn" title="Go to file (⌘P)"><span data-icon="search"></span><span>Search files</span><kbd>⌘P</kbd></button>
+    <div class="spacer"></div>
+    <button class="icon-btn" id="toggleSidebar" title="Toggle sidebar (⌘B)" data-icon="sidebar"></button>
+    <button class="icon-btn" id="togglePanel" title="Toggle panel (⌘J)" data-icon="panel"></button>
+    <button class="icon-btn" id="toggleChat" title="Toggle chat (⌘L)" data-icon="chat"></button>
+    <button class="icon-btn" id="themeBtn" title="Toggle theme" data-icon="theme"></button>
+  </header>
+
+  <!-- Activity bar -->
+  <nav class="activitybar" id="activitybar">
+    <button data-view="sessions" title="Sessions" data-icon="history"></button>
+    <button data-view="explorer" title="Explorer" data-icon="files"></button>
+    <button data-view="search" title="Search" data-icon="search"></button>
+    <button data-view="traces" title="Traces" data-icon="pulse"></button>
+    <button data-view="changes" title="Changes" data-icon="branch"><span class="badge" id="changesBadge" hidden></span></button>
+    <button data-view="memory" title="Memory &amp; context" data-icon="brain"></button>
+  </nav>
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <section class="view" data-view="sessions">
+      <div class="view-head"><span>Sessions</span><div class="actions"><button class="icon-btn sm" id="newSessionBtn" title="New session" data-icon="plus"></button></div></div>
+      <div class="view-body" id="sessionList"></div>
+    </section>
+    <section class="view" data-view="explorer">
+      <div class="view-head"><span id="explorerTitle">Explorer</span><div class="actions">
+        <button class="icon-btn sm" id="openFolderBtn" title="Open folder" data-icon="folderOpen"></button>
+        <button class="icon-btn sm" id="refreshTreeBtn" title="Refresh" data-icon="refresh"></button>
+        <button class="icon-btn sm" id="collapseTreeBtn" title="Collapse all" data-icon="collapse"></button>
+      </div></div>
+      <div class="view-body tree" id="tree"></div>
+    </section>
+    <section class="view" data-view="search">
+      <div class="view-head"><span>Search</span></div>
+      <div class="view-body pad">
+        <input class="field" id="grepInput" placeholder="Search text or regex" spellcheck="false">
+        <input class="field" id="grepGlob" placeholder="files to include, e.g. *.py" spellcheck="false">
+        <div class="hint" id="grepStatus"></div>
+        <div id="grepResults"></div>
+      </div>
+    </section>
+    <section class="view" data-view="traces">
+      <div class="view-head"><span>Traces &amp; logs</span><div class="actions"><button class="icon-btn sm" id="refreshTracesBtn" title="Refresh" data-icon="refresh"></button></div></div>
+      <div class="view-body pad">
+        <input class="field" id="traceFilter" placeholder="Filter files" spellcheck="false">
+        <div class="hint" id="traceRoots"></div>
+        <div id="traceList"></div>
+      </div>
+    </section>
+    <section class="view" data-view="changes">
+      <div class="view-head"><span>Changes</span><div class="actions"><button class="icon-btn sm" id="refreshGitBtn" title="Refresh" data-icon="refresh"></button></div></div>
+      <div class="view-body">
+        <div class="group-head">Proposed by codepilot</div><div id="proposalList"></div>
+        <div class="group-head">Working tree <span class="muted" id="gitBranch"></span></div><div id="gitList"></div>
+      </div>
+    </section>
+    <section class="view" data-view="memory">
+      <div class="view-head"><span>Memory &amp; context</span></div>
+      <div class="view-body pad" id="memoryView"></div>
+    </section>
+  </aside>
+  <div class="resizer v" id="sidebarResizer"></div>
+
+  <!-- Editor + bottom panel -->
+  <main class="center">
+    <div class="tabs" id="editorTabs"></div>
+    <div class="editor" id="editor"></div>
+    <div class="resizer h" id="panelResizer"></div>
+    <section class="panel" id="panel">
+      <div class="panel-tabs">
+        <button data-ptab="activity" class="on">Activity <span class="count" id="actCount">0</span></button>
+        <button data-ptab="output">Output</button>
+        <button data-ptab="terminal" id="terminalTabBtn">Terminal</button>
+        <div class="spacer"></div>
+        <button class="icon-btn sm" id="clearActivity" title="Clear" data-icon="trash"></button>
+        <button class="icon-btn sm" id="closePanel" title="Close panel" data-icon="x"></button>
+      </div>
+      <div class="panel-body" data-ptab="activity" id="activity"></div>
+      <div class="panel-body" data-ptab="output" hidden>
+        <div class="run-bar">
+          <button class="btn" id="runTestsBtn"><span data-icon="play"></span>Run tests</button>
+          <button class="btn" id="runChecksBtn" title="Linters, type checkers, security scanners"><span data-icon="check"></span>Run checks</button>
+          <input class="field mono" id="testArgs" placeholder="args, e.g. tests/test_x.py -k name" spellcheck="false">
+          <span class="sep"></span>
+          <input class="field mono grow" id="cmdInput" placeholder="$ any command in the workspace" spellcheck="false">
+          <button class="btn" id="runCmdBtn">Run</button>
+        </div>
+        <div id="output" class="output"></div>
+      </div>
+      <div class="panel-body term-body" data-ptab="terminal" hidden>
+        <div class="term-bar">
+          <span class="muted" id="termStatus">Not started</span>
+          <button class="btn" id="termSendSel" title="Paste the selected terminal text into the chat">Selection → chat</button>
+          <button class="btn" id="termNew" title="Close this shell and start a new one in the session's folder">New terminal</button>
+        </div>
+        <div class="term-host" id="termHost"></div>
+      </div>
+    </section>
+  </main>
+  <div class="resizer v" id="chatResizer"></div>
+
+  <!-- Chat -->
+  <aside class="chat" id="chat">
+    <div class="chat-head">
+      <div class="chat-title" id="chatTitle">New session</div>
+      <select class="field sm mode-select" id="modeSelect" title="Mode: a focused agent profile"></select>
+      <select class="field sm" id="tier" title="Model tier"></select>
+      <button class="icon-btn sm" id="newChatBtn" title="New session" data-icon="plus"></button>
+    </div>
+    <div class="transcript" id="transcript"></div>
+    <div class="composer">
+      <div class="plan" id="plan" hidden></div>
+      <div class="mention-pop" id="mentionPop" hidden></div>
+      <div class="composer-box" id="composerBox">
+        <textarea id="input" rows="1" placeholder="Ask codepilot…  @ files · / skills"></textarea>
+        <div class="composer-row">
+          <button class="chip-btn" id="atBtn" title="Reference a file" data-icon="at"></button>
+          <label class="toggle" title="Run tests without asking each time"><input type="checkbox" id="autoApprove"><span>auto-run tests</span></label>
+          <div class="spacer"></div>
+          <button class="send" id="sendBtn" title="Send (Enter)" data-icon="send"></button>
+          <button class="send stop" id="stopBtn" title="Stop" data-icon="stop" hidden></button>
+        </div>
+      </div>
+      <div class="quick" id="quick"></div>
+    </div>
+  </aside>
+
+  <!-- Status bar -->
+  <footer class="statusbar">
+    <span class="sb-item" id="sbProvider"></span>
+    <span class="sb-item" id="sbBranch"></span>
+    <span class="sb-item" id="sbTest"></span>
+    <span class="sb-item" id="sbGithub"></span>
+    <div class="spacer"></div>
+    <span class="sb-item" id="sbBusy"></span>
+    <span class="sb-item" id="sbContext" title="How full this session's working memory is. Older turns are summarised automatically when it fills."><span class="meter"><i id="ctxBar"></i></span><span id="ctxText">context 0%</span></span>
+    <span class="sb-item" id="sbTokens">0 tokens</span>
+  </footer>
+</div>
+
+<!-- Command palette -->
+<div class="palette" id="palette" hidden>
+  <div class="palette-box">
+    <input id="paletteInput" placeholder="Go to file…" spellcheck="false">
+    <div id="paletteList"></div>
+  </div>
+</div>
+
+<!-- Prompt dialog -->
+<div class="palette" id="dialog" hidden>
+  <div class="palette-box dialog">
+    <div class="dialog-title" id="dialogTitle"></div>
+    <input id="dialogInput" spellcheck="false">
+    <div class="dialog-hint" id="dialogHint"></div>
+    <div class="dialog-actions"><button class="btn" id="dialogCancel">Cancel</button><button class="btn primary" id="dialogOk">OK</button></div>
+  </div>
+</div>
+
+<!-- Open folder -->
+<div class="palette" id="folderDialog" hidden>
+  <div class="palette-box folder-box">
+    <div class="fd-head"><b>Open folder</b><span class="spacer"></span><label class="toggle"><input type="checkbox" id="fdHidden"><span>show hidden</span></label><button class="icon-btn sm" id="fdClose" title="Close" data-icon="x"></button></div>
+    <div class="fd-path"><button class="icon-btn sm" id="fdUp" title="Up one level" data-icon="up"></button><input id="fdInput" spellcheck="false" title="Type or paste a path and press Enter"></div>
+    <div class="fd-body"><div class="fd-places" id="fdPlaces"></div><div class="fd-list" id="fdList"></div></div>
+    <div class="fd-foot"><span class="hint" id="fdHint"></span><span class="spacer"></span><button class="btn" id="fdCancel">Cancel</button><button class="btn primary" id="fdOpen">Open</button></div>
+  </div>
+</div>
+<div class="ctx-menu" id="ctxMenu" hidden></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

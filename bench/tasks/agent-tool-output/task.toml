@@ -1,0 +1,12 @@
+id = "agent-tool-output"
+title = "Agent miscounts search results (trace triage)"
+category = "trace-triage"
+difficulty = "medium"
+mode = "debug"
+test_cmd = "python3 -m pytest -q"
+grade_cmd = "python -m pytest -q -p no:cacheprovider tests_hidden tests"
+prompt = """
+The mock journey "red-shoes" fails: the agent answers "Found 105 products." when it should list the two
+red shoes. The run's trace is in traces/red-shoes.json. Work out what went wrong from the trace and the
+code, and fix it so the agent answers correctly.
+"""

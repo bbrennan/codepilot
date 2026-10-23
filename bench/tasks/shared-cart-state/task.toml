@@ -1,0 +1,11 @@
+id = "shared-cart-state"
+title = "New carts contain other customers' items"
+category = "bug-report"
+difficulty = "medium"
+mode = "debug"
+test_cmd = "python3 -m pytest -q"
+grade_cmd = "python -m pytest -q -p no:cacheprovider tests_hidden tests"
+prompt = """
+Production incident: customers opening a brand-new cart sometimes see items another customer added.
+The Cart class is in shop/cart.py. Find the root cause and fix it.
+"""

@@ -1,0 +1,38 @@
+[project]
+name = "codepilot"
+version = "0.1.0"
+description = "A local, IDE-style coding assistant for any folder: Claude on Bedrock or the Anthropic API, OpenAI, or Ollama"
+license = "MIT"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
+requires-python = ">=3.11"
+dependencies = [
+    "boto3>=1.37",
+    "starlette>=0.37",
+    "uvicorn>=0.30",
+    "truststore>=0.9",
+    "websockets>=13",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "httpx2"]
+anthropic = ["anthropic>=2.1,<3"]
+openai = ["openai>=3.37,<4"]
+
+[project.scripts]
+codepilot = "codepilot.cli:main"
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["codepilot*"]
+
+[tool.setuptools.package-data]
+codepilot = ["static/*", "static/vendor/*", "skills_bundled/*/SKILL.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120

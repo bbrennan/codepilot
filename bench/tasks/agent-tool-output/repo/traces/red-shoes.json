@@ -1,0 +1,37 @@
+{
+ "journey": "red-shoes",
+ "traceId": "7f3c2a9e",
+ "spans": [
+  {
+   "traceId": "7f3c2a9e",
+   "spanId": "1",
+   "name": "invoke_agent",
+   "startTimeUnixNano": 1700000000000000000,
+   "endTimeUnixNano": 1700000000900000000,
+   "status": {
+    "code": "ERROR",
+    "message": "journey check failed"
+   },
+   "attributes": {
+    "user_message": "find red shoes",
+    "answer": "Found 105 products.",
+    "expected": "Found 2 products: red running shoes, red leather shoes."
+   }
+  },
+  {
+   "traceId": "7f3c2a9e",
+   "spanId": "2",
+   "parentSpanId": "1",
+   "name": "tool.search_products",
+   "startTimeUnixNano": 1700000000100000000,
+   "endTimeUnixNano": 1700000000300000000,
+   "status": {
+    "code": "OK"
+   },
+   "attributes": {
+    "query": "red shoes",
+    "result": "[{\"sku\": \"SH-1\", \"name\": \"red running shoes\"}, {\"sku\": \"SH-2\", \"name\": \"red leather shoes\"}]"
+   }
+  }
+ ]
+}

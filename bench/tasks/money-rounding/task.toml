@@ -1,0 +1,12 @@
+id = "money-rounding"
+title = "Invoice totals are a cent off"
+category = "failing-test"
+difficulty = "medium"
+mode = "debug"
+test_cmd = "python3 -m pytest -q"
+grade_cmd = "python -m pytest -q -p no:cacheprovider tests_hidden tests"
+prompt = """
+Finance found invoices that are a cent off: a $2.675 line should round to $2.68 but we print $2.67.
+Money must be computed with decimal.Decimal and rounded half-up to cents, for line totals and invoice
+totals. tests/test_invoice.py describes the expected behaviour. Fix billing/invoice.py.
+"""

@@ -1,0 +1,13 @@
+id = "page-size-config"
+title = "API ignores the configured default page size"
+category = "bug-report"
+difficulty = "medium"
+mode = "debug"
+test_cmd = "python3 -m pytest -q"
+grade_cmd = "python -m pytest -q -p no:cacheprovider tests_hidden tests"
+prompt = """
+The products API returns 100 items per page when no page_size is given; the docs (and settings) say the
+default is 20. Also, page_size=500 returns 500 items even though the maximum is 100, and page_size=0 is
+accepted. Requested sizes above the maximum should be capped at the maximum, and sizes below 1 should
+raise ValueError. Fix it.
+"""

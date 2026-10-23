@@ -1,0 +1,18 @@
+id = "token-expiry-timezones"
+title = "Token expiry check crashes on timezone-aware timestamps"
+category = "bug-report"
+difficulty = "medium"
+mode = "debug"
+test_cmd = "python3 -m pytest -q"
+grade_cmd = "python -m pytest -q -p no:cacheprovider tests_hidden tests"
+prompt = """
+Our auth service started crashing after the identity provider began sending expiry times with a
+timezone, e.g. "2030-01-01T00:00:00+00:00" or "2030-01-01T00:00:00Z":
+
+    File "auth/tokens.py", line 9, in is_expired
+        return now > expires
+    TypeError: can't compare offset-naive and offset-aware datetimes
+
+Fix is_expired so it works for timestamps with or without a timezone. Timestamps without a timezone
+are UTC. Callers may pass `now`, which may be naive (UTC) or aware.
+"""

@@ -1,0 +1,11 @@
+id = "case-insensitive-sort"
+title = "A-Z sort is case-sensitive"
+category = "bug-report"
+difficulty = "easy"
+mode = "debug"
+test_cmd = "python3 -m pytest -q"
+grade_cmd = "python -m pytest -q -p no:cacheprovider tests_hidden tests"
+prompt = """
+The catalog's A-Z sort puts "apple juice" after "Zebra cake". Sorting should ignore case, and products
+with the same name (ignoring case) should be ordered by SKU. Fix catalog/sorting.py.
+"""
