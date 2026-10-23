@@ -46,8 +46,10 @@ assistant's replies in them are scripted so the demo is reproducible.</sub>
 ## What it does
 
 - **Works like an IDE:** file explorer, tabs with syntax highlighting, search, a ⌘P file palette, git
-  changes, an integrated terminal, and chat docked on the right. Reference code with `@file` or `@file:10-40`, drag files in, or
-  select lines and **Add to chat**.
+  changes, terminals (as many as you like, and they survive page reloads), and chat docked on the right.
+  Reference code with `@file` or `@file:10-40`, drag files in, or select lines and **Add to chat**.
+- **Runs like an app:** `make start` runs it in the background in its own window, and on macOS `make app`
+  installs a **Codepilot.app** for the Dock. No terminal to keep open.
 - **Safe by default:** it reads freely, but every edit is a diff you **Apply** (and can **Undo**), and every
   shell command needs your approval. It never commits or pushes.
 - **Focused modes:** Ask, Plan, Build, Debug, Bug-hunt and Review, each a focused agent. Add your own.

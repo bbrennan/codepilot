@@ -159,8 +159,10 @@ Not every model is enabled for every account. Find out what yours can use:
 uv run codepilot models --refresh
 ```
 
-It probes each candidate with a tiny request (a few tokens each), including the Claude 5.x IDs and every
-Converse inference profile in your region. It prints which are enabled and why others aren't (for example
+It probes each candidate with a tiny request (a few tokens each): the Claude 5.x IDs, plus the Claude 4+
+Converse inference profiles for your region's geography (`us.` for `us-*` regions, `eu.`, `apac.`) and
+`global.`. Older models and other geographies are skipped to keep it quick, but any model you configure for
+a tier is always checked. It prints which are enabled and why others aren't (for example
 "pending onboarding"), and the result is cached for 12 hours. If a tier's model isn't enabled, codepilot
 automatically uses the best enabled model in the same family (Haiku 5.5 pending → Haiku 4.5) and says so.
 The UI's model dropdown lists every enabled model, so you can pick any of them per session. You can also

@@ -34,11 +34,15 @@
 - **Editor:** opens files (with syntax highlighting), trace timelines and diffs as tabs.
 - **Chat (right):** the conversation, with every tool call shown as a card you can expand.
 - **Bottom panel:** **Activity** lists every model call and tool call with timings and tokens. **Output**
-  runs tests, analyser checks or any command yourself. **Terminal** is a real shell in the workspace.
+  runs tests, analyser checks or any command yourself. **Terminal** holds your shells (see
+  [the terminal](#the-terminal)).
+- **Title bar:** the open folder, file search (⌘P), the **Terminal** menu, and buttons to show or hide the
+  sidebar, bottom panel and chat, and to switch theme.
 - **Status bar:** provider and region, git branch, detected test command, GitHub login, how full the
   session's memory is, and tokens used.
 
-All panes resize by dragging their edges; the layout and theme are remembered per browser.
+All panes resize by dragging their edges. The layout (sizes, hidden panes, the open sidebar view and
+bottom-panel tab) and the theme are remembered per browser.
 
 ## Start working on a folder
 
