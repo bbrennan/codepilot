@@ -35,6 +35,7 @@ from .config import TIER_CHOICES, TIERS, Config
 from .store import Store
 from .tools import (
     SKIP_DIRS,
+    retire_stale_proposals,
     ToolContext,
     ToolError,
     _locate_trace,
@@ -241,6 +242,8 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                 store.update_session(sid, **fields)
             sess = store.get_session(sid)
         root = Path(sess.repo).expanduser().resolve() if sess.repo else None
+        if root is not None and root.is_dir():
+            await run_in_threadpool(retire_stale_proposals, store, sid, root)
         return JSONResponse({
             "session": sess.public(),
             "summary": sess.summary,
@@ -404,7 +407,9 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             return err(str(exc), 409)
         found = await run_in_threadpool(checks.quick_check, root, prop.path)
         store.record_applied(pid, before, after, found)
-        return JSONResponse({**_proposal_json(store.get_proposal(pid), root), "checks": found})
+        retired = retire_stale_proposals(store, prop.session_id, root)  # e.g. an older version of this change
+        return JSONResponse({**_proposal_json(store.get_proposal(pid), root), "checks": found,
+                             "outdated": [_proposal_json(store.get_proposal(i), root) for i in retired]})
 
     async def usage(request: Request) -> Response:
         return JSONResponse(store.usage(request.path_params["sid"]))
@@ -510,7 +515,9 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         ctx = ctx_for(request.path_params["sid"])
         data = await request.json()
         try:
-            return JSONResponse(await run_in_threadpool(file_op, ctx, data))
+            result = await run_in_threadpool(file_op, ctx, data)
+            await run_in_threadpool(retire_stale_proposals, store, ctx.session_id, ctx.root)
+            return JSONResponse(result)
         except FileOpError as exc:
             return err(str(exc), exc.status)
         except ToolError as exc:

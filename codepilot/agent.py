@@ -125,7 +125,12 @@ class Agent:
         if not target or target["role"] != "user" or not target["content"] or "text" not in target["content"][0]:
             yield {"type": "error", "message": "Only a message that started a turn can be edited or retried."}
             return
+        since = self.store.message_created(mid)
         self.store.delete_messages_from(session_id, mid)
+        if since is not None:
+            discarded = self.store.discard_pending_since(session_id, since)
+            if discarded:
+                yield {"type": "proposals_changed", "ids": discarded}
         state = dict(self.store.get_session(session_id).context_state or {})
         state["steering_loaded"] = []
         self.store.update_session(session_id, pending=None, context_state=state)
@@ -309,7 +314,10 @@ class Agent:
             lines.append(specs.turn_text(root, spec))
         outcomes = self.store.take_unreported_outcomes(sess.id)
         for p in outcomes:
-            note = f"Proposal #{p.id} ({p.path}) was {p.status} by the user."
+            note = {"outdated": f"Proposal #{p.id} ({p.path}) is outdated: the file changed, so it can no longer be "
+                                "applied. Propose it again against the current file if it's still needed.",
+                    "superseded": f"Proposal #{p.id} ({p.path}) was replaced by your newer proposal for the same "
+                                  "lines."}.get(p.status, f"Proposal #{p.id} ({p.path}) was {p.status} by the user.")
             if p.status == "applied" and p.check_text:
                 note += f" Automatic checks on the file found:\n{p.check_text}"
             lines.append(note)
@@ -919,4 +927,7 @@ def history_events(store: Store, session_id: str) -> list[dict]:
                 if pics:
                     event["images"] = pics
                 events.append(event)
+                ref = re.match(r"(?:Proposed|Applied) change #(\d+)", out) if tu["name"] == "propose_edit" else None
+                if ref:  # redraw the change where it was proposed, with its current status
+                    events.append({"type": "proposal_ref", "id": int(ref.group(1))})
     return events

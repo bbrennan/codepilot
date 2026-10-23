@@ -497,6 +497,10 @@ def propose_edit(ctx: ToolContext, path: str, old_text: str, new_text: str, reas
             raise ToolError(f"{path!r} does not exist; to create it pass old_text as an empty string")
         content, after = "", new_text
     rel = ctx.rel(target)
+    for older in ctx.store.list_proposals(ctx.session_id):  # a new version of the same change replaces it
+        if older.status == "pending" and older.path == rel and older.old_text == old_text:
+            ctx.store.set_proposal_status(older.id, "superseded")
+            ctx.events.append({"type": "proposal", "proposal": proposal_view(ctx.store.get_proposal(older.id), "")})
     proposal = ctx.store.add_proposal(ctx.session_id, rel, old_text, new_text, reason)
     diff = unified_diff(rel, content, after)
     if ctx.cfg.auto_apply_edits or ctx.auto_apply:
@@ -655,6 +659,30 @@ def apply_proposal(root: Path, proposal) -> tuple[str | None, str]:
     after = content.replace(proposal.old_text, proposal.new_text, 1)
     target.write_text(after)
     return content, after
+
+
+def can_apply(root: Path, proposal) -> bool:
+    """Whether a pending proposal still applies cleanly to the file as it is now."""
+    target = (root / proposal.path).resolve()
+    if target != root and root not in target.parents:
+        return False
+    if proposal.old_text == "":
+        return not target.exists()
+    try:
+        return target.read_text(errors="replace").count(proposal.old_text) == 1
+    except OSError:
+        return False
+
+
+def retire_stale_proposals(store: Store, sid: str, root: Path | None) -> list[int]:
+    """Pending proposals that can no longer apply (their file changed: a newer version was applied, the user
+    edited it, ...) become "outdated", so they stop waiting for review. Returns their ids."""
+    if root is None:
+        return []
+    stale = [p.id for p in store.list_proposals(sid) if p.status == "pending" and not can_apply(root, p)]
+    for pid in stale:
+        store.set_proposal_status(pid, "outdated")
+    return stale
 
 
 def revert_proposal(root: Path, proposal) -> None:

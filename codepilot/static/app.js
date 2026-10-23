@@ -242,7 +242,8 @@ async function openSession(sid) {
   state.workspace = data.session.repo || "";
   if (!data.events.length) renderChatEmpty();
   for (const ev of data.events) render(ev, true);
-  for (const p of data.proposals) if (p.status === "pending") renderProposalCard(p);
+  // Changes are redrawn where they were proposed (proposal_ref); anything still waiting that wasn't goes last.
+  for (const p of data.proposals) if (p.status === "pending" && !$(`#transcript [data-prop="${p.id}"]`)) renderProposalCard(p);
   state.approval = null; state.allow = data.allow || [];
   if (data.pending) render({ type: "approval_needed", tools: data.pending }, true);
   renderReviewBar();
@@ -633,6 +634,7 @@ function decideApproval(approve) {
 async function proposalAction(p, action) {
   try {
     const r = await api(`/api/proposals/${p.id}/${action}`, { method: "POST" }); state.proposals.set(r.id, r);
+    for (const o of r.outdated || []) { state.proposals.set(o.id, o); refreshProposalViews(o.id); }
     if (action === "apply" && r.checks) activity("error", "checks", r.path, r.checks);
     return true;
   } catch (err) { toast(`#${p.id} ${p.path}: ${err.message}`, true); if (action === "apply") p.status = "failed"; return false; }
@@ -775,6 +777,7 @@ document.addEventListener("click", async (e) => {
   const action = ap.dataset.apply ? "apply" : ap.dataset.reject ? "reject" : "revert";
   try {
     const p = await api(`/api/proposals/${id}/${action}`, { method: "POST" }); state.proposals.set(p.id, p);
+    for (const o of p.outdated || []) { state.proposals.set(o.id, o); refreshProposalViews(o.id); } // older versions of it
     toast({ apply: `Applied #${p.id} to ${p.path}`, reject: `Rejected #${p.id}`, revert: `Undid #${p.id}; ${p.path} restored` }[action]);
     if (action === "apply" && p.checks) { toast(`Checks found issues in ${p.path}; codepilot will see them next turn`, true); activity("error", "checks", p.path, p.checks); }
   } catch (err) { toast(err.message, true); if (action === "apply") { const p = state.proposals.get(+id); if (p) p.status = "failed"; } }
@@ -787,7 +790,7 @@ function refreshProposalViews(id) {
   setTimeout(maybeResumeAfterReview, 0);
   if (state.tabs.some((t) => t.id === "review") && state.active === "review") renderEditor();
   const p = state.proposals.get(id); if (!p) return;
-  $$(`[data-prop="${id}"]`).forEach((card) => { const s = $(".status", card); s.className = "status " + p.status; s.textContent = p.status; const a = $(".pacts", card); if (a) a.innerHTML = propActions(p); });
+  $$(`[data-prop="${id}"]`).forEach((card) => { const s = $(".status", card); s.className = "status " + p.status; s.textContent = p.status; s.title = STATUS_TIPS[p.status] || ""; const a = $(".pacts", card); if (a) a.innerHTML = propActions(p); });
   renderProposalList(); if (state.active === "diff:" + id) renderEditor();
 }
 
@@ -1045,7 +1048,16 @@ function render(ev, replay) {
       subs.insertAdjacentHTML("beforeend", `<div>↳ ${esc(ev.name)} ${esc(ev.detail)}</div>`); subs.scrollTop = subs.scrollHeight;
       if (!replay) activity("explore", ev.name, ev.detail); break;
     }
-    case "proposal": endText(); state.proposals.set(ev.proposal.id, ev.proposal); renderProposalCard(ev.proposal); renderProposalList(); renderReviewBar(); break;
+    case "proposal": {
+      endText();
+      const known = state.proposals.get(ev.proposal.id);
+      state.proposals.set(ev.proposal.id, { ...known, ...ev.proposal, diff: ev.proposal.diff || known?.diff || "" });
+      if ($(`#transcript [data-prop="${ev.proposal.id}"]`)) refreshProposalViews(ev.proposal.id); // e.g. superseded
+      else { renderProposalCard(state.proposals.get(ev.proposal.id)); renderProposalList(); renderReviewBar(); }
+      break;
+    }
+    case "proposal_ref": { const p = state.proposals.get(ev.id); if (p && !$(`#transcript [data-prop="${p.id}"]`)) renderProposalCard(p); break; }
+    case "proposals_changed": for (const id of ev.ids) { const p = state.proposals.get(id); if (p) { p.status = "discarded"; refreshProposalViews(id); } } break;
     case "approval_needed": {
       endText();
       $$("#transcript .wait-row.waiting").forEach((w) => w.remove());
@@ -1073,6 +1085,11 @@ function propActions(p) {
   if (p.status === "applied") return `<button class="btn" data-revert="${p.id}" title="Restore the file as it was before this change">${icon("history")}Undo</button>`;
   return "";
 }
+const STATUS_TIPS = {
+  pending: "Waiting for your review", applied: "Written to the file (Undo restores it)", rejected: "You rejected it",
+  outdated: "The file changed since this was proposed, so it can no longer be applied", superseded: "Replaced by a newer proposal for the same lines",
+  discarded: "Dropped when the conversation was rewound", reverted: "Undone", failed: "Couldn't be applied",
+};
 function diffStat(diff) {
   let a = 0, d = 0;
   for (const l of (diff || "").split("\n")) { if (l.startsWith("+") && !l.startsWith("+++")) a++; else if (l.startsWith("-") && !l.startsWith("---")) d++; }
@@ -1080,7 +1097,7 @@ function diffStat(diff) {
 }
 function renderProposalCard(p) {
   // Compact in the chat: one line with its status; the diff is a click away, and review happens in the bar/tab.
-  return add(`<details class="card prop" data-prop="${p.id}"><summary class="hd">${icon("edit")}<span class="path" data-prop-open="${p.id}" title="Open in Review">${esc(p.path)}</span>${diffStat(p.diff).html}<span class="muted">#${p.id}</span><span class="status ${p.status}">${p.status}</span><span class="spacer"></span>
+  return add(`<details class="card prop" data-prop="${p.id}"><summary class="hd">${icon("edit")}<span class="path" data-prop-open="${p.id}" title="Open in Review">${esc(p.path)}</span>${diffStat(p.diff).html}<span class="muted">#${p.id}</span><span class="status ${p.status}" title="${esc(STATUS_TIPS[p.status] || "")}">${p.status}</span><span class="spacer"></span>
     <span class="pacts">${propActions(p)}</span></summary>
     ${p.reason ? `<div class="reason">${esc(p.reason)}</div>` : ""}${diffHtml(p.diff)}</details>`);
 }

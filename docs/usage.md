@@ -170,6 +170,15 @@ one is also a single line in the chat; click it to see its diff.
 - **Reject** discards it. The assistant is told on your next message.
 - **Undo** (on applied changes) restores the file exactly, as long as it hasn't changed since.
 
+Changes only wait while they can still be applied. One that can't be applied any more stops waiting, and
+the assistant is told:
+- **outdated:** its file changed, for example you applied a newer version or edited the file yourself;
+- **superseded:** the assistant proposed a new version of the same lines;
+- **discarded:** you edited or retried an earlier message, so the turn that proposed it is gone.
+
+After a restart, every change appears where it was proposed, with its current status. Only changes still
+waiting show in the review bar.
+
 Prefer speed? `CODEPILOT_AUTO_APPLY=1` writes changes immediately; every one can still be undone.
 
 codepilot **never commits, pushes or changes branches**. Use git yourself; the **Changes** view shows the

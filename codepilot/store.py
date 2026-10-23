@@ -318,6 +318,21 @@ class Store:
         with self._lock, self._db:
             self._db.execute("UPDATE proposals SET status = ?, reported = 0 WHERE id = ?", (status, pid))
 
+    def message_created(self, mid: int) -> float | None:
+        with self._lock:
+            row = self._db.execute("SELECT created FROM messages WHERE id = ?", (mid,)).fetchone()
+        return row["created"] if row else None
+
+    def discard_pending_since(self, sid: str, since: float) -> list[int]:
+        """Pending proposals made at or after `since` (the conversation was rewound past them)."""
+        with self._lock, self._db:
+            rows = self._db.execute("SELECT id FROM proposals WHERE session_id = ? AND status = 'pending' "
+                                    "AND created >= ?", (sid, since)).fetchall()
+            ids = [r["id"] for r in rows]
+            self._db.executemany("UPDATE proposals SET status = 'discarded', reported = 1 WHERE id = ?",
+                                 [(i,) for i in ids])
+        return ids
+
     def record_applied(self, pid: int, before: str | None, after: str, check: str = "") -> None:
         """Mark applied, keep before/after text for undo, and any post-apply check findings."""
         with self._lock, self._db:

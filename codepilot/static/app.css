@@ -583,3 +583,5 @@ details.card.prop[open] > summary { border-bottom: 1px solid var(--line); }
 .img-row { display: flex; gap: 6px; flex-wrap: wrap; margin: -6px 0 12px; }
 .img-row img { max-width: 220px; max-height: 160px; border-radius: 6px; border: 1px solid var(--line-2); display: block; background: var(--bg-3); }
 .tool .img-row { margin: 6px 10px 10px; }
+.status.outdated, .status.superseded, .status.discarded, .status.reverted { color: var(--muted); border-color: var(--line-2); }
+details.card.prop:has(.status.outdated), details.card.prop:has(.status.superseded), details.card.prop:has(.status.discarded) { opacity: .65; }

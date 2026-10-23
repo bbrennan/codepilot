@@ -101,3 +101,42 @@ def test_pending_approval_survives_a_reload(page, server, session):
     page.locator("#reviewBar .rb-approval").wait_for()
     page.reload()
     page.locator("#reviewBar .rb-approval", has_text="ls").wait_for()
+
+
+def test_applied_changes_stay_closed_after_a_restart(page, server, session):
+    from conftest import LiveServer, ScriptedLLM
+
+    from codepilot.agent import Agent
+    from codepilot.server import create_app
+    from codepilot.store import Store
+
+    open_app(page)
+    send(page, "fix two things")
+    page.locator("#rbApplyAll").click()
+    page.wait_for_function("() => document.querySelector('#reviewBar').hidden")
+    wait_idle(page)
+    server.stop()  # shut codepilot down, then relaunch it on the same data
+    store = Store(server.cfg.home)
+    relaunched = LiveServer(create_app(server.cfg, store, Agent(server.cfg, store, llm=ScriptedLLM())))
+    try:
+        page.goto(relaunched.url + "/")
+        page.locator("#transcript .card.prop").first.wait_for()
+        assert page.locator("#reviewBar").is_hidden()
+        assert page.locator("#transcript .card.prop .status").all_text_contents() == ["applied", "applied"]
+        assert page.locator("#transcript details.card.prop[open]").count() == 0
+        # each change is shown where it was proposed, right after its tool call, not piled up at the end
+        assert page.evaluate("""() => [...document.querySelectorAll('#transcript > *')]
+            .findIndex(el => el.matches('.card.prop')) < document.querySelectorAll('#transcript > *').length - 3""")
+    finally:
+        relaunched.stop()
+
+
+def test_a_change_made_stale_elsewhere_stops_waiting(page, server, session):
+    open_app(page)
+    send(page, "fix the add bug")
+    page.locator("#reviewBar .rb-changes").wait_for()
+    wait_idle(page)
+    (server.repo / "agent/core.py").write_text("def add(a, b):\n    return b + a\n")  # fixed by hand
+    page.reload()
+    page.locator("#transcript .card.prop .status.outdated").wait_for()
+    assert page.locator("#reviewBar").is_hidden()
