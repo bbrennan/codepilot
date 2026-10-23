@@ -1,7 +1,11 @@
 # Let uv trust the OS certificate store (macOS Keychain), so it works behind TLS-inspecting company proxies.
-# UV_SYSTEM_CERTS is the name in uv >= 0.11; UV_NATIVE_TLS is the older one. Override with UV_SYSTEM_CERTS=false.
+# uv >= 0.11 calls this UV_SYSTEM_CERTS and warns about the older UV_NATIVE_TLS, so set only the one this uv knows.
+UV_VERSION := $(shell uv --version 2>/dev/null | awk '{split($$2, v, "."); print v[1] * 1000 + v[2]}')
+ifeq ($(shell [ "$(UV_VERSION)" -ge 11 ] 2>/dev/null && echo new),new)
 export UV_SYSTEM_CERTS ?= true
+else
 export UV_NATIVE_TLS ?= true
+endif
 
 .PHONY: install serve start stop app doctor chat test e2e e2e-setup demo ollama bench bench-validate
 
