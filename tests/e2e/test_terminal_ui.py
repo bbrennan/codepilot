@@ -131,9 +131,9 @@ def test_clean_exit_closes_the_terminal_and_a_failure_stays_open(page, server, s
     run(page, "exit 3")
     page.wait_for_function("() => document.querySelector('#termStatus').textContent === 'Exited with code 3'")
     assert "(exited)" in options(page)[0]
-    page.click("#termRestart")
-    page.wait_for_function("() => document.querySelectorAll('#termSelect option').length === 1")
-    page.wait_for_function("() => !document.querySelector('#termSelect option').textContent.includes('exited')")
+    page.click("#termRestart")  # the exited terminal goes away, then a new one appears
+    page.wait_for_function("() => { const o = document.querySelectorAll('#termSelect option'); "
+                           "return o.length === 1 && !o[0].textContent.includes('exited'); }")
     run(page, "echo back-$((5+5))")
     wait_output(page, "back-10")
 
