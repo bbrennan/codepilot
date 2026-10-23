@@ -36,6 +36,7 @@
     <button data-view="search" title="Search" data-icon="search"></button>
     <button data-view="traces" title="Traces" data-icon="pulse"></button>
     <button data-view="changes" title="Changes" data-icon="branch"><span class="badge" id="changesBadge" hidden></span></button>
+    <button data-view="steering" title="Steering: standing instructions" data-icon="compass"></button>
     <button data-view="memory" title="Memory &amp; context" data-icon="brain"></button>
   </nav>
 
@@ -78,6 +79,13 @@
         <div class="group-head">Proposed by codepilot</div><div id="proposalList"></div>
         <div class="group-head">Working tree <span class="muted" id="gitBranch"></span></div><div id="gitList"></div>
       </div>
+    </section>
+    <section class="view" data-view="steering">
+      <div class="view-head"><span>Steering</span><div class="actions">
+        <button class="icon-btn sm" id="newSteeringBtn" title="New steering doc" data-icon="plus"></button>
+        <button class="icon-btn sm" id="refreshSteeringBtn" title="Refresh" data-icon="refresh"></button>
+      </div></div>
+      <div class="view-body" id="steeringView"></div>
     </section>
     <section class="view" data-view="memory">
       <div class="view-head"><span>Memory &amp; context</span></div>
@@ -146,7 +154,7 @@
       <div class="plan" id="plan" hidden></div>
       <div class="mention-pop" id="mentionPop" hidden></div>
       <div class="composer-box" id="composerBox">
-        <textarea id="input" rows="1" placeholder="Ask codepilot…  @ files · / skills"></textarea>
+        <textarea id="input" rows="1" placeholder="Ask codepilot…  @ files · / skills · # steering"></textarea>
         <div class="composer-row">
           <button class="chip-btn" id="atBtn" title="Reference a file" data-icon="at"></button>
           <label class="toggle" title="Run tests without asking each time"><input type="checkbox" id="autoApprove"><span>auto-run tests</span></label>

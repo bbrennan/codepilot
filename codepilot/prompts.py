@@ -30,6 +30,9 @@ regression test, and re-run the original reproduction to confirm. Say what you v
 - If the workspace contains traces or logs (see list_traces), use them as evidence: connect what happened \
 at run time to the code responsible.
 - Use remember for durable facts about the workspace that will help in future sessions. Never store secrets.
+- <steering> blocks (in the system prompt, in messages, or after a file you read) are the user's standing \
+instructions; follow them. If the user wants a convention kept for the future, suggest adding it to a \
+steering doc in .codepilot/steering/.
 - Long sessions are compacted: earlier turns become the Memory summary, but the original messages are kept. \
 When you need an exact detail the summary lacks (the user's words, a value, an error, a tool result), use \
 recall instead of guessing. Use recall with scope "workspace" to find what earlier sessions on this folder did.
@@ -46,7 +49,7 @@ matter. Do not suggest you will do more work later; this reply is final."""
 def build_system(root: Path | None, test_cmd: str, eval_cmd: str, trace_roots: list[Path], log_groups: list[str],
                  notes: str, summary: str, top_level: list[str], skills: list, instructions: str,
                  repo_map: str = "", git_summary: str = "", mode_text: str = "",
-                 checks: list[str] | None = None, auto_apply: bool = False) -> list[dict]:
+                 checks: list[str] | None = None, auto_apply: bool = False, steering_auto: str = "") -> list[dict]:
     """Static text first (cacheable), then workspace and session context marked dynamic."""
     if root is None:
         ctx = ["Workspace: none open yet. Ask the user which directory to work on, or use a path they mention."]
@@ -77,8 +80,12 @@ def build_system(root: Path | None, test_cmd: str, eval_cmd: str, trace_roots: l
     if mode_text:
         blocks.append({"text": "Current mode:\n" + mode_text, "dynamic": True})
     if instructions.strip():
-        blocks.append({"text": "Project instructions from the workspace (follow them):\n" + instructions,
+        blocks.append({"text": "Steering: standing instructions from the user and the workspace. Always follow "
+                               "them unless the user says otherwise in this conversation:\n" + instructions,
                        "dynamic": True})
+    if steering_auto.strip():
+        blocks.append({"text": "More steering docs, to load with load_skill(name) when the task matches their "
+                               "description:\n" + steering_auto, "dynamic": True})
     if notes.strip():
         blocks.append({"text": "Notes saved from earlier sessions on this workspace:\n" + notes.strip(),
                        "dynamic": True})

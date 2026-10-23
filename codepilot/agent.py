@@ -7,17 +7,18 @@ the terminal REPL render the same stream.
 from __future__ import annotations
 
 import json
+import re
 import time
 from collections.abc import Callable, Generator, Iterator
 from pathlib import Path
 from typing import Any
 
-from . import checks, mentions, models, modes, prompts, repomap, skills
+from . import checks, mentions, models, modes, prompts, repomap, skills, steering
 from .bedrock import BedrockError, make_client
 from .config import Config
 from .context import CLEARED_PREFIX, ContextManager, is_overflow
 from .store import Session, Store
-from .tools import SKIP_DIRS, Tool, ToolContext, build_tools, detect_test_cmd, execute, trace_roots
+from .tools import SKIP_DIRS, Tool, ToolContext, ToolError, build_tools, detect_test_cmd, execute, trace_roots
 
 UI_OUTPUT_LIMIT = 6000
 EXPLORE_MAX_STEPS = 12
@@ -103,6 +104,10 @@ class Agent:
         if block:
             content.append({"text": block})
             yield {"type": "attached", "paths": labels}
+        guide = self._message_steering(session_id, root, text)
+        if guide:
+            content.append({"text": guide[0]})
+            yield {"type": "steering", "names": guide[1]}
         turn_context = self._turn_context(self.store.get_session(session_id), root)
         if turn_context:
             content.append({"text": turn_context})
@@ -113,6 +118,42 @@ class Agent:
         else:
             self.store.add_message(session_id, "user", content)
         yield from self._loop(session_id)
+
+    # -- steering: always-on docs live in the system prompt; these load the rest when they apply --------
+
+    def _steering_loaded(self, session_id: str) -> set[str]:
+        return set((self.store.get_session(session_id).context_state or {}).get("steering_loaded", []))
+
+    def _mark_steering(self, session_id: str, docs: list) -> None:
+        state = dict(self.store.get_session(session_id).context_state or {})
+        state["steering_loaded"] = sorted(set(state.get("steering_loaded", [])) | {d.label for d in docs})
+        self.store.update_session(session_id, context_state=state)
+
+    def _message_steering(self, session_id: str, root: Path | None, text: str) -> tuple[str, list[str]] | None:
+        """Docs the user asked for with #name, and fileMatch docs for files they @-referenced."""
+        asked = steering.requested(text, root, self.cfg.home)
+        rels = [m["rel"] for m in mentions.find_mentions(root, text) if m["path"].is_file()]
+        skip = self._steering_loaded(session_id) | {d.label for d in asked}
+        matched = steering.for_files(rels, root, self.cfg.home, skip) if rels else []
+        if not asked and not matched:
+            return None
+        self._mark_steering(session_id, asked + matched)
+        parts = [steering.render(d, root, "requested by the user") for d in asked]
+        parts += [steering.render(d, root, "applies to " + ", ".join(d.patterns)) for d in matched]
+        return "\n\n".join(parts), [d.name for d in asked + matched]
+
+    def _file_steering(self, ctx: ToolContext, tu: dict) -> list:
+        """fileMatch docs for a file the model just read or edited (each loads once per session)."""
+        if tu["name"] not in ("read_file", "propose_edit") or ctx.root is None:
+            return []
+        try:
+            path = ctx.resolve(str(tu["input"].get("path", "")), must_exist=False)
+        except ToolError:
+            return []
+        docs = steering.for_files([ctx.rel(path)], ctx.root, self.cfg.home, self._steering_loaded(ctx.session_id))
+        if docs:
+            self._mark_steering(ctx.session_id, docs)
+        return docs
 
     def _turn_context(self, sess: Session, root: Path | None) -> str:
         """Per-turn facts that change (mode, git state, applied proposals), sent in the user message.
@@ -236,7 +277,8 @@ class Agent:
         return prompts.build_system(
             root, detect_test_cmd(root, self.cfg), self.cfg.eval_cmd, trace_roots(ctx) if root else [],
             self.cfg.log_groups, self.store.read_notes(str(root)) if root else "", sess.summary, top,
-            skills.discover(root, self.cfg.home), skills.project_instructions(root, self.cfg.home),
+            skills.discover(root, self.cfg.home), steering.always_text(root, self.cfg.home),
+            steering_auto=steering.auto_listing(root, self.cfg.home),
             repo_map=repomap.build(root) if root else "",
             checks=[c.name for c in checks.detect(root)] if root else [], auto_apply=self.cfg.auto_apply_edits)
 
@@ -245,13 +287,15 @@ class Agent:
         compaction), and then reasoning blocks from the old prefix are dropped once so they can't fail
         Claude's conversation check."""
         state = dict(sess.context_state or {})
-        key = f"{ctx.root}|{hash(sess.summary)}"
+        # Editing a steering doc changes the key, so new instructions apply from the next request.
+        key = f"{ctx.root}|{hash(sess.summary)}|{steering.fingerprint(ctx.root, self.cfg.home)}"
         if state.get("system") and state.get("key") == key:
             return state["system"]
         system = self._system(sess, ctx)
         if state.get("system"):
             self._strip_reasoning(sess.id)
-        state.update({"system": system, "key": key})
+        state = dict(self.store.get_session(sess.id).context_state or {})
+        state.update({"system": system, "key": key, "steering_loaded": []})  # re-load file docs when they apply
         self.store.update_session(sess.id, context_state=state)
         return system
 
@@ -389,6 +433,12 @@ class Agent:
             output, is_error = yield from self._explore(ctx, tu)
         else:
             output, is_error = execute(self.tools[tu["name"]], ctx, tu["input"])
+            docs = [] if is_error else self._file_steering(ctx, tu)
+            if docs:
+                why = "applies to " + ", ".join(sorted({p for d in docs for p in d.patterns}))
+                output += "\n\n" + "\n\n".join(steering.render(d, ctx.root, why) for d in docs) + \
+                    "\nFollow the steering above when working on these files."
+                yield {"type": "steering", "names": [d.name for d in docs], "file": str(tu["input"].get("path", ""))}
         return output, is_error, time.monotonic() - started
 
     # -- explore sub-agent ----------------------------------------------------------------------
@@ -534,6 +584,8 @@ def history_events(store: Store, session_id: str) -> list[dict]:
                 continue
             if "text" in b and m["role"] == "user" and b["text"].startswith("<skill name="):
                 events.append({"type": "skill", "name": b["text"].split('"')[1]})
+            elif "text" in b and m["role"] == "user" and b["text"].startswith("<steering "):
+                events.append({"type": "steering", "names": re.findall(r'<steering name="([^"]+)"', b["text"])})
             elif "text" in b and m["role"] == "user" and b["text"].startswith(mentions.ATTACH_OPEN):
                 events.append({"type": "attached", "paths": mentions.attached_labels(b["text"])})
             elif "text" in b:

@@ -74,13 +74,13 @@ at an existing folder, for example `CODEPILOT_SKILL_DIRS=~/.claude/skills`. You 
 instructions the model will follow inside your codebase. Skills written for Claude Code may mention tools
 codepilot doesn't have (slash commands, subagents); they usually still work, but read them first.
 
-### Project instruction files
+### Steering
 
-Not skills, but related: codepilot follows the instruction files other assistants use, so a repo set up for
-them behaves the same here. These are `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, `.cursor/rules/*.mdc`,
-`.windsurfrules`, `.github/copilot-instructions.md`, `.kiro/steering/*.md` (Kiro's `inclusion: manual` and
-`fileMatch` files are skipped) and `CODEPILOT.md`. They're always in context, plus your global
-`~/.codepilot/AGENTS.md` and `~/.kiro/steering/*.md`.
+Not skills, but related: steering docs are standing instructions codepilot always follows (Kiro's format, in
+`.codepilot/steering/` or `~/.codepilot/steering/`), and it reads other assistants' instruction files too.
+**Skill or steering?** A skill is a procedure for a kind of task ("how we debug"), loaded when that task
+comes up. Steering is a rule or fact that holds all the time, or for certain files ("API handlers validate
+input with schemas"). See [steering.md](steering.md).
 
 <a id="modes"></a>
 ## Modes

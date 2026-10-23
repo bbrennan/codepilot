@@ -65,7 +65,9 @@ assistant's replies in them are scripted so the demo is reproducible.</sub>
 - **Never runs out of room:** token-accurate context management clears stale tool output and summarises
   earlier turns before the window fills, even mid-task, and recovers automatically if a request is still too
   long. `/compact` and "continue in new session" are there when you want them. Per-folder notes persist.
-  It follows `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, Kiro steering and Copilot instruction files.
+- **Steering:** standing instructions it always follows, in Kiro's format (`.codepilot/steering/`):
+  always on, for matching files, by `#name`, or when relevant. It drafts them from your repo, and reads
+  `AGENTS.md`, `CLAUDE.md`, Kiro, Cursor and Copilot instruction files too.
 - **Measurable:** `codepilot bench` grades it on planted-bug tasks with hidden tests, so you can compare
   models and changes.
 
@@ -175,6 +177,7 @@ Click **Open folder…** (or say "review ~/code/my-service" in chat) and go. See
 | [Setup](docs/setup.md) | Prerequisites, install, every provider (accounts, IAM, keys), GitHub, analysers, `make doctor` |
 | [Usage](docs/usage.md) | The UI, modes, approvals, Apply/Undo, workflows, traces, GitHub, memory, shortcuts, tips |
 | [Configuration](docs/configuration.md) | Every environment variable, and where files are stored |
+| [Steering](docs/steering.md) | Standing instructions: where they live, inclusion modes, writing good ones, other tools' files |
 | [Skills and modes](docs/skills-and-modes.md) | Built-in skills, installing and writing skills, custom modes |
 | [Benchmark](docs/benchmark.md) | Running, comparing and extending the planted-bug benchmark |
 | [Security](docs/security.md) | Where your code goes, what's stored, what the assistant can and can't do |

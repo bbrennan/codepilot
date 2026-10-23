@@ -1,4 +1,4 @@
-"""Skills (Agent Skills / Claude Code SKILL.md format) and project instruction files.
+"""Skills (Agent Skills / Claude Code SKILL.md format). Instruction files and steering: see steering.py.
 
 A skill is a folder containing SKILL.md with YAML front matter (`name`, `description`) and a Markdown
 body. Only names and descriptions go into the system prompt; the model calls `load_skill` to read
@@ -23,12 +23,6 @@ from pathlib import Path
 
 BUNDLED = Path(__file__).parent / "skills_bundled"
 
-# Instruction files other assistants use; we honour them so a repo set up for Cursor, Claude Code,
-# Kiro or Copilot behaves the same here.
-INSTRUCTION_FILES = ("AGENTS.md", "CLAUDE.md", ".cursorrules", ".github/copilot-instructions.md",
-                     ".windsurfrules", "CODEPILOT.md")
-INSTRUCTION_GLOBS = (".cursor/rules/*.mdc", ".cursor/rules/*.md", ".kiro/steering/*.md")
-MAX_INSTRUCTIONS = 24_000
 
 
 @dataclass
@@ -96,38 +90,8 @@ def find(name: str, root: Path | None, home: Path) -> Skill | None:
     return next((s for s in discover(root, home) if s.name == name), None)
 
 
-def _always_included(text: str) -> bool:
-    """Kiro steering front matter: `inclusion: manual` or `fileMatch` files are not always-on."""
-    m = re.match(r"^---\s*\n(.*?)\n---", text, re.DOTALL)
-    if not m:
-        return True
-    inclusion = re.search(r"^inclusion:\s*(\w+)", m.group(1), re.MULTILINE)
-    return not inclusion or inclusion.group(1).lower() == "always"
-
-
 def project_instructions(root: Path | None, home: Path | None = None) -> str:
-    """Global and workspace instruction files other assistants use (AGENTS.md, CLAUDE.md, Kiro steering, ...)."""
-    paths: list[tuple[Path, str]] = []
-    if home is not None:
-        paths.append((home / "AGENTS.md", "~/.codepilot/AGENTS.md"))
-        steering = Path.home() / ".kiro" / "steering"
-        paths += [(p, f"~/.kiro/steering/{p.name}") for p in sorted(steering.glob("*.md"))] if steering.is_dir() else []
-    if root is not None:
-        paths += [(root / f, f) for f in INSTRUCTION_FILES]
-        for pattern in INSTRUCTION_GLOBS:
-            paths += [(p, str(p.relative_to(root))) for p in sorted(root.glob(pattern))]
-    parts: list[str] = []
-    for p, label in paths:
-        if not p.is_file():
-            continue
-        try:
-            text = p.read_text(errors="replace").strip()
-        except OSError:
-            continue
-        if "steering" in label and not _always_included(text):
-            continue
-        parts.append(f"## {label}\n{text}")
-    text = "\n\n".join(parts)
-    if len(text) > MAX_INSTRUCTIONS:
-        text = text[:MAX_INSTRUCTIONS] + "\n[... instructions truncated ...]"
-    return text
+    """Always-on steering for a workspace (kept for older callers; see steering.py)."""
+    from . import steering
+
+    return steering.always_text(root, home or Path.home() / ".codepilot")

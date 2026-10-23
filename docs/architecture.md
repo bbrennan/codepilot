@@ -31,7 +31,8 @@ store.py (SQLite in ~/.codepilot): sessions, messages, proposals, usage, notes
 | `checks.py` | Detects and runs linters, type checkers and security scanners; post-apply quick check |
 | `github.py` | `gh` command classification (read/write/refused) and execution |
 | `modes.py` | Built-in and custom modes |
-| `skills.py` | SKILL.md discovery, slash commands, project instruction files |
+| `skills.py` | SKILL.md discovery and slash commands |
+| `steering.py` | Steering docs (Kiro format, plus Cursor, Copilot and other instruction files): discovery, inclusion modes, glob matching, `#[[file:]]` references |
 | `repomap.py` | Symbol map of the workspace (Python via `ast`, others via regex) |
 | `mentions.py` | `@file` references and fuzzy file search |
 | `prompts.py` | System prompt text and assembly |

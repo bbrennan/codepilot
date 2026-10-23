@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import checks, github, skills, traces
+from . import checks, github, skills, steering, traces
 from .config import Config
 from .store import Store
 
@@ -301,6 +301,10 @@ def update_plan(ctx: ToolContext, items: list) -> str:
 
 def load_skill(ctx: ToolContext, name: str) -> str:
     skill = skills.find(name, ctx.root, ctx.cfg.home)
+    if skill is None:
+        doc = steering.find(name, ctx.root, ctx.cfg.home)
+        if doc is not None:
+            return steering.render(doc, ctx.root, "loaded on request")
     if skill is not None and skill.user_only:
         raise ToolError(f"{name!r} is a user-invoked skill (the user runs it with /{name})")
     if skill is None:

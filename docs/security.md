@@ -95,7 +95,8 @@ Anything the assistant reads (code comments, READMEs, issue text, trace contents
 contain instructions aimed at the model. Mitigations:
 - The approval gates above: nothing irreversible happens without you.
 - Diffs are shown before they're written, and undo is available after.
-- Skills and instruction files are trusted input, so install third-party skills only after reading them.
+- Skills, steering docs and instruction files are trusted input, so install third-party skills only after
+  reading them. A steering doc's `#[[file:...]]` references can include only files inside the workspace.
 
 ## Benchmark runs
 

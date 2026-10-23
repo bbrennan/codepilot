@@ -42,7 +42,7 @@ VERBATIM_CHARS = 6000  # about 1.5k tokens of the user's own words survive every
 CONSTRAINT = re.compile(r"\b(?:don'?t|do not|never|always|must|avoid|instead|prefer|make sure|only|"
                         r"should(?:n'?t)?)\b", re.IGNORECASE)
 ERROR_LINE = re.compile(r"^.*\b(?:\w*Error|\w*Exception|FAILED|Traceback)\b.*$", re.MULTILINE)
-CONTEXT_MARKERS = ("<turn_context>", "<attached_files>", "<skill ")
+CONTEXT_MARKERS = ("<turn_context>", "<attached_files>", "<skill ", "<steering ")
 OVERFLOW = re.compile(
     r"too long|too many (?:input |total )?(?:tokens|text bytes)|context (?:length|window|limit)|maximum context|"
     r"prompt is too long|input length|context_length_exceeded|exceeds? (?:the )?(?:model'?s? )?(?:maximum|context)",

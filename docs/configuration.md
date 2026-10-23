@@ -127,5 +127,7 @@ tiers and the default repo, for compatibility with an older internal tool.
 | `~/.codepilot/scratch/<session>/` | The assistant's throwaway repro scripts |
 | `~/.codepilot/trash/` | Files and folders you deleted from the Explorer (restorable; delete old ones by hand) |
 | `~/.codepilot/skills/`, `~/.codepilot/modes/` | Your custom skills and modes |
-| `~/.codepilot/AGENTS.md` | Global instructions applied to every workspace |
+| `~/.codepilot/steering/*.md` | Your steering docs for every workspace ([steering.md](steering.md)) |
+| `~/.codepilot/AGENTS.md` | Global instructions applied to every workspace (always on) |
+| `<workspace>/.codepilot/steering/*.md` | The workspace's steering docs (commit them) |
 | `<workspace>/.codepilot/modes/`, `.agents/skills/`, `.claude/skills/` | Project-specific modes and skills |

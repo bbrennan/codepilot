@@ -477,3 +477,8 @@ a.loc:hover { text-decoration: underline; }
 .btn.primary.danger, #dialogOk.danger { background: var(--err); border-color: var(--err); color: #fff; }
 .toast { position: fixed; bottom: 36px; left: 50%; transform: translateX(-50%); z-index: 60; display: flex; align-items: center; gap: 12px; transition: transform .15s; }
 .toast-act { border: 0; background: transparent; color: var(--accent); font-weight: 650; font-size: 12.5px; cursor: pointer; padding: 0; }
+.row.steer .incl { font: 10.5px var(--mono); padding: 0 6px; border-radius: 999px; border: 1px solid var(--line-2); color: var(--muted); max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row.steer .incl.always { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+.row.steer .incl.fileMatch { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.row.steer .incl.auto { color: var(--syn-kw); border-color: color-mix(in srgb, var(--syn-kw) 40%, transparent); }
+.steer-chip { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }

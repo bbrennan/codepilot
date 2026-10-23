@@ -10,6 +10,7 @@
 - [Traces and logs](#traces-and-logs)
 - [GitHub](#github)
 - [Memory](#memory)
+- [Steering](#steering)
 - [Model tiers and cost](#model-tiers-and-cost)
 - [The terminal](#the-terminal)
 - [Terminal mode](#terminal-mode)
@@ -55,9 +56,9 @@ they run independently, so one can keep working while you look at another. Each 
 history, reopenable from the sidebar.
 
 When a folder opens, codepilot reads:
-- its instruction files, if any: `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, `.cursor/rules/`,
-  `.kiro/steering/`, `.github/copilot-instructions.md`, plus your global `~/.codepilot/AGENTS.md` and
-  `~/.kiro/steering/`
+- its steering: `.codepilot/steering/`, your global `~/.codepilot/steering/`, and other tools' files
+  (`AGENTS.md`, `CLAUDE.md`, `.kiro/steering/`, `.cursor/rules/`, Copilot instructions). See
+  [Steering](#steering)
 - a map of its classes and functions, and its git status
 - your notes for that folder (see [Memory](#memory))
 
@@ -235,6 +236,20 @@ A session isn't a series of one-off prompts. It remembers in four layers:
 
 Start a fresh session when you switch to an unrelated task. It's cheaper, and focus improves.
 
+## Steering
+
+Steering docs are standing instructions codepilot always follows: coding standards, how to build and test,
+architecture, things it must never do. They're Markdown files in `.codepilot/steering/` (this workspace;
+commit them) or `~/.codepilot/steering/` (all your workspaces), in Kiro's format.
+
+- Open the **Steering** view (the compass in the activity bar) to see every doc and create new ones.
+  **Generate foundation docs** has codepilot draft `product.md`, `tech.md` and `structure.md` from the repo.
+- A doc can be **always** on (the default), apply **only to matching files** (`fileMatch`), load when you
+  write **`#name`** in chat (`manual`), or load **when relevant** (`auto`).
+- Edits apply from your next message. A **steering: name** chip in the chat shows when a doc loaded.
+
+The full guide, with examples, is in [steering.md](steering.md).
+
 ## Model tiers and cost
 
 Each provider has three tiers: **fast**, **main** (default) and **hard**. The model dropdown in the chat
@@ -300,7 +315,7 @@ and Ctrl-D to quit. `--session <id>` resumes a session.
 | ↑ / ↓ (message box) | Earlier / later prompts |
 | Alt+W | Close editor tab |
 | Enter / Shift+Enter | Send / new line |
-| `@` / `/` | Reference a file / use a skill |
+| `@` / `/` / `#` | Reference a file / use a skill / attach a steering doc |
 | Esc | Close popups |
 
 ## Tips for good results
@@ -310,5 +325,6 @@ and Ctrl-D to quit. `--session <id>` resumes a session.
 - **Use the right mode:** Plan before big changes; Debug for bugs; Review for reviews.
 - **Reference files** with `@` instead of describing where things are.
 - **Install the analysers** for your language. Real lint and type errors beat guesses.
-- **Teach it once:** put repo conventions in `AGENTS.md`, or ask it to "remember" them.
+- **Teach it once:** put conventions in a [steering doc](steering.md) (or ask codepilot to "add that to
+  steering"); use "remember" for quick facts.
 - **Read approvals,** especially `run_command`.

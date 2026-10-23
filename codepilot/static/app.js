@@ -25,6 +25,7 @@ const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = se
 
 // ---------------------------------------------------------------- icons (Lucide-style, ISC)
 const ICONS = {
+  compass: '<circle cx="12" cy="12" r="10"/><path d="m16.24 7.76-1.8 5.4a2 2 0 0 1-1.28 1.28l-5.4 1.8 1.8-5.4a2 2 0 0 1 1.28-1.28z"/>',
   filePlus: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6"/><path d="M12 18v-6"/>',
   folderPlus: '<path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
   logo: '<path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="m9.5 10-2 2 2 2"/><path d="m14.5 10 2 2-2 2"/>',
@@ -105,6 +106,7 @@ function setView(view, reveal = true) {
   if (view === "traces") loadTraces();
   if (view === "changes") { renderProposalList(); loadGit(); }
   if (view === "memory") renderMemory();
+  if (view === "steering") loadSteering();
   if (view === "search") $("#grepInput").focus();
 }
 $("#activitybar").addEventListener("click", (e) => {
@@ -243,6 +245,7 @@ async function openSession(sid) {
   setContext(data.context); renderUsage(data.usage); state.summary = data.summary;
   setWorkspace(data.session.repo, prevWorkspace !== (data.session.repo || ""));
   renderProposalList(); loadSessions(); scrollEnd(true);
+  loadSteering(true);
 }
 
 // ---------------------------------------------------------------- workspace / explorer
@@ -421,7 +424,7 @@ function renderFileTab(tab) {
       <span class="spacer"></span><span class="muted">${selLabel ? selLabel.replace("lines", "L").replace("line", "L") : lines.length + " lines"}</span>
       <button class="btn" id="fAdd" title="Reference in chat">${icon("at")}${sel ? "Add lines" : "Add to chat"}</button>
       <button class="btn" id="fAsk">${icon("sparkle")}Ask</button>
-      <button class="btn" id="fEdit" title="Edit this file">${icon("edit")}Edit</button>
+      ${tab.readonly ? `<span class="muted" title="Edit it in its own tool's folder">read-only</span>` : `<button class="btn" id="fEdit" title="Edit this file">${icon("edit")}Edit</button>`}
       <button class="btn ghost" id="fCopy" title="Copy path (right-click a file for more)">${icon("copy")}</button>
       <button class="btn ghost" id="fReload" title="Reload from disk">${icon("refresh")}</button></div>
     <div class="ed-scroll" id="edScroll"><div class="code-view">
@@ -444,7 +447,9 @@ function renderFileTab(tab) {
   $(".crumbs").oncontextmenu = (e) => { e.preventDefault(); showMenu(e.clientX, e.clientY, pathMenu(tab.path, false)); };
   $("#fAsk").onclick = () => { setInput(`Explain @${ref()} — what it does, how it fits in, and any bugs you see.`); };
   $("#fReload").onclick = async () => { tab.content = null; const id = tab.id; await openFile(tab.path); state.active = id; };
-  $("#fEdit").onclick = () => editFile(tab.id);
+  $("#fEdit") && ($("#fEdit").onclick = () => editFile(tab.id));
+  if (tab.global || tab.readonly) { $("#fAdd").remove(); $("#fAsk").remove(); } // outside the workspace: @ can't reach it
+  if (tab.global) $("#fReload").onclick = () => openGlobalSteering(tab.global, true);
 }
 
 // edit mode: a plain-text editor with Save (⌘S), dirty tracking and a check for changes made on disk
@@ -488,9 +493,12 @@ function renderEditTab(tab) {
 async function saveFile(tab, force = false) {
   if (!tab || tab.draft == null) return;
   try {
-    const d = await fsApi({ op: "save", path: tab.path, content: tab.draft, base_mtime: tab.mtime, force });
+    const d = tab.global
+      ? await api("/api/steering/global", { method: "PUT", body: { name: tab.global, content: tab.draft, base_mtime: tab.mtime, force } })
+      : await fsApi({ op: "save", path: tab.path, content: tab.draft, base_mtime: tab.mtime, force });
     tab.content = tab.draft; tab.mtime = d.mtime; setDirty(tab);
     toast(`Saved ${tab.path}`); loadGit();
+    if (tab.global || tab.path.startsWith(".codepilot/steering/")) loadSteering();
   } catch (err) {
     if (/changed on disk/.test(err.message) && await confirmDialog(`${tab.title} changed on disk`,
       "It was changed after you opened it (by you elsewhere, a tool, or an applied proposal). Overwrite it with your version?", "Overwrite")) return saveFile(tab, true);
@@ -683,8 +691,9 @@ function renderMemory() {
     <div class="hint">Add your own in <span class="mono">~/.codepilot/modes/*.md</span> or <span class="mono">.codepilot/modes/</span>.</div>
     <div class="group-head" style="padding-left:2px">Skills</div>
     ${(w?.skills || []).map((s) => `<div class="hint" style="margin:3px 0"><b class="mono" style="color:var(--fg-2)">${esc(s.name)}</b> — ${esc(s.description)}</div>`).join("") || `<div class="hint">—</div>`}
-    <div class="group-head" style="padding-left:2px">Project instructions</div>
-    <div class="hint">${w?.instructions ? `<pre class="mono" style="white-space:pre-wrap;margin:0;font-size:11.5px">${esc(w.instructions)}</pre>` : "None found (AGENTS.md, CLAUDE.md, .cursorrules, .kiro/steering …)."}</div>`;
+    <div class="group-head" style="padding-left:2px">Steering (always on)</div>
+    <div class="hint">${w?.instructions ? `<pre class="mono" style="white-space:pre-wrap;margin:0;font-size:11.5px">${esc(w.instructions)}</pre>` : "None yet."} <a href="#" id="memSteering">Manage in the Steering view</a></div>`;
+  $("#memSteering") && ($("#memSteering").onclick = (e) => { e.preventDefault(); setView("steering"); });
   renderUsage(state.usage);
   $("#compactBtn") && ($("#compactBtn").onclick = compactNow);
   $("#handoffBtn") && ($("#handoffBtn").onclick = handoff);
@@ -819,6 +828,7 @@ function render(ev, replay) {
     case "attached": add(`<div class="attached">${ev.paths.map((p) => `<span data-path="${esc(p.split(":")[0])}" data-line="${esc(p.split(":")[1]?.split("-")[0] || "")}">${icon("file")} ${esc(p)}</span>`).join("")}</div>`); break;
     case "assistant": endText(); add(`<div class="msg assistant">${md(ev.text)}</div>`); break;
     case "skill": add(`<div class="skill-chip">${icon("sparkle")}skill: ${esc(ev.name)}</div>`); break;
+    case "steering": endText(); add(`<div class="skill-chip steer-chip" title="Steering docs codepilot loaded for this">${icon("compass")}steering: ${esc(ev.names.join(", "))}${ev.file ? ` · for ${esc(ev.file)}` : ""}</div>`); break;
     case "text":
       if (!curText) { curText = add(`<div class="msg assistant"></div>`); curBuf = ""; }
       curBuf += ev.text; curText.innerHTML = md(curBuf); break;
@@ -960,7 +970,7 @@ function setMode(mode) {
   $("#modeSelect").value = mode; $("#modeSelect").classList.toggle("readonly", readonly);
   $("#modeSelect").title = m ? `${m.label}: ${m.description}` : mode;
   $("#composerBox").classList.toggle("readonly", readonly);
-  $("#input").placeholder = m && mode !== "build" ? `${m.label}: ${m.description}` : "Ask codepilot…  @ files · / skills";
+  $("#input").placeholder = m && mode !== "build" ? `${m.label}: ${m.description}` : "Ask codepilot…  @ files · / skills · # steering";
 }
 $("#modeSelect").addEventListener("change", async () => {
   const mode = $("#modeSelect").value; setMode(mode);
@@ -1060,6 +1070,7 @@ const fetchMentions = debounce(async (q) => {
 }, 100);
 function renderMentions() {
   if (mention.kind === "skill") return showSkillMenu(input.value.slice(1, input.selectionStart));
+  if (mention.kind === "steering") return showSteeringMenu(input.value.slice(mention.start + 1, input.selectionStart));
   const pop = $("#mentionPop");
   if (!mention.items.length) { pop.hidden = true; mention.open = false; return; }
   mention.open = true; pop.hidden = false;
@@ -1069,6 +1080,10 @@ function hideMentions() { mention.open = false; $("#mentionPop").hidden = true; 
 function acceptMention(i) {
   const f = mention.items[i]; if (!f) return;
   const pos = input.selectionStart;
+  if (mention.kind === "steering") {
+    input.value = input.value.slice(0, mention.start) + "#" + f + " " + input.value.slice(pos);
+    const caret = mention.start + f.length + 2; input.setSelectionRange(caret, caret); hideMentions(); autosize(); return;
+  }
   if (mention.kind === "skill") {
     input.value = "/" + f + " " + input.value.slice(pos);
     input.setSelectionRange(f.length + 2, f.length + 2); hideMentions(); autosize(); return;
@@ -1082,6 +1097,8 @@ input.addEventListener("input", () => {
   const pos = input.selectionStart; const before = input.value.slice(0, pos);
   const slash = before.match(/^\/([\w.-]*)$/);
   if (slash) { showSkillMenu(slash[1]); return; }
+  const hash = before.match(/(^|\s)#([\w.-]*)$/);
+  if (hash) { mention.start = pos - hash[2].length - 1; showSteeringMenu(hash[2]); return; }
   const m = before.match(/(^|\s)@([\w.\-/~]*)$/);
   if (m) { mention.kind = "file"; mention.start = pos - m[2].length - 1; fetchMentions(m[2]); } else hideMentions();
 });
@@ -1096,6 +1113,17 @@ function showSkillMenu(q) {
   if (!skills.length) { hideMentions(); return; }
   mention.open = true; pop.hidden = false;
   pop.innerHTML = skills.map((s, i) => `<div class="opt ${i === mention.idx ? "on" : ""}" data-i="${i}">${icon("sparkle")}<span>/${esc(s.name)}</span><span class="desc">${esc(s.description)}</span></div>`).join("");
+}
+// #name: attach a steering doc to this message (any doc; "manual" ones load only this way)
+async function showSteeringMenu(q) {
+  if (!state.steering && state.sid) await loadSteering(true);
+  const docs = (state.steering?.docs || []).filter((d) => d.name.toLowerCase().includes(q.toLowerCase()));
+  if (mention.kind !== "steering" || !mention.open) mention.idx = 0;
+  mention.kind = "steering";
+  if (!docs.length) { hideMentions(); return; }
+  mention.items = docs.map((d) => d.name); mention.idx = Math.min(mention.idx, docs.length - 1);
+  const pop = $("#mentionPop"); mention.open = true; pop.hidden = false;
+  pop.innerHTML = docs.map((d, i) => `<div class="opt ${i === mention.idx ? "on" : ""}" data-i="${i}">${icon("compass")}<span>#${esc(d.name)}</span><span class="desc">${esc(inclLabel(d))} · ${esc(d.label)}</span></div>`).join("");
 }
 input.addEventListener("keydown", (e) => {
   if (mention.open) {
@@ -1276,6 +1304,72 @@ $("#newFolderBtn").onclick = () => newItem("folder");
 // Keyboard, VS Code style, only while the explorer has focus: F2 renames, Delete (or ⌘⌫) deletes.
 let treeFocused = false;
 document.addEventListener("mousedown", (e) => { treeFocused = !!e.target.closest("#tree"); }, true);
+
+// ---------------------------------------------------------------- steering docs
+const inclLabel = (d) => ({ always: "always on", fileMatch: "for " + d.patterns.join(", "), manual: "when you write #" + d.name, auto: "when relevant" })[d.inclusion];
+async function loadSteering(quiet) {
+  if (!state.sid) { state.steering = null; if (!quiet) renderSteering(); return; }
+  state.steering = await api(`/api/sessions/${state.sid}/steering`).catch((err) => ({ docs: [], error: err.message }));
+  if (!quiet || $(".view.on")?.dataset.view === "steering") renderSteering();
+}
+function renderSteering() {
+  const el = $("#steeringView"), d = state.steering;
+  if (!d) { el.innerHTML = `<div class="empty-state">Start a session to see its steering.</div>`; return; }
+  const docs = d.docs.map((x, i) => ({ ...x, i }));
+  const row = (x) => `<div class="row steer" data-steer="${x.i}" title="${esc(x.path)}\n${esc(inclLabel(x))}"><span class="ficon">${icon(x.scope === "global" ? "home" : "compass")}</span><span class="name">${esc(x.name)}</span><span class="incl ${x.inclusion}">${esc(x.inclusion === "fileMatch" ? x.patterns.join(", ") : x.inclusion === "manual" ? "#" + x.name : x.inclusion)}</span></div>`;
+  const group = (title, list, empty) => `<div class="group-head">${title}</div>${list.map(row).join("") || `<div class="hint" style="padding:0 14px">${empty}</div>`}`;
+  el.innerHTML = `<div class="hint" style="padding:6px 14px 2px">Standing instructions codepilot follows, in Kiro's format. Each doc is <b>always</b> on (default), loads <b>for matching files</b>, <b>manually</b> when you write <span class="mono">#name</span>, or <b>auto</b> when relevant.</div>
+    <div style="display:flex;gap:6px;padding:8px 14px 2px;flex-wrap:wrap"><button class="btn sm" id="steerNew">${icon("plus")}New steering doc</button>${d.workspace_dir ? `<button class="btn sm" id="steerFoundation" title="Have codepilot study this repo and propose product.md, tech.md and structure.md">${icon("sparkle")}Generate foundation docs</button>` : ""}</div>
+    ${d.workspace_dir ? group(`This workspace <span class="muted mono">.codepilot/steering</span>`, docs.filter((x) => x.scope === "workspace" && x.source === "codepilot"), "None yet.") : ""}
+    ${group(`All workspaces <span class="muted mono">~/.codepilot/steering</span>`, docs.filter((x) => x.scope === "global" && x.source === "codepilot"), "None yet.")}
+    ${group("From other tools", docs.filter((x) => x.source !== "codepilot"), "None found (AGENTS.md, CLAUDE.md, .kiro/steering, .cursor/rules, .github/instructions …).")}
+    ${d.error ? `<div class="banner error">${esc(d.error)}</div>` : ""}`;
+  $("#steerNew").onclick = (e) => menuBelow(e.currentTarget, newSteeringItems());
+  $("#steerFoundation") && ($("#steerFoundation").onclick = () => { setInput(d.foundation_prompt); send(); });
+}
+$("#steeringView").addEventListener("click", (e) => {
+  const r = e.target.closest("[data-steer]"); if (r) openSteering(state.steering.docs[+r.dataset.steer]);
+});
+$("#newSteeringBtn").onclick = (e) => menuBelow(e.currentTarget, newSteeringItems());
+$("#refreshSteeringBtn").onclick = () => loadSteering();
+function newSteeringItems() {
+  const ws = !!state.steering?.workspace_dir;
+  const item = (scope, inclusion, label) => ({ label, icon: scope === "global" ? "home" : "compass", run: () => newSteering(scope, inclusion) });
+  return [
+    ...(ws ? [item("workspace", "always", "This workspace: always on"), item("workspace", "fileMatch", "This workspace: for matching files…"),
+      item("workspace", "manual", "This workspace: manual (#name)"), item("workspace", "auto", "This workspace: auto (when relevant)"), "-"] : []),
+    item("global", "always", "All workspaces: always on"), item("global", "manual", "All workspaces: manual (#name)"),
+  ];
+}
+async function newSteering(scope, inclusion) {
+  const name = await promptDialog("New steering doc", "", `Name, e.g. ${inclusion === "fileMatch" ? "api-style" : "coding-standards"}. Saved as ${scope === "global" ? "~/.codepilot/steering" : ".codepilot/steering"}/<name>.md`);
+  if (!name) return;
+  let pattern = "";
+  if (inclusion === "fileMatch") {
+    pattern = await promptDialog("Which files?", "src/**/*.py", "A glob: ** spans folders, * stays within one, {a,b} for alternatives. Without a / it matches the file name anywhere (*.tsx).");
+    if (!pattern) return;
+  }
+  try {
+    const d = await api(`/api/sessions/${state.sid}/steering`, { method: "POST", body: { scope, name, inclusion, pattern } });
+    await loadSteering(true); setView("steering");
+    if (d.rel) { state.tree.clear(); renderTree(); await openFile(d.rel); editFile("file:" + d.rel); }
+    else { await openGlobalSteering(d.name); editFile("global:" + d.name); }
+  } catch (err) { toast(err.message, true); }
+}
+async function openGlobalSteering(name, reload) {
+  try {
+    const d = await api(`/api/steering/global?name=${encodeURIComponent(name)}`);
+    const id = "global:" + name, existing = state.tabs.find((t) => t.id === id);
+    if (existing && !reload) { state.active = id; renderEditor(); return; }
+    openTab({ id, kind: "file", path: `~/.codepilot/steering/${name}.md`, title: name + ".md", tip: d.path, content: d.content, mtime: d.mtime, global: name, editing: false, draft: null, dirty: false });
+  } catch (err) { toast(err.message, true); }
+}
+function openSteering(doc) {
+  if (!doc) return;
+  if (doc.rel) return openFile(doc.rel);
+  if (doc.source === "codepilot") return openGlobalSteering(doc.name);
+  openTab({ id: "steer:" + doc.path, kind: "file", path: doc.label, title: base(doc.label), tip: doc.path, content: doc.content || "", readonly: true });
+}
 
 // ---------------------------------------------------------------- copy paths & context menu
 const absPath = (rel) => (rel === "." ? state.workspace : state.workspace + "/" + rel);

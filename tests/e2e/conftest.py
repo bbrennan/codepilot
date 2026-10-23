@@ -38,7 +38,7 @@ class ScriptedLLM:
         self.calls = []
 
     def stream(self, model, system, messages, tools=None, max_tokens=None):
-        self.calls.append({"model": model, "messages": messages})
+        self.calls.append({"model": model, "messages": messages, "system": system})
         last = messages[-1]["content"]
         user_text = " ".join(b.get("text", "") for b in last if "text" in b).split("<turn_context>")[0].lower()
         if any("toolResult" in b for b in last):

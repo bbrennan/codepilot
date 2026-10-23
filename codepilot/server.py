@@ -27,7 +27,7 @@ from starlette.websockets import WebSocket
 from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 
-from . import checks, github, mentions, models, modes, skills, traces
+from . import checks, github, mentions, models, modes, skills, steering, traces
 from .agent import Agent, history_events
 from .config import TIERS, Config
 from .store import Store
@@ -529,6 +529,66 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         shutil.rmtree(slot, ignore_errors=True)
         return {"path": meta["path"], "dir": dest.is_dir()}
 
+    # -- steering docs ---------------------------------------------------------------------------
+
+    def session_root(sid: str) -> Path | None:
+        repo = store.get_session(sid).repo
+        return Path(repo).expanduser().resolve() if repo and Path(repo).expanduser().is_dir() else None
+
+    def steering_list(request: Request) -> Response:  # blocking I/O: runs in a worker thread
+        try:
+            root = session_root(request.path_params["sid"])
+        except KeyError:
+            return err("No such session", 404)
+        return JSONResponse({"docs": [d.info(root) for d in steering.discover(root, cfg.home)],
+                             "workspace_dir": ".codepilot/steering" if root else None,
+                             "global_dir": str(cfg.home / "steering"), "foundation_prompt": steering.FOUNDATION_PROMPT})
+
+    async def steering_create(request: Request) -> Response:
+        data = await request.json()
+        name = str(data.get("name") or "").strip().removesuffix(".md")
+        inclusion = data.get("inclusion") if data.get("inclusion") in steering.INCLUSIONS else "always"
+        pattern = str(data.get("pattern") or "").strip()
+        if not steering.NAME.match(name):
+            return err("Use letters, digits, - _ or . for the name (e.g. api-style).")
+        if inclusion == "fileMatch" and not pattern:
+            return err("Give a file pattern, e.g. src/api/**/*.ts")
+        try:
+            root = session_root(request.path_params["sid"])
+        except KeyError:
+            return err("No such session", 404)
+        if data.get("scope") == "workspace":
+            if root is None:
+                return err("Open a folder first.", 409)
+            path = root / ".codepilot" / "steering" / f"{name}.md"
+        else:
+            path = cfg.home / "steering" / f"{name}.md"
+        if path.exists():
+            return err(f"A steering doc named {name} already exists there.", 409)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(steering.template(name, inclusion, pattern))
+        rel = str(path.relative_to(root)) if data.get("scope") == "workspace" else None
+        return JSONResponse({"name": name, "rel": rel, "scope": "workspace" if rel else "global"})
+
+    async def steering_global(request: Request) -> Response:
+        """Read or save a doc in ~/.codepilot/steering (outside any workspace, so not via /fs)."""
+        data = await request.json() if request.method == "PUT" else dict(request.query_params)
+        name = str(data.get("name") or "")
+        if not steering.NAME.match(name):
+            return err("Bad steering doc name.")
+        path = cfg.home / "steering" / f"{name}.md"
+        if request.method == "GET":
+            if not path.is_file():
+                return err("No such steering doc", 404)
+            return JSONResponse({"name": name, "path": str(path), "content": path.read_text(errors="replace"),
+                                 "mtime": str(path.stat().st_mtime_ns)})
+        if path.is_file() and data.get("base_mtime") and str(path.stat().st_mtime_ns) != str(data["base_mtime"]) \
+                and not data.get("force"):
+            return err(f"{name}.md changed on disk since you opened it.", 409)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(str(data.get("content") or ""))
+        return JSONResponse({"name": name, "mtime": str(path.stat().st_mtime_ns)})
+
     def git_view(request: Request) -> Response:  # blocking I/O: runs in a worker thread
         ctx = ctx_for(request.path_params["sid"])
 
@@ -623,6 +683,9 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         Route("/api/sessions/{sid}/find", needs_workspace(find)),
         Route("/api/sessions/{sid}/git", needs_workspace(git_view)),
         Route("/api/sessions/{sid}/fs", needs_workspace(fs), methods=["POST"]),
+        Route("/api/sessions/{sid}/steering", steering_list),
+        Route("/api/sessions/{sid}/steering", steering_create, methods=["POST"]),
+        Route("/api/steering/global", steering_global, methods=["GET", "PUT"]),
         Route("/api/sessions/{sid}/notes", needs_workspace(notes), methods=["GET", "PUT"]),
         Route("/api/sessions/{sid}/run", needs_workspace(run), methods=["POST"]),
         Route("/api/proposals/{pid:int}/{action:str}", proposal_action, methods=["POST"]),
