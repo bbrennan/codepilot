@@ -29,7 +29,7 @@ from starlette.staticfiles import StaticFiles
 
 from . import checks, github, mentions, models, modes, skills, steering, traces
 from .agent import Agent, history_events
-from .config import TIERS, Config
+from .config import TIER_CHOICES, TIERS, Config
 from .store import Store
 from .tools import (
     SKIP_DIRS,
@@ -190,8 +190,8 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                 return err(f"Not a directory: {path}")
             repo = str(path)
         tier = data.get("tier") or cfg.default_tier
-        if tier not in TIERS:
-            return err(f"tier must be one of {TIERS}")
+        if tier not in TIER_CHOICES:
+            return err(f"tier must be one of {TIER_CHOICES}")
         sess = store.create_session(repo, tier, auto_approve=bool(data.get("auto_approve", False)))
         return JSONResponse(sess.public())
 
@@ -214,8 +214,8 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                 known = {m.name for m in modes.all_modes(root_, cfg.home)} | set(modes.ALIASES)
                 if fields["mode"] not in known:
                     return err(f"unknown mode; choose one of {sorted(known)}")
-            if "tier" in fields and fields["tier"] not in TIERS:
-                return err(f"tier must be one of {TIERS}")
+            if "tier" in fields and fields["tier"] not in TIER_CHOICES:
+                return err(f"tier must be one of {TIER_CHOICES}")
             if "repo" in fields:
                 path = Path(str(fields["repo"])).expanduser().resolve()
                 if not path.is_dir():
@@ -243,8 +243,8 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         if not text:
             return err("Empty message")
         tier = data.get("tier")
-        if tier and tier not in TIERS:
-            return err(f"tier must be one of {TIERS}")
+        if tier and tier not in TIER_CHOICES:
+            return err(f"tier must be one of {TIER_CHOICES}")
         try:
             store.get_session(sid)
         except KeyError:
@@ -288,8 +288,41 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         return JSONResponse(store.get_session(new_id).public())
 
     async def cancel(request: Request) -> Response:
-        agent.cancel(request.path_params["sid"])
-        return JSONResponse({"ok": True})
+        returned = agent.cancel(request.path_params["sid"])
+        return JSONResponse({"ok": True, "queued": returned})
+
+    async def queue(request: Request) -> Response:
+        """Messages typed while a turn runs. 409 when nothing is running: then the UI just sends it."""
+        sid = request.path_params["sid"]
+        if request.method == "GET":
+            return JSONResponse({"queued": agent.queued(sid)})
+        if request.method == "DELETE":
+            return JSONResponse({"ok": agent.dequeue(sid, request.path_params.get("qid", ""))})
+        text = str((await request.json()).get("text") or "").strip()
+        if not text:
+            return err("Empty message")
+        with busy_lock:
+            if sid not in busy:
+                return err("Not working right now; send it as a normal message.", 409)
+            return JSONResponse(agent.enqueue(sid, text))
+
+    async def rewind(request: Request) -> Response:
+        sid = request.path_params["sid"]
+        data = await request.json()
+        text = str(data.get("message") or "").strip()
+        tier = data.get("tier")
+        if not text:
+            return err("Empty message")
+        if tier and tier not in TIER_CHOICES:
+            return err(f"tier must be one of {TIER_CHOICES}")
+        try:
+            mid = int(data.get("mid"))
+            store.get_session(sid)
+        except (TypeError, ValueError):
+            return err("mid must be a message id")
+        except KeyError:
+            return err("No such session", 404)
+        return stream(sid, agent.rewind(sid, mid, text, tier))
 
     async def grep(request: Request) -> Response:
         ctx = ctx_for(request.path_params["sid"])
@@ -672,6 +705,9 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         Route("/api/sessions/{sid}/chat", chat, methods=["POST"]),
         Route("/api/sessions/{sid}/approve", approve, methods=["POST"]),
         Route("/api/sessions/{sid}/cancel", cancel, methods=["POST"]),
+        Route("/api/sessions/{sid}/queue", queue, methods=["GET", "POST"]),
+        Route("/api/sessions/{sid}/queue/{qid}", queue, methods=["DELETE"]),
+        Route("/api/sessions/{sid}/rewind", rewind, methods=["POST"]),
         Route("/api/sessions/{sid}/compact", compact, methods=["POST"]),
         Route("/api/sessions/{sid}/handoff", handoff, methods=["POST"]),
         Route("/api/sessions/{sid}/grep", needs_workspace(grep)),

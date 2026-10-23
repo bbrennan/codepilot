@@ -47,7 +47,7 @@ class ScriptedLLM:
             content = [{"toolUse": {"toolUseId": f"t{len(self.calls)}", "name": "propose_edit", "input": {
                 "path": "agent/core.py", "old_text": "a - b", "new_text": "a + b", "reason": "add should add"}}}]
         elif "slow" in user_text:
-            content = [{"text": "Thinking slowly. " * 20}]
+            content = [{"text": "Thinking slowly. " * 8}]
         else:
             content = [{"text": "**Hello** from the scripted model.\n\n```python\nprint('hi')\n```\n\nSee "
                                 "`agent/core.py:2`."}]

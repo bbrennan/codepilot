@@ -482,3 +482,25 @@ a.loc:hover { text-decoration: underline; }
 .row.steer .incl.fileMatch { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 .row.steer .incl.auto { color: var(--syn-kw); border-color: color-mix(in srgb, var(--syn-kw) 40%, transparent); }
 .steer-chip { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+.msg.user { position: relative; }
+.msg-actions { position: absolute; top: -10px; right: 8px; display: none; gap: 2px; background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 7px; padding: 1px; box-shadow: var(--shadow); white-space: normal; }
+.msg.user[data-mid]:hover .msg-actions { display: flex; }
+.msg.user.editing .msg-actions { display: none !important; }
+.msg-actions button { border: 0; background: transparent; color: var(--muted); width: 24px; height: 22px; border-radius: 5px; display: grid; place-items: center; cursor: pointer; }
+.msg-actions button:hover { background: var(--bg-4); color: var(--fg); }
+.msg-actions svg { width: 13px; height: 13px; }
+.edit-box { margin-top: 8px; white-space: normal; }
+.edit-box textarea { width: 100%; resize: vertical; font: inherit; min-height: 60px; }
+.edit-acts { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.edit-acts .spacer { flex: 1; }
+.msg.user.editing > .body, .msg.user.editing > .msg-foot { display: none; }
+.msg.queued { border-style: dashed; opacity: .85; }
+.queued-bar { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 11.5px; color: var(--muted); white-space: normal; }
+.queued-bar .spacer { flex: 1; }
+.queued-bar svg { width: 12px; height: 12px; }
+.sent-while { font-size: 10.5px; color: var(--muted); margin-bottom: 3px; white-space: normal; }
+.route-chip { background: color-mix(in srgb, var(--ok) 13%, transparent); color: var(--ok); }
+.card.advisor summary { cursor: pointer; display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12.5px; }
+.card.advisor summary svg { width: 14px; height: 14px; color: var(--syn-kw); }
+.card.advisor .md { margin-top: 6px; font-size: 13px; }
+.banner.error .btn { margin-left: 8px; }

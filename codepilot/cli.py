@@ -45,14 +45,15 @@ def main(argv: list[str] | None = None) -> int:
 
     p_chat = sub.add_parser("chat", help="Terminal chat (no browser)")
     p_chat.add_argument("--repo", help="Target repo (default: CODEPILOT_REPO)")
-    p_chat.add_argument("--tier", choices=["fast", "main", "hard"])
+    p_chat.add_argument("--tier", choices=["auto", "fast", "main", "hard"])
     p_chat.add_argument("--session", help="Resume a session id")
 
     p_bench = sub.add_parser("bench", help="Benchmark on planted-bug tasks graded by hidden tests")
     bsub = p_bench.add_subparsers(dest="bench_cmd", required=True)
     b_run = bsub.add_parser("run", help="Run tasks headless and grade them")
     b_run.add_argument("--tasks", help="Comma-separated task ids (default: all)")
-    b_run.add_argument("--tier", choices=["fast", "main", "hard"], default="main")
+    b_run.add_argument("--tier", choices=["auto", "fast", "main", "hard"], default="main",
+                       help="auto: codepilot picks per turn, to compare cost and pass rate against a fixed tier")
     b_run.add_argument("--mode", help="Force a mode for every task (default: each task's own, e.g. debug)")
     b_run.add_argument("--repeat", type=int, default=1, help="Runs per task, to measure variance")
     b_run.add_argument("--jobs", type=int, default=1, help="Tasks in parallel")

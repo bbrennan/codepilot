@@ -111,7 +111,7 @@ def test_unknown_tool_and_missing_repo(cfg, store, repo, tmp_path):
     events = list(agent.chat(sess.id, "x"))
     assert next(e for e in events if e["type"] == "tool_result")["is_error"]
     gone = store.create_session(str(tmp_path / "missing"), "main")
-    assert types(list(Agent(cfg, store, llm=FakeLLM([])).chat(gone.id, "x"))) == ["error"]
+    assert types(list(Agent(cfg, store, llm=FakeLLM([])).chat(gone.id, "x"))) == ["turn", "error"]
 
 
 def test_no_workspace_then_open_workspace(cfg, store, repo):

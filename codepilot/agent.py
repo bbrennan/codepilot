@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import time
+import uuid
 from collections.abc import Callable, Generator, Iterator
 from pathlib import Path
 from typing import Any
 
-from . import checks, mentions, models, modes, prompts, repomap, skills, steering
+from . import checks, mentions, models, modes, prompts, repomap, router, skills, steering
 from .bedrock import BedrockError, make_client
 from .config import Config
 from .context import CLEARED_PREFIX, ContextManager, is_overflow
@@ -64,11 +66,70 @@ class Agent:
         self._logs_client = None
         self._logs_factory = logs_client_factory or self._default_logs_client
         self._cancelled: set[str] = set()
+        self._queues: dict[str, list[dict]] = {}  # messages typed while a turn runs, read at the next step
+        self._queue_lock = threading.Lock()
         self.ctxm = ContextManager(cfg, store, self.llm, fast_model=lambda: self.tier_model("fast"))
 
-    def cancel(self, session_id: str) -> None:
-        """Ask a running turn to stop at the next safe point."""
+    def cancel(self, session_id: str) -> list[str]:
+        """Ask a running turn to stop at the next safe point. Returns queued messages, so the UI can put them
+        back in the message box instead of losing them."""
         self._cancelled.add(session_id)
+        return [q["text"] for q in self.take_queue(session_id)]
+
+    # -- queued messages: typed while a turn runs ------------------------------------------------
+
+    def enqueue(self, session_id: str, text: str) -> dict:
+        item = {"id": uuid.uuid4().hex[:10], "text": text}
+        with self._queue_lock:
+            self._queues.setdefault(session_id, []).append(item)
+        return item
+
+    def dequeue(self, session_id: str, qid: str) -> bool:
+        with self._queue_lock:
+            items = self._queues.get(session_id, [])
+            kept = [q for q in items if q["id"] != qid]
+            self._queues[session_id] = kept
+            return len(kept) != len(items)
+
+    def take_queue(self, session_id: str) -> list[dict]:
+        with self._queue_lock:
+            return self._queues.pop(session_id, [])
+
+    def queued(self, session_id: str) -> list[dict]:
+        with self._queue_lock:
+            return list(self._queues.get(session_id, []))
+
+    def _deliver_queue(self, session_id: str) -> Iterator[dict]:
+        """Mid-turn: add queued messages to the conversation before the next model call."""
+        items = self.take_queue(session_id)
+        if not items:
+            return
+        last = self.store.last_message(session_id)
+        blocks = [{"text": QUEUED_PREFIX + q["text"]} for q in items]
+        if last and last[1]["role"] == "user":
+            self.store.replace_content(last[0], last[1]["content"] + blocks)
+        else:
+            self.store.add_message(session_id, "user", blocks)
+        for q in items:
+            yield {"type": "user", "text": q["text"], "queued_id": q["id"], "mid": last[0] if last else None}
+
+    # -- rewind: edit an earlier message, or retry the last one ---------------------------------
+
+    def rewind(self, session_id: str, mid: int, text: str, tier: str | None = None) -> Iterator[dict]:
+        """Remove a user message and everything after it, then send `text` in its place."""
+        if self.store.is_archived(mid):
+            yield {"type": "error", "message": "That message was summarised when the conversation was compacted, "
+                                               "so it can't be edited. Send a new message instead."}
+            return
+        target = next((msg for m, msg in self.store.messages(session_id) if m == mid), None)
+        if not target or target["role"] != "user" or not target["content"] or "text" not in target["content"][0]:
+            yield {"type": "error", "message": "Only a message that started a turn can be edited or retried."}
+            return
+        self.store.delete_messages_from(session_id, mid)
+        state = dict(self.store.get_session(session_id).context_state or {})
+        state["steering_loaded"] = []
+        self.store.update_session(session_id, pending=None, context_state=state)
+        yield from self.chat(session_id, text, tier)
 
     def _default_logs_client(self) -> Any:
         if self._logs_client is None:
@@ -78,6 +139,19 @@ class Agent:
     # -- public API -----------------------------------------------------------------------------
 
     def chat(self, session_id: str, text: str, tier: str | None = None) -> Iterator[dict]:
+        yield from self._chat_once(session_id, text, tier)
+        yield from self._drain_queue_turns(session_id)
+
+    def _drain_queue_turns(self, session_id: str) -> Iterator[dict]:
+        """Messages queued too late for the turn that just ended start the next one, in the same stream."""
+        while self.queued(session_id) and session_id not in self._cancelled \
+                and not self.store.get_session(session_id).pending:
+            items = self.take_queue(session_id)
+            text = "\n\n".join(q["text"] for q in items)
+            yield {"type": "user", "text": text, "queued_ids": [q["id"] for q in items]}
+            yield from self._chat_once(session_id, text)
+
+    def _chat_once(self, session_id: str, text: str, tier: str | None = None) -> Iterator[dict]:
         sess = self.store.get_session(session_id)
         self._cancelled.discard(session_id)
         if sess.pending:
@@ -111,12 +185,17 @@ class Agent:
         turn_context = self._turn_context(self.store.get_session(session_id), root)
         if turn_context:
             content.append({"text": turn_context})
+        route = self._start_turn(session_id, text)
+        if route:
+            yield route
         last = self.store.last_message(session_id)
         if last and last[1]["role"] == "user":
             # A stop or error left the conversation ending on our side; Bedrock needs alternating roles.
             self.store.replace_content(last[0], last[1]["content"] + content)
+            mid = last[0]
         else:
-            self.store.add_message(session_id, "user", content)
+            mid = self.store.add_message(session_id, "user", content)
+        yield {"type": "turn", "mid": mid}
         yield from self._loop(session_id)
 
     # -- steering: always-on docs live in the system prompt; these load the rest when they apply --------
@@ -184,14 +263,89 @@ class Agent:
 
     def tier_model(self, tier: str) -> str:
         """The tier's configured model, or the best enabled fallback if discovery found it unavailable."""
-        return models.resolve_tiers(self.cfg, models.cached(self.cfg))[tier]["model"]
+        return models.resolve_tiers(self.cfg, models.cached(self.cfg))["main" if tier == "auto" else tier]["model"]
+
+    def auto_model(self, tier: str) -> str:
+        """Auto uses the newest model of each class this account can use: Haiku (fast), Sonnet (main, the
+        default), Opus (hard). Without discovery results (or for non-Claude providers) it uses the tier's model."""
+        return models.best_in_family(models.cached(self.cfg), models.AUTO_FAMILIES[tier]) or self.tier_model(tier)
 
     def _model_for(self, sess: Session) -> str:
+        """The model for this session's current turn: a pinned model, Auto's pick, or the mode's/session's tier."""
         if sess.model:
             return sess.model
         root = Path(sess.repo).expanduser().resolve() if sess.repo else None
         mode = modes.get(sess.mode, root, self.cfg.home)
+        if sess.tier == "auto":
+            route = (sess.context_state or {}).get("route") or {}
+            return self.auto_model(route.get("tier") or mode.tier or "main")
         return self.tier_model(mode.tier or sess.tier)
+
+    # -- Auto routing and turn bookkeeping ------------------------------------------------------
+
+    def _start_turn(self, session_id: str, text: str) -> dict | None:
+        """Reset per-turn counters; with Auto, choose this turn's tier. Returns the route event, if any."""
+        sess = self.store.get_session(session_id)
+        state = dict(sess.context_state or {})
+        state["turn"] = {"failures": 0, "advised": False, "hit_limit": False}
+        event = None
+        if sess.tier == "auto" and not sess.model:
+            root = Path(sess.repo).expanduser().resolve() if sess.repo else None
+            mode = modes.get(sess.mode, root, self.cfg.home)
+            pick = router.choose(mode.name, text, state.get("last_turn"))
+            if mode.tier and pick.reason == "routine work":  # a custom mode's own tier beats the default rule
+                pick = router.Route(mode.tier, f"{mode.label} mode prefers {mode.tier}")
+            model = self.auto_model(pick.tier)
+            state["route"] = {"tier": pick.tier, "reason": pick.reason, "model": model}
+            event = {"type": "route", "tier": pick.tier, "model": model, "reason": pick.reason}
+        model = self._model_for(Session(**{**sess.__dict__, "context_state": state}))
+        if state.get("last_model") and state["last_model"] != model:
+            # Another model can't validate this one's signed reasoning; drop it once at the switch.
+            self.store.update_session(session_id, context_state=state)
+            self._strip_reasoning(session_id)
+            state = dict(self.store.get_session(session_id).context_state or {})
+        state["last_model"] = model
+        self.store.update_session(session_id, context_state=state)
+        return event
+
+    def _end_turn(self, session_id: str) -> None:
+        state = dict(self.store.get_session(session_id).context_state or {})
+        state["last_turn"] = state.pop("turn", {})
+        self.store.update_session(session_id, context_state=state)
+
+    def _turn_flag(self, session_id: str, **changes) -> dict:
+        state = dict(self.store.get_session(session_id).context_state or {})
+        turn = {**{"failures": 0, "advised": False, "hit_limit": False}, **state.get("turn", {})}
+        for k, v in changes.items():
+            turn[k] = turn.get(k, 0) + v if k == "failures" else v
+        state["turn"] = turn
+        self.store.update_session(session_id, context_state=state)
+        return turn
+
+    def _after_result(self, session_id: str, tu: dict, output: str, is_error: bool) -> Generator[dict, None, str]:
+        """Count failing runs; on the second one in a turn under Auto, consult the hard model once."""
+        if not router.failed_run(tu["name"], output, is_error):
+            return output
+        turn = self._turn_flag(session_id, failures=1)
+        sess = self.store.get_session(session_id)
+        if sess.tier != "auto" or sess.model or turn["failures"] < 2 or turn["advised"]:
+            return output
+        advisor = self.auto_model("hard")
+        if advisor == self._model_for(sess):
+            return output
+        self._turn_flag(session_id, advised=True)
+        yield {"type": "notice", "message": f"Auto: runs keep failing, so asking {advisor} for a second opinion…"}
+        transcript = render_transcript(self.store.live_messages(session_id)[-24:], limit=60_000)
+        prompt = (f"{transcript}\n\nThe latest {tu['name']} result:\n{output[-6000:]}\n\n"
+                  "Give your advice now.")
+        try:
+            advice = self.llm.complete(advisor, prompts.ADVISOR, prompt, max_tokens=1500)
+        except BedrockError as exc:
+            yield {"type": "notice", "message": f"Second opinion unavailable: {exc}"}
+            return output
+        yield {"type": "advisor", "model": advisor, "text": advice}
+        return (f"{output}\n\n<advisor model=\"{advisor}\">\n{advice}\n</advisor>\n"
+                "Consider this advice before your next step.")
 
     def context_usage(self, session_id: str) -> dict:
         """Estimated prompt tokens against the model's budget (window minus reply reserve)."""
@@ -237,10 +391,12 @@ class Agent:
                 output, is_error, took = "The user declined this tool call.", True, 0.0
             yield from self._drain(ctx)
             yield self._result_event(tu, output, is_error, took)
+            output = yield from self._after_result(session_id, tu, output, is_error)
             results.append(_tool_result(tu["toolUseId"], output, is_error))
         self.store.update_session(session_id, pending=None)
         self.store.add_message(session_id, "user", _order_results(pending["order"], results))
         yield from self._loop(session_id)
+        yield from self._drain_queue_turns(session_id)
 
     def describe(self, tu: dict, root: Path | None) -> str:
         """Human-readable form of an approval-gated call."""
@@ -311,19 +467,26 @@ class Agent:
         yield from events
 
     def _loop(self, session_id: str) -> Iterator[dict]:
+        for event in self._loop_steps(session_id):
+            if event["type"] == "done":
+                self._end_turn(session_id)
+            yield event
+
+    def _loop_steps(self, session_id: str) -> Iterator[dict]:
         sess = self.store.get_session(session_id)
         ctx = self._ctx(sess)
         if ctx.root is not None and not ctx.root.is_dir():
             yield {"type": "error", "message": f"Workspace path does not exist: {ctx.root}"}
             return
         mode = modes.get(sess.mode, ctx.root, self.cfg.home)
-        model = sess.model or self.tier_model(mode.tier or sess.tier)
+        model = self._model_for(sess)
         system = self._session_system(sess, ctx)
         specs = [t.spec() for t in self.tools.values()]
         recovered = False
         step = 0
         while step < self.cfg.max_steps:
             step += 1
+            yield from self._deliver_queue(session_id)
             changed = yield from self.ctxm.ensure_room(session_id, model, system, specs)
             if changed:
                 self._strip_reasoning(session_id)
@@ -402,6 +565,7 @@ class Agent:
                     output, is_error, took = yield from self._exec(ctx, tu)
                 yield from self._drain(ctx)
                 yield self._result_event(tu, output, is_error, took)
+                output = yield from self._after_result(session_id, tu, output, is_error)
                 results.append(_tool_result(tu["toolUseId"], output, is_error))
             if awaiting:
                 self.store.update_session(session_id, pending={
@@ -416,6 +580,7 @@ class Agent:
                 return
             if ctx.root != root_before:
                 system = self._session_system(self.store.get_session(session_id), ctx)
+        self._turn_flag(session_id, hit_limit=True)
         yield {"type": "notice", "message": f"Stopped after {self.cfg.max_steps} steps (CODEPILOT_MAX_STEPS). "
                                             "Say 'continue' to keep going."}
         yield self.context_usage(session_id)
@@ -569,6 +734,9 @@ def _tool_result(tool_use_id: str, output: str, is_error: bool) -> dict:
                            "status": "error" if is_error else "success"}}
 
 
+QUEUED_PREFIX = "(Sent while you were working) "
+
+
 def _order_results(order: list[str], results: list[dict]) -> list[dict]:
     by_id = {r["toolResult"]["toolUseId"]: r for r in results}
     return [by_id[i] for i in order if i in by_id]
@@ -578,8 +746,11 @@ def history_events(store: Store, session_id: str) -> list[dict]:
     """Rebuild UI events from stored messages (including archived ones) to redraw a session."""
     events: list[dict] = []
     names: dict[str, str] = {}
-    for _, m in store.messages(session_id, include_archived=True):
-        for b in m["content"]:
+    live = {mid for mid, _ in store.messages(session_id)}
+    for mid, m in store.messages(session_id, include_archived=True):
+        # A message that starts a turn (and isn't compacted) can be edited or retried from the UI.
+        starts_turn = m["role"] == "user" and bool(m["content"]) and "text" in m["content"][0] and mid in live
+        for i, b in enumerate(m["content"]):
             if "text" in b and m["role"] == "user" and b["text"].startswith("<turn_context>"):
                 continue
             if "text" in b and m["role"] == "user" and b["text"].startswith("<skill name="):
@@ -588,9 +759,16 @@ def history_events(store: Store, session_id: str) -> list[dict]:
                 events.append({"type": "steering", "names": re.findall(r'<steering name="([^"]+)"', b["text"])})
             elif "text" in b and m["role"] == "user" and b["text"].startswith(mentions.ATTACH_OPEN):
                 events.append({"type": "attached", "paths": mentions.attached_labels(b["text"])})
+            elif "text" in b and m["role"] == "user":
+                queued = b["text"].startswith(QUEUED_PREFIX)
+                event = {"type": "user", "text": b["text"].removeprefix(QUEUED_PREFIX)}
+                if starts_turn and i == 0:
+                    event["mid"] = mid
+                elif queued:
+                    event["queued"] = True
+                events.append(event)
             elif "text" in b:
-                kind = "user" if m["role"] == "user" else "assistant"
-                events.append({"type": kind, "text": b["text"]})
+                events.append({"type": "assistant", "text": b["text"]})
             elif "toolUse" in b:
                 tu = b["toolUse"]
                 names[tu["toolUseId"]] = tu["name"]

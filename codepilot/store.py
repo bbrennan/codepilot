@@ -241,6 +241,16 @@ class Store:
         with self._lock, self._db:
             self._db.execute("UPDATE messages SET content = ? WHERE id = ?", (json.dumps(_encode(content)), mid))
 
+    def is_archived(self, mid: int) -> bool:
+        with self._lock:
+            row = self._db.execute("SELECT archived FROM messages WHERE id = ?", (mid,)).fetchone()
+        return bool(row and row["archived"])
+
+    def delete_messages_from(self, sid: str, mid: int) -> int:
+        """Delete a message and everything after it in the session (rewinding the conversation)."""
+        with self._lock, self._db:
+            return self._db.execute("DELETE FROM messages WHERE session_id = ? AND id >= ?", (sid, mid)).rowcount
+
     def archive_messages(self, sid: str, ids: list[int]) -> None:
         if not ids:
             return

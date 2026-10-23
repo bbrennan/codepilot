@@ -95,7 +95,7 @@ def test_open_folder_grep_and_cancel(client_and_llm, repo):
     hits = client.get(f"/api/sessions/{sess['id']}/grep", params={"q": "return a - b"}).json()["results"]
     assert hits == [{"path": "agent/core.py", "line": 2, "text": "    return a - b"}]
     assert client.get(f"/api/sessions/{sess['id']}/grep", params={"q": "add(("}).status_code == 200  # bad regex ok
-    assert client.post(f"/api/sessions/{sess['id']}/cancel", headers=H).json() == {"ok": True}
+    assert client.post(f"/api/sessions/{sess['id']}/cancel", headers=H).json() == {"ok": True, "queued": []}
     listed = client.get("/api/sessions").json()
     assert listed[0]["busy"] is False
     assert client.get("/static/app.js").status_code == 200

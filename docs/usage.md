@@ -108,6 +108,18 @@ history only from the first or last line.
 **Long pastes** (a trace, a log, a big JSON) are sent in full, but the chat shows only their first lines
 with **Show all (N lines · size)** and **Copy**, so scrolling back through the conversation stays easy.
 
+**While it works:** keep typing. Enter **queues** your message (it shows as *Queued*). codepilot reads it
+at its next step, between tool calls, or right after it finishes. **Edit** or **Remove** a queued message
+until then; **Stop** puts queued messages back in the box.
+
+**Edit or retry:** hover over one of your messages for ✎ **Edit** and ↻ **Retry**. Both rewind the
+conversation to that message: everything after it is removed, then the (edited) message is sent again.
+File changes you already applied stay; undo them in **Changes** if needed. Messages summarised by
+compaction can't be edited. An error in the chat has a **Retry** button too.
+
+**Notifications:** if you switch to another tab or app, codepilot shows a desktop notification when it
+finishes or needs your approval (your browser asks permission the first time).
+
 **Stop:** the stop button halts a running turn at the next safe point.
 
 ## Modes
@@ -252,12 +264,26 @@ The full guide, with examples, is in [steering.md](steering.md).
 
 ## Model tiers and cost
 
-Each provider has three tiers: **fast**, **main** (default) and **hard**. The model dropdown in the chat
-header lists the tiers, **every model your account can use** (found automatically and cached for 12 hours),
+Each provider has three tiers, **fast**, **main** and **hard**, plus **auto** (the default), which picks
+one for each turn. The model dropdown in the chat header lists the tiers, **every model your account can use** (found automatically and cached for 12 hours),
 models that aren't enabled yet (greyed out, with the reason on hover), and **Refresh model list**. Pick a
 tier, or pin a specific model for the session. If a tier's model isn't enabled for your account, it shows
-"(fallback)" and uses the best enabled model in the same family. The `explore` sub-agent and memory summaries always use **fast**. Rough guide: **main** for nearly
-everything, **hard** for gnarly bugs and big designs, **fast** for quick questions.
+"(fallback)" and uses the best enabled model in the same family. The `explore` sub-agent and memory
+summaries always use **fast**.
+
+**Auto** picks the model for each message by simple rules, and a chip in the chat shows its pick and why
+("auto → claude-sonnet-5-5 · routine work"):
+
+| Situation | Model |
+|---|---|
+| Routine work (most messages) | the newest **Sonnet** your account can use |
+| Plan, Debug and Bug-hunt modes; big or structural changes (a long message, 3+ `@files`, "refactor", "architecture", "migrate"…); you write "think hard", "ultrathink" or "use opus"; the previous turn kept failing or ran out of steps | the newest **Opus** |
+| A short question in Ask mode | the newest **Haiku** |
+
+The model stays the same for the whole turn, which keeps prompt caching effective. If test or command runs
+fail twice in one turn, Auto asks Opus once for a **second opinion** (shown as a card), and the next turn
+starts on Opus. A specific tier or model you pick is used as-is. To compare Auto's cost and pass rate with a
+fixed tier, run the benchmark with `--tier auto` ([benchmark.md](benchmark.md)).
 
 Token use per model shows in **Memory → Token usage** and in the status bar. Costs are per token on your
 provider's bill; prompt caching cuts the cost of the repeated context a lot. To compare models on your

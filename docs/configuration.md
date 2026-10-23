@@ -12,7 +12,7 @@ Run `make doctor` after any change.
 | Variable | Default | Description |
 |---|---|---|
 | `CODEPILOT_PROVIDER` | `bedrock` | `bedrock`, `anthropic`, `openai` or `ollama` |
-| `CODEPILOT_DEFAULT_TIER` | `main` | Tier for new sessions: `fast`, `main` or `hard` |
+| `CODEPILOT_DEFAULT_TIER` | `auto` | Tier for new sessions: `auto` (picks per turn; see [usage](usage.md#model-tiers-and-cost)), `fast`, `main` or `hard` |
 | `CODEPILOT_MAX_TOKENS` | `16000` | Max output tokens per model reply (Ollama is capped at 8192) |
 | `CODEPILOT_MAX_STEPS` | `40` | Max model↔tool round trips per message; the assistant asks to continue after that |
 | `CODEPILOT_CONTEXT_TOKENS` | per model | Context window override. Defaults by model: 1M for Claude 4.6+ and 5.x (Bedrock and Anthropic API), 200k for Claude 4.5 and older, 128k for OpenAI, `CODEPILOT_OLLAMA_NUM_CTX` for Ollama. `make doctor` shows each tier's window |

@@ -65,6 +65,11 @@ assistant's replies in them are scripted so the demo is reproducible.</sub>
 - **Never runs out of room:** token-accurate context management clears stale tool output and summarises
   earlier turns before the window fills, even mid-task, and recovers automatically if a request is still too
   long. `/compact` and "continue in new session" are there when you want them. Per-folder notes persist.
+- **Auto model routing:** the newest Sonnet for routine work, Opus for planning, debugging and big
+  changes (and as a second opinion when tests keep failing), Haiku for quick questions. It shows each pick
+  and why, and the benchmark measures whether it saves money.
+- **Chat that keeps up with you:** type while it works (messages queue for its next step), edit or retry
+  any message, ↑ for earlier prompts, and desktop notifications when it's done.
 - **Steering:** standing instructions it always follows, in Kiro's format (`.codepilot/steering/`):
   always on, for matching files, by `#name`, or when relevant. It drafts them from your repo, and reads
   `AGENTS.md`, `CLAUDE.md`, Kiro, Cursor and Copilot instruction files too.

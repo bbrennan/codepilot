@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 TIERS = ("fast", "main", "hard")
+TIER_CHOICES = ("auto", *TIERS)  # auto: codepilot picks a tier per turn (see router.py)
 PROVIDERS = ("bedrock", "anthropic", "openai", "ollama")
 
 # Fallbacks only; set CODEPILOT_MODEL_* in .env for your account.
@@ -146,9 +147,9 @@ class Config:
             prefix = f"CODEPILOT_{provider.upper()}_MODEL"
             base = _env(prefix)
             models = {t: _env(f"{prefix}_{t.upper()}", default=base or DEFAULT_MODELS[provider][t]) for t in TIERS}
-        default_tier = _env("CODEPILOT_DEFAULT_TIER", default="main")
-        if default_tier not in TIERS:
-            raise ValueError(f"CODEPILOT_DEFAULT_TIER must be one of {TIERS}, got {default_tier!r}")
+        default_tier = _env("CODEPILOT_DEFAULT_TIER", default="auto")
+        if default_tier not in TIER_CHOICES:
+            raise ValueError(f"CODEPILOT_DEFAULT_TIER must be one of {TIER_CHOICES}, got {default_tier!r}")
         return cls(
             provider=provider,
             region=_env("CODEPILOT_REGION", "AWS_REGION", "AWS_DEFAULT_REGION", default="us-east-1"),

@@ -40,5 +40,5 @@ def test_chat_attaches_and_replays(cfg, store, repo):
     ctx = next(e for e in events if e["type"] == "context")
     assert 0 < ctx["tokens"] < ctx["budget"]
     replay = history_events(store, sess.id)
-    assert replay[:2] == [{"type": "user", "text": "explain @agent/core.py"},
+    assert replay[:2] == [{"type": "user", "text": "explain @agent/core.py", "mid": 1},
                           {"type": "attached", "paths": ["agent/core.py"]}]

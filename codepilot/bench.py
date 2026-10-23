@@ -190,6 +190,8 @@ def run_task(task: Task, base_cfg: Config, llm_factory: Callable[[Config], Any],
         "input_tokens": sum(u["input"] or 0 for u in usage), "output_tokens": sum(u["output"] or 0 for u in usage),
         "cache_read_tokens": sum(u["cache_read"] or 0 for u in usage),
         "cache_write_tokens": sum(u["cache_write"] or 0 for u in usage),
+        "by_model": [{k: u.get(k) or 0 for k in ("calls", "input", "output", "cache_read", "cache_write")}
+                     | {"model": u["model"]} for u in usage],
         "tool_calls": tools, "approvals_denied": denied, "files_changed": changed,
         "errors": errors[:5], "grade_output": grade_out, "answer_tail": answer[-1500:],
         "workdir": str(work) if keep else None,
@@ -204,7 +206,7 @@ def run(cfg: Config, task_ids: list[str] | None = None, tier: str = "main", mode
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     out_dir = (out or Path("bench/results")) / f"{stamp}{'-' + label if label else ''}"
     out_dir.mkdir(parents=True, exist_ok=True)
-    model = cfg.models[tier]
+    model = "auto (picked per turn)" if tier == "auto" else cfg.models[tier]
     progress(f"bench: {len(tasks)} task(s) x {repeat} on {cfg.provider}:{model} (tier {tier}"
              f"{', mode ' + mode if mode else ''}) -> {out_dir}")
     jobs_list = [(t, r) for r in range(repeat) for t in tasks]
@@ -252,13 +254,27 @@ def summarize(results: list[dict], model: str, prices: dict | None) -> dict:
         c = summary["by_category"].setdefault(r["category"], {"runs": 0, "passed": 0})
         c["runs"] += 1
         c["passed"] += int(r["passed"])
-    price = _price_for(model, prices)
-    if price:
-        cost = (tot["input_tokens"] * price.get("input", 0) + tot["output_tokens"] * price.get("output", 0)
-                + tot["cache_read_tokens"] * price.get("cache_read", 0)
-                + tot["cache_write_tokens"] * price.get("cache_write", 0)) / 1e6
-        summary["cost_usd"] = round(cost, 4)
-        summary["cost_per_pass_usd"] = round(cost / passed, 4) if passed else None
+    by_model: dict[str, dict] = {}
+    for r in results:
+        for u in r.get("by_model") or []:
+            agg = by_model.setdefault(u["model"], {"calls": 0, "input": 0, "output": 0, "cache_read": 0,
+                                                   "cache_write": 0})
+            for k in agg:
+                agg[k] += u.get(k, 0) or 0
+    if by_model:
+        summary["by_model"] = by_model
+    if prices:
+        # Price each model's tokens at its own rate (Auto and the explore sub-agent use several models).
+        rows = by_model.items() if by_model else [(model, {"input": tot["input_tokens"], "output": tot["output_tokens"],
+                                                           "cache_read": tot["cache_read_tokens"],
+                                                           "cache_write": tot["cache_write_tokens"]})]
+        priced = [(_price_for(m, prices), u) for m, u in rows]
+        if all(p for p, _ in priced):
+            cost = sum(u["input"] * p.get("input", 0) + u["output"] * p.get("output", 0)
+                       + u["cache_read"] * p.get("cache_read", 0) + u["cache_write"] * p.get("cache_write", 0)
+                       for p, u in priced) / 1e6
+            summary["cost_usd"] = round(cost, 4)
+            summary["cost_per_pass_usd"] = round(cost / passed, 4) if passed else None
     return summary
 
 
@@ -285,6 +301,9 @@ def markdown(report: dict) -> str:
     if "cost_usd" in s:
         lines.append(f"- **Estimated cost:** ${s['cost_usd']:.4f}"
                      + (f" (${s['cost_per_pass_usd']:.4f} per passing task)" if s.get("cost_per_pass_usd") else ""))
+    if s.get("by_model"):
+        lines.append("- **Models used:** " + "; ".join(
+            f"`{m}` {u['calls']} calls, {u['input']:,} in / {u['output']:,} out" for m, u in s["by_model"].items()))
     lines += ["", "| Category | Passed |", "|---|---|"]
     lines += [f"| {c} | {v['passed']}/{v['runs']} |" for c, v in sorted(s["by_category"].items())]
     lines += ["", "| Task | Category | Mode | Result | Time | Calls | Tokens in/out | Tools |",

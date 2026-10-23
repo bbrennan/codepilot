@@ -176,6 +176,17 @@ def cached(cfg: Config) -> dict | None:
         return None
 
 
+AUTO_FAMILIES = {"fast": "haiku", "main": "sonnet", "hard": "opus"}
+
+
+def best_in_family(data: dict | None, family: str) -> str | None:
+    """The newest available model of a family (Messages API preferred on a tie), from discovery results."""
+    same = [m for m in (data or {}).get("models", []) if m["available"] and _family(m["id"]) == family]
+    if not same:
+        return None
+    return max(same, key=lambda m: (_version(m["id"]), m["api"] == "Messages API"))["id"]
+
+
 def resolve_tiers(cfg: Config, data: dict | None) -> dict[str, dict]:
     """Effective model per tier: the configured one if available, else the best available in its families."""
     out: dict[str, dict] = {}

@@ -11,7 +11,7 @@ function store(key, val) { try { if (val === undefined) return localStorage.getI
 async function api(path, opts = {}) {
   const res = await fetch(path, { headers: H, ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || res.statusText);
+  if (!res.ok) { const e = new Error(data.error || res.statusText); e.status = res.status; throw e; }
   return data;
 }
 const fmtTok = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n || 0));
@@ -94,6 +94,7 @@ const fileIcon = (p) => `<span class="ficon file" style="color:${EXT_COLORS[extO
 const state = {
   cfg: null, sid: null, session: null, workspace: "", streams: new Set(), proposals: new Map(), toolEls: new Map(),
   tabs: [], active: null, tree: new Map(), expanded: new Set(), activity: 0, context: null, testCmd: "", traceFiles: [],
+  msgText: new Map(), // message id -> the text the user sent (for edit and retry)
 };
 
 // ---------------------------------------------------------------- layout
@@ -806,6 +807,44 @@ function userMessageHtml(text) {
   return `<div class="msg user long clamped"><div class="body">${userHtml(text)}</div>
     <div class="msg-foot"><button class="more" type="button" data-size="${esc(size)}">${icon("chevron")}<span>Show all (${esc(size)})</span></button><button class="more copy-msg" type="button" title="Copy this message">${icon("copy")}<span>Copy</span></button></div></div>`;
 }
+// Edit / retry: a message that started a turn knows its id (mid) and can rewind the conversation to it.
+function markTurn(el, mid, text) {
+  el.dataset.mid = mid;
+  if (text != null) state.msgText.set(String(mid), text);
+  else if (!state.msgText.has(String(mid))) state.msgText.set(String(mid), $(".body", el)?.innerText ?? "");
+  if (!$(".msg-actions", el)) el.insertAdjacentHTML("beforeend", `<div class="msg-actions"><button data-act="edit" title="Edit and resend (rewinds the conversation to here)">${icon("edit")}</button><button data-act="retry" title="Send again from here">${icon("refresh")}</button></div>`);
+}
+const lastTurnBubble = () => [...$$("#transcript .msg.user[data-mid]")].at(-1) || null;
+function rewindTo(el, text) {
+  if (!state.sid || state.streams.has(state.sid)) return toast("Wait for codepilot to finish (or press Stop) first.", true);
+  const mid = +el.dataset.mid;
+  while (el.nextElementSibling) el.nextElementSibling.remove();
+  el.remove();
+  const fresh = add(userMessageHtml(text)); scrollEnd(true);
+  state.prompts = (state.prompts || []).concat(text); resetHistory();
+  streamTo(state.sid, `/api/sessions/${state.sid}/rewind`, { mid, message: text, tier: selectedTier() }).then(() => fresh);
+}
+async function editMessage(el) {
+  const original = state.msgText.get(el.dataset.mid) ?? $(".body", el).innerText;
+  if ($(".edit-box", el)) return;
+  el.classList.add("editing");
+  el.insertAdjacentHTML("beforeend", `<div class="edit-box"><textarea class="field" rows="3"></textarea><div class="edit-acts"><span class="hint">Enter to send · Esc to cancel</span><span class="spacer"></span><button class="btn sm" data-edit="cancel">Cancel</button><button class="btn sm primary" data-edit="send">Send</button></div></div>`);
+  const ta = $(".edit-box textarea", el); ta.value = original; ta.style.height = Math.min(ta.scrollHeight + 4, 320) + "px"; ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
+  const close = () => { $(".edit-box", el)?.remove(); el.classList.remove("editing"); };
+  const go = async () => {
+    const text = ta.value.trim(); if (!text) return;
+    const isLast = el === lastTurnBubble();
+    if (!isLast && !(await confirmDialog("Rewind to this message?", "Everything after it in this conversation is removed, then your edited message is sent. File changes you already applied stay (undo them in Changes if needed).", "Rewind & send"))) return;
+    close(); rewindTo(el, text);
+  };
+  ta.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); go(); } if (e.key === "Escape") close(); };
+  $("[data-edit=cancel]", el).onclick = close; $("[data-edit=send]", el).onclick = go;
+}
+async function retryFrom(el) {
+  const isLast = el === lastTurnBubble();
+  if (!isLast && !(await confirmDialog("Retry from here?", "Everything after this message is removed and it's sent again.", "Retry"))) return;
+  rewindTo(el, state.msgText.get(el.dataset.mid) ?? $(".body", el).innerText);
+}
 function userHtml(text) {
   return esc(text).replace(/(^|[\s(])@([\w.\-/~]+)(?::(\d+)(?:-(\d+))?)?/g, (m, pre, p, a) => `${pre}<span class="ref" data-path="${p}" ${a ? `data-line="${a}"` : ""}>@${m.slice(pre.length + 1)}</span>`);
 }
@@ -824,7 +863,17 @@ function toolEl(ev) {
 }
 function render(ev, replay) {
   switch (ev.type) {
-    case "user": endText(); add(userMessageHtml(ev.text)); break;
+    case "user": {
+      endText();
+      for (const id of ev.queued_ids || (ev.queued_id ? [ev.queued_id] : [])) $(`#transcript .msg.queued[data-qid="${id}"]`)?.remove();
+      const el = add(userMessageHtml(ev.text));
+      if (ev.queued || ev.queued_id) el.insertAdjacentHTML("afterbegin", `<div class="sent-while">sent while codepilot was working</div>`);
+      if (ev.mid) markTurn(el, ev.mid, ev.text);
+      break;
+    }
+    case "turn": { const u = [...$$("#transcript .msg.user:not(.queued)")].reverse().find((x) => !x.dataset.mid && !$(".sent-while", x)); if (u) markTurn(u, ev.mid); break; }
+    case "route": endText(); add(`<div class="skill-chip route-chip" title="Auto picked this model because: ${esc(ev.reason)}">${icon("sparkle")}auto → ${esc(shortModel(ev.model))} · ${esc(ev.reason)}</div>`); if (!replay) activity("model", "auto", `${shortModel(ev.model)} (${ev.tier}): ${ev.reason}`); break;
+    case "advisor": endText(); add(`<details class="card advisor" open><summary>${icon("sparkle")}Second opinion from ${esc(shortModel(ev.model))}</summary><div class="md">${md(ev.text)}</div></details>`); break;
     case "attached": add(`<div class="attached">${ev.paths.map((p) => `<span data-path="${esc(p.split(":")[0])}" data-line="${esc(p.split(":")[1]?.split("-")[0] || "")}">${icon("file")} ${esc(p)}</span>`).join("")}</div>`); break;
     case "assistant": endText(); add(`<div class="msg assistant">${md(ev.text)}</div>`); break;
     case "skill": add(`<div class="skill-chip">${icon("sparkle")}skill: ${esc(ev.name)}</div>`); break;
@@ -867,7 +916,12 @@ function render(ev, replay) {
     case "usage": { const u = ev.usage || {}; activity("model", shortModel(ev.model || ""), `in ${fmtTok(u.inputTokens || 0)} · out ${fmtTok(u.outputTokens || 0)}${u.cacheReadInputTokens ? " · cached " + fmtTok(u.cacheReadInputTokens) : ""} · ${ev.seconds}s`); endText(); refreshUsage(); break; }
     case "context": setContext(ev); break;
     case "notice": endText(); add(`<div class="banner notice">${esc(ev.message)}</div>`); break;
-    case "error": endText(); add(`<div class="banner error">${esc(ev.message)}</div>`); if (!replay) activity("error", "error", ev.message); break;
+    case "error": {
+      endText();
+      const b = add(`<div class="banner error">${esc(ev.message)}</div>`);
+      if (!replay) { activity("error", "error", ev.message); const last = lastTurnBubble(); if (last) b.insertAdjacentHTML("beforeend", ` <button class="btn sm" data-retry-last>Retry</button>`); }
+      break;
+    }
     case "done": endText(); break;
   }
   if (!replay) scrollEnd();
@@ -889,6 +943,11 @@ function renderPlan(items) {
   el.innerHTML = items.map((i) => `<div class="it ${esc(i.status)}"><span class="box"></span><span>${esc(i.text)}</span></div>`).join("");
 }
 $("#transcript").addEventListener("click", (e) => {
+  const act = e.target.closest(".msg.user[data-mid] .msg-actions [data-act]");
+  if (act) { const el = act.closest(".msg.user"); act.dataset.act === "edit" ? editMessage(el) : retryFrom(el); return; }
+  if (e.target.closest("[data-retry-last]")) { const el = lastTurnBubble(); if (el) retryFrom(el); return; }
+  const qb = e.target.closest(".msg.queued [data-qedit], .msg.queued [data-qcancel]");
+  if (qb) { unqueue(qb.closest(".msg.queued"), !!qb.dataset.qedit || qb.hasAttribute("data-qedit")); return; }
   const more = e.target.closest(".msg.user .more");
   if (more) {
     const msg = more.closest(".msg.user");
@@ -914,8 +973,17 @@ function activity(kind, name, detail, body) {
 }
 
 // ---------------------------------------------------------------- streaming
+// Desktop notification when codepilot finishes or needs approval while you're in another tab or app.
+function notifyDone(sid) {
+  if (!document.hidden || !("Notification" in window) || Notification.permission !== "granted") return;
+  const needs = $("#transcript .card.approval");
+  const title = (state.sessionList || []).find((s) => s.id === sid)?.title || "codepilot";
+  try { const n = new Notification(needs ? "codepilot needs your approval" : "codepilot finished", { body: title, icon: "/static/favicon.png", tag: sid }); n.onclick = () => { window.focus(); n.close(); }; } catch { /* unsupported */ }
+}
+function askNotifyPermission() { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {}); }
 function updateBusy() {
   const busy = state.streams.has(state.sid);
+  input.placeholder = busy ? "Working… type to queue a message for its next step" : state.placeholder || input.placeholder;
   $("#sendBtn").hidden = busy; $("#stopBtn").hidden = !busy;
   $("#sbBusy").innerHTML = busy ? '<span class="spinner"></span>working…' : "";
 }
@@ -934,27 +1002,56 @@ async function streamTo(sid, url, body) {
       while ((nl = buf.indexOf("\n")) >= 0) {
         const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
         if (!line.trim()) continue;
-        if (sid === state.sid) { render(JSON.parse(line)); if (typing && typing.isConnected) $("#transcript").appendChild(typing); }
+        if (sid === state.sid) {
+          render(JSON.parse(line));
+          if (typing && typing.isConnected) $("#transcript").appendChild(typing);
+          $$("#transcript .msg.queued").forEach((q) => $("#transcript").appendChild(q)); // queued messages stay last
+        }
       }
     }
   } catch (err) { if (sid === state.sid) render({ type: "error", message: err.message }); }
   finally {
     typing?.remove(); state.streams.delete(sid); updateBusy(); loadSessions();
+    notifyDone(sid);
     if (sid === state.sid) { loadGit(); const d = await api(`/api/sessions/${sid}`).catch(() => null); if (d) { state.summary = d.summary; $("#chatTitle").textContent = d.session.title || "New session"; if ($(".view.on")?.dataset.view === "memory") renderMemory(); } }
   }
 }
+// While a turn runs, Enter queues the message: codepilot reads it at its next step (or right after it finishes).
+async function queueMessage(text) {
+  let q;
+  try { q = await api(`/api/sessions/${state.sid}/queue`, { method: "POST", body: { text } }); }
+  catch (err) { if (err.status === 409) return false; toast(err.message, true); return true; } // 409: the turn just ended
+  $("#input").value = ""; autosize(); hideMentions(); resetHistory(); rememberPrompt(text);
+  add(`<div class="msg user queued" data-qid="${esc(q.id)}"><div class="body">${userHtml(text)}</div><div class="queued-bar">${icon("history")}<span>Queued: codepilot reads this at its next step</span><span class="spacer"></span><button class="btn sm ghost" data-qedit>Edit</button><button class="btn sm ghost" data-qcancel>Remove</button></div></div>`);
+  scrollEnd(true);
+  return true;
+}
+async function unqueue(el, edit) {
+  const r = await api(`/api/sessions/${state.sid}/queue/${el.dataset.qid}`, { method: "DELETE" }).catch(() => ({ ok: false }));
+  if (!r.ok) return toast("Already sent to codepilot.", true);
+  const text = $(".body", el).innerText; el.remove();
+  if (edit) setInput(input.value ? input.value + "\n" + text : text);
+}
 async function send() {
   const text = $("#input").value.trim(); if (!text) return;
-  if (state.sid && state.streams.has(state.sid)) return;
+  if (state.sid && state.streams.has(state.sid)) { if (await queueMessage(text)) return; }
   if (!state.sid) { try { await newSession(state.workspace); } catch (err) { toast(err.message, true); return; } }
-  $("#input").value = ""; autosize(); hideMentions(); resetHistory();
+  $("#input").value = ""; autosize(); hideMentions(); resetHistory(); askNotifyPermission();
   rememberPrompt(text); (state.prompts ||= []).push(text);
   render({ type: "user", text }); scrollEnd(true);
   if (!state.session?.title) $("#chatTitle").textContent = text.split("\n")[0].slice(0, 80);
   streamTo(state.sid, `/api/sessions/${state.sid}/chat`, { message: text, tier: selectedTier() });
 }
 $("#sendBtn").onclick = send;
-$("#stopBtn").onclick = () => state.sid && api(`/api/sessions/${state.sid}/cancel`, { method: "POST" });
+$("#stopBtn").onclick = async () => {
+  if (!state.sid) return;
+  const r = await api(`/api/sessions/${state.sid}/cancel`, { method: "POST" }).catch(() => null);
+  if (r?.queued?.length) { // stopped: queued messages come back to the message box, not lost
+    $$("#transcript .msg.queued").forEach((q) => q.remove());
+    setInput([input.value, ...r.queued].filter(Boolean).join("\n\n"));
+    toast("Stopped. Your queued message is back in the box.");
+  }
+};
 const DEFAULT_MODES = [{ name: "build", label: "Build", description: "Implement changes", blocked: [] }];
 function renderModes() {
   const list = state.wsInfo?.modes || DEFAULT_MODES;
@@ -970,7 +1067,7 @@ function setMode(mode) {
   $("#modeSelect").value = mode; $("#modeSelect").classList.toggle("readonly", readonly);
   $("#modeSelect").title = m ? `${m.label}: ${m.description}` : mode;
   $("#composerBox").classList.toggle("readonly", readonly);
-  $("#input").placeholder = m && mode !== "build" ? `${m.label}: ${m.description}` : "Ask codepilot…  @ files · / skills · # steering";
+  $("#input").placeholder = state.placeholder = m && mode !== "build" ? `${m.label}: ${m.description}` : "Ask codepilot…  @ files · / skills · # steering";
 }
 $("#modeSelect").addEventListener("change", async () => {
   const mode = $("#modeSelect").value; setMode(mode);
@@ -988,7 +1085,8 @@ function renderModelSelect() {
   }).join("");
   const avail = (d?.models || []).filter((m) => m.available), off = (d?.models || []).filter((m) => !m.available);
   const name = (m) => `${m.label}${m.api === "Converse" ? " · " + m.id.split(".")[0] : ""} · ${winLabel(m.window)}`;
-  $("#tier").innerHTML = `<optgroup label="Tiers">${tierOpts}</optgroup>`
+  const autoOpt = `<option value="tier:auto" title="Picks a model for each turn: the newest Sonnet for routine work, the newest Opus for planning, debugging, big changes or when runs keep failing, Haiku for quick questions.">auto · picks per turn</option>`;
+  $("#tier").innerHTML = `<optgroup label="Tiers">${autoOpt}${tierOpts}</optgroup>`
     + (avail.length ? `<optgroup label="Models on your account">${avail.map((m) => `<option value="model:${esc(m.id)}" title="${esc(m.id + " · " + m.api)}">${esc(name(m))}</option>`).join("")}</optgroup>` : "")
     + (off.length ? `<optgroup label="Not enabled for this account">${off.map((m) => `<option disabled title="${esc(m.reason)}">${esc(name(m))}</option>`).join("")}</optgroup>` : "")
     + `<option value="refresh">${d ? "↻ Refresh model list" : "Find models on my account…"}</option>`;

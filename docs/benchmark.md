@@ -32,11 +32,14 @@ Results go to `bench/results/<timestamp>[-label]/`:
 ```bash
 uv run codepilot bench run --tier main --label sonnet
 uv run codepilot bench run --tier hard --label opus
+uv run codepilot bench run --tier auto --label auto   # does Auto keep the pass rate at lower cost?
 uv run codepilot bench compare bench/results/*-sonnet/results.json bench/results/*-opus/results.json
 ```
 
 Useful comparisons:
-- **Models:** `--tier fast|main|hard`, or change the provider and model IDs in `.env` between runs.
+- **Models:** `--tier auto|fast|main|hard`, or change the provider and model IDs in `.env` between runs.
+  Reports list the tokens each model used, and with `--prices` cost is computed per model, so Auto runs
+  (several models) and the explore sub-agent (the fast model) are priced correctly.
 - **Modes:** `--mode debug` vs `--mode build` (by default each task uses its own mode, usually `debug`).
 - **Prompt or tool changes:** run before and after your change with the same settings.
 - **Variance:** `--repeat 3` runs each task three times. Model runs are not deterministic, so for small
@@ -75,7 +78,7 @@ losing what matters.
 | Option | Default | Meaning |
 |---|---|---|
 | `--tasks a,b` | all | Run only these task ids |
-| `--tier` | `main` | Model tier |
+| `--tier` | `main` | Model tier: `auto`, `fast`, `main` or `hard` |
 | `--mode` | per task | Force a mode for every task |
 | `--repeat N` | 1 | Runs per task |
 | `--jobs N` | 1 | Tasks in parallel (watch your provider's rate limits) |

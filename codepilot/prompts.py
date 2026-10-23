@@ -95,6 +95,11 @@ def build_system(root: Path | None, test_cmd: str, eval_cmd: str, trace_roots: l
     return blocks
 
 
+ADVISOR = """You are a senior engineer giving a second opinion to a coding agent whose test or command runs \
+keep failing. Read its recent work. In under 200 words: the most likely root cause, the next thing to try, \
+and anything it should stop doing. Be specific (files, functions, commands). If it's on the right track, \
+say so briefly."""
+
 SUMMARIZE = """You compress a coding-assistant conversation so the work can continue in a smaller context. \
 Rewrite the existing summary together with the new conversation into ONE summary (don't nest or append \
 summaries). Keep it under about 800 words, in these sections, omitting empty ones:
