@@ -70,7 +70,7 @@ Start with `make doctor`. It tests each piece and prints the fix for most proble
 | Undo refused | The file changed after the change was applied; undo by hand or ask codepilot |
 | Context meter near 100% | It clears old tool outputs at 60% and summarises at 80% automatically; click the meter (or `/compact`) to compact now; for a new topic, use Memory → Continue in new session |
 | "no longer fits the model's context window" | codepilot compacts and retries once automatically. If it still fails, the current turn alone is too big (e.g. a huge pasted log): `/compact`, or continue in a new session |
-| Your model has a bigger window than codepilot assumes | Set `CODEPILOT_CONTEXT_TOKENS` (e.g. `1000000` for a 1M-context model on Bedrock) |
+| Context feels much smaller than in Claude Code or Kiro | Check the model: Claude 4.5 models (e.g. `claude-opus-4-5-…`) have 200k windows; Opus/Sonnet 4.6+ and 5.x have 1M. `make doctor` shows each tier's window and lists the newer inference profiles your account can use. Override with `CODEPILOT_CONTEXT_TOKENS` if needed |
 
 ## Getting more detail
 

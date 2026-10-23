@@ -101,7 +101,9 @@ def doctor(cfg: Config, args, env_path: Path | None) -> int:
     print(f"env file: {env_path or '(none found; using the process environment)'}")
     print(f"provider: {cfg.provider}")
     for tier, model in cfg.models.items():
-        print(f"  {tier:>4}: {model}")
+        window = cfg.context_window(model) if model else 0
+        print(f"  {tier:>4}: {model}  (context window {window:,} tokens"
+              f"{', set by CODEPILOT_CONTEXT_TOKENS' if cfg.context_tokens else ''})")
 
     if cfg.provider == "bedrock":
         failures += _doctor_bedrock(cfg, args.skip_models)

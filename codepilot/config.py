@@ -192,7 +192,7 @@ class Config:
         m = model.lower()
         long_ctx = ("claude-opus-5", "claude-sonnet-5", "claude-haiku-5", "claude-fable", "claude-mythos",
                     "claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8", "claude-sonnet-4-6")
-        if self.provider == "anthropic" and any(k in m for k in long_ctx):
-            return 1_000_000
-        # Bedrock: 200k is the safe default for Claude; raise CODEPILOT_CONTEXT_TOKENS if your models allow more.
+        if any(k in m for k in long_ctx):
+            return 1_000_000  # Claude 4.6+ and 5.x: 1M on the Anthropic API and on Bedrock
+        # Claude 4.5 and older (Opus/Sonnet/Haiku 4.5): 200k.
         return 200_000

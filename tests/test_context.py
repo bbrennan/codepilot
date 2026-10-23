@@ -41,6 +41,9 @@ def big_repo(repo):
 
 def test_context_window_defaults(cfg):
     assert replace(cfg, provider="bedrock").context_window("us.anthropic.claude-sonnet-4-5-x") == 200_000
+    assert replace(cfg, provider="bedrock").context_window("us.anthropic.claude-opus-4-5-20251101-v1:0") == 200_000
+    assert replace(cfg, provider="bedrock").context_window("global.anthropic.claude-opus-4-6-v1") == 1_000_000
+    assert replace(cfg, provider="bedrock").context_window("us.anthropic.claude-sonnet-5-5") == 1_000_000
     assert replace(cfg, provider="anthropic").context_window("claude-sonnet-5-5") == 1_000_000
     assert replace(cfg, provider="anthropic").context_window("claude-haiku-4-5") == 200_000
     assert replace(cfg, provider="ollama", ollama_num_ctx=8192).context_window("x") == 8192
