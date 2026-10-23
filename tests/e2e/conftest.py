@@ -137,8 +137,10 @@ def page(browser, server):
     pg.on("pageerror", lambda exc: errors.append(f"pageerror: {exc}"))
     pg.on("console", lambda msg: errors.append(f"console.{msg.type}: {msg.text}") if msg.type == "error" else None)
     pg.errors = errors
+    pg.expected_errors = []  # substrings of console errors a test causes on purpose, e.g. "409 (Conflict)"
     yield pg
     context.close()
+    errors = [e for e in errors if not any(x in e for x in pg.expected_errors)]
     assert not errors, "JavaScript errors in the page:\n" + "\n".join(errors)
 
 

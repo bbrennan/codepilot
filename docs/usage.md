@@ -61,6 +61,27 @@ When a folder opens, codepilot reads:
 - a map of its classes and functions, and its git status
 - your notes for that folder (see [Memory](#memory))
 
+## Files and folders
+
+You can manage files yourself, as in any IDE. Use the title-bar **File** menu, the **New File** and
+**New Folder** buttons at the top of the Explorer, or right-click in the Explorer:
+
+- **New File… / New Folder…** create the item in the selected folder (or next to the selected file).
+  Right-click a folder to create inside it, or empty space to create at the top level. Type `/` in the
+  name for subfolders, e.g. `utils/helpers.py`; missing folders are created. Existing files are never
+  overwritten.
+- **Edit:** the **Edit** button on an open file, or right-click → **Edit**, opens a plain-text editor. A
+  new file opens in it straight away. **Save** (⌘S) writes the file; a ● on the tab means unsaved changes,
+  and closing the tab asks first. **Done** returns to the highlighted view. If the file changed on disk
+  since you opened it (you elsewhere, a tool, an applied proposal), Save asks before overwriting.
+- **Rename…** (F2): a new name, or a workspace-relative path to move it. Open tabs follow the file.
+- **Delete** (Delete or ⌘⌫): asks first, then moves the item to codepilot's trash
+  (`~/.codepilot/trash`). **Undo** in the notification puts it back.
+
+F2 and Delete work only while the Explorer has focus (you last clicked in it), so they never act from the
+chat or editor. These are your own actions: they don't go through proposals or approvals, and they can't
+reach outside the workspace folder.
+
 ## Talking to it
 
 Write as you would to a colleague. Be specific about the goal and what "done" looks like.
@@ -77,6 +98,14 @@ have to go looking. Paths in its answers (`src/app.py:42`) are links that open t
 
 **Use a skill:** type `/` to pick one, for example `/diagnose-bug the checkout total is wrong`. See
 [skills-and-modes.md](skills-and-modes.md).
+
+**Earlier prompts:** press **↑** in the message box to bring back what you sent before, like a shell's
+history: this session's prompts first, then ones from other sessions. **↓** goes forward, and past the
+newest brings back what you were typing. In multi-line text, ↑ and ↓ move between lines first and recall
+history only from the first or last line.
+
+**Long pastes** (a trace, a log, a big JSON) are sent in full, but the chat shows only their first lines
+with **Show all (N lines · size)** and **Copy**, so scrolling back through the conversation stays easy.
 
 **Stop:** the stop button halts a running turn at the next safe point.
 
@@ -266,6 +295,9 @@ and Ctrl-D to quit. `--session <id>` resumes a session.
 | ⌘J | Toggle bottom panel |
 | ⌘L | Focus chat |
 | ⌘C (file selected in Explorer) | Copy its path |
+| F2 / Delete or ⌘⌫ (Explorer) | Rename / delete the selected file or folder |
+| ⌘S | Save the file you're editing |
+| ↑ / ↓ (message box) | Earlier / later prompts |
 | Alt+W | Close editor tab |
 | Enter / Shift+Enter | Send / new line |
 | `@` / `/` | Reference a file / use a skill |

@@ -125,6 +125,7 @@ tiers and the default repo, for compatibility with an older internal tool.
 | `~/Applications/Codepilot.app` | The macOS launcher written by `codepilot app` |
 | `~/.codepilot/notes/<folder>-<hash>.md` | Per-workspace notes |
 | `~/.codepilot/scratch/<session>/` | The assistant's throwaway repro scripts |
+| `~/.codepilot/trash/` | Files and folders you deleted from the Explorer (restorable; delete old ones by hand) |
 | `~/.codepilot/skills/`, `~/.codepilot/modes/` | Your custom skills and modes |
 | `~/.codepilot/AGENTS.md` | Global instructions applied to every workspace |
 | `<workspace>/.codepilot/modes/`, `.agents/skills/`, `.claude/skills/` | Project-specific modes and skills |

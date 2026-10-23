@@ -9,6 +9,7 @@ import logging
 import re
 import secrets
 import shlex
+import shutil
 import subprocess
 import threading
 import time
@@ -432,13 +433,101 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         if base.is_file():
             if base.stat().st_size > MAX_VIEW_BYTES:
                 return err("File too large to view")
-            return JSONResponse({"path": ctx.rel(base), "content": base.read_text(errors="replace")})
+            return JSONResponse({"path": ctx.rel(base), "content": base.read_text(errors="replace"),
+                                 "mtime": str(base.stat().st_mtime_ns)})
         entries = []
         for p in sorted(base.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
             if p.name in SKIP_DIRS or p.name == ".DS_Store":
                 continue
             entries.append({"name": p.name, "path": ctx.rel(p), "dir": p.is_dir()})
         return JSONResponse({"path": ctx.rel(base), "entries": entries})
+
+    async def fs(request: Request) -> Response:
+        """The user's own file operations from the explorer and editor (not the assistant's, which go through
+        proposals). Paths are workspace-relative and must stay inside it; deletes go to a restorable trash."""
+        ctx = ctx_for(request.path_params["sid"])
+        data = await request.json()
+        try:
+            return JSONResponse(await run_in_threadpool(file_op, ctx, data))
+        except FileOpError as exc:
+            return err(str(exc), exc.status)
+        except ToolError as exc:
+            return err(str(exc), 400)
+        except OSError as exc:
+            return err(f"{type(exc).__name__}: {exc.strerror or exc}", 400)
+
+    def file_op(ctx: ToolContext, data: dict) -> dict:
+        op = data.get("op")
+        rel = str(data.get("path") or "").strip().strip("/")
+        if op == "restore":
+            return restore_from_trash(ctx, str(data.get("trash_id") or ""))
+        path = workspace_path(ctx, rel)
+        if op in ("rename", "delete", "save") and not (path.exists() or path.is_symlink()):
+            raise FileOpError(f"{rel} doesn't exist.", 404)
+        if op in ("new_file", "new_folder"):
+            if path.exists() or path.is_symlink():
+                raise FileOpError(f"{rel} already exists.", 409)
+            if op == "new_folder":
+                path.mkdir(parents=True)
+            else:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(str(data.get("content") or ""))
+            return {"path": ctx.rel(path), "dir": op == "new_folder", "mtime": str(path.stat().st_mtime_ns)}
+        if op == "rename":
+            to = str(data.get("to") or "").strip().strip("/")
+            dest = workspace_path(ctx, to)
+            if (dest.exists() or dest.is_symlink()) and dest != path and dest.resolve() != path.resolve():
+                raise FileOpError(f"{to} already exists.", 409)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            path.rename(dest)
+            return {"path": ctx.rel(dest), "from": rel, "dir": dest.is_dir()}
+        if op == "delete":
+            return move_to_trash(ctx, path)
+        if op == "save":
+            path = ctx.resolve(rel)  # follows a symlink, but only to a target inside the workspace
+            if not path.is_file():
+                raise FileOpError(f"{rel} isn't a file.")
+            base_mtime = data.get("base_mtime")
+            if base_mtime and str(path.stat().st_mtime_ns) != str(base_mtime) and not data.get("force"):
+                raise FileOpError(f"{rel} changed on disk since you opened it.", 409)
+            path.write_text(str(data.get("content") or ""))
+            return {"path": rel, "mtime": str(path.stat().st_mtime_ns)}
+        raise FileOpError(f"Unknown operation: {op}")
+
+    def workspace_path(ctx: ToolContext, rel: str) -> Path:
+        """A path inside the workspace. The parent is resolved and checked; the last part isn't followed, so
+        renaming or deleting a symlink acts on the link, never on what it points to."""
+        if not rel or rel.startswith("~") or "\0" in rel or any(part in ("", ".", "..") for part in rel.split("/")):
+            raise FileOpError("Enter a file or folder name inside the workspace.")
+        parent = ctx.resolve(str(Path(rel).parent), must_exist=False)
+        return parent / Path(rel).name
+
+    def move_to_trash(ctx: ToolContext, path: Path) -> dict:
+        trash_id = time.strftime("%Y%m%d-%H%M%S-") + secrets.token_hex(3)
+        slot = cfg.home / "trash" / trash_id
+        slot.mkdir(parents=True)
+        (slot / "meta.json").write_text(json.dumps({"root": str(ctx.root), "path": ctx.rel(path),
+                                                    "deleted": time.time()}))
+        shutil.move(str(path), str(slot / "item"))
+        return {"path": ctx.rel(path), "trash_id": trash_id, "trash": str(slot)}
+
+    def restore_from_trash(ctx: ToolContext, trash_id: str) -> dict:
+        if not re.fullmatch(r"[\w-]+", trash_id):
+            raise FileOpError("Bad trash id.")
+        slot = cfg.home / "trash" / trash_id
+        try:
+            meta = json.loads((slot / "meta.json").read_text())
+        except (OSError, ValueError):
+            raise FileOpError("That item is no longer in the trash.", 404) from None
+        if Path(meta["root"]) != ctx.root:
+            raise FileOpError("That item belongs to another workspace.", 409)
+        dest = workspace_path(ctx, meta["path"])
+        if dest.exists() or dest.is_symlink():
+            raise FileOpError(f"{meta['path']} exists again; not overwriting it.", 409)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(slot / "item"), str(dest))
+        shutil.rmtree(slot, ignore_errors=True)
+        return {"path": meta["path"], "dir": dest.is_dir()}
 
     def git_view(request: Request) -> Response:  # blocking I/O: runs in a worker thread
         ctx = ctx_for(request.path_params["sid"])
@@ -533,6 +622,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         Route("/api/sessions/{sid}/files", needs_workspace(files)),
         Route("/api/sessions/{sid}/find", needs_workspace(find)),
         Route("/api/sessions/{sid}/git", needs_workspace(git_view)),
+        Route("/api/sessions/{sid}/fs", needs_workspace(fs), methods=["POST"]),
         Route("/api/sessions/{sid}/notes", needs_workspace(notes), methods=["GET", "PUT"]),
         Route("/api/sessions/{sid}/run", needs_workspace(run), methods=["POST"]),
         Route("/api/proposals/{pid:int}/{action:str}", proposal_action, methods=["POST"]),
@@ -549,6 +639,12 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
     app = Starlette(routes=routes, middleware=middleware, lifespan=lifespan)
     app.state.terminals = terminals
     return app
+
+
+class FileOpError(Exception):
+    def __init__(self, message: str, status: int = 400):
+        super().__init__(message)
+        self.status = status
 
 
 class _CsrfHeaderMiddleware:

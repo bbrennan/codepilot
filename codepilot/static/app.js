@@ -25,6 +25,8 @@ const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = se
 
 // ---------------------------------------------------------------- icons (Lucide-style, ISC)
 const ICONS = {
+  filePlus: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6"/><path d="M12 18v-6"/>',
+  folderPlus: '<path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
   logo: '<path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="m9.5 10-2 2 2 2"/><path d="m14.5 10 2 2-2 2"/>',
   files: '<path d="M20 7h-3a2 2 0 0 1-2-2V2"/><path d="M9 18a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h7l4 4v10a2 2 0 0 1-2 2Z"/><path d="M3 7.6v12.8A1.6 1.6 0 0 0 4.6 22h9.8"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
@@ -230,6 +232,7 @@ async function openSession(sid) {
   state.mode = data.session.mode || "build";
   $("#transcript").innerHTML = ""; state.toolEls.clear(); endText();
   state.proposals = new Map(data.proposals.map((p) => [p.id, p]));
+  state.prompts = data.events.filter((ev) => ev.type === "user").map((ev) => ev.text); resetHistory();
   state.workspace = data.session.repo || "";
   if (!data.events.length) renderChatEmpty();
   for (const ev of data.events) render(ev, true);
@@ -295,11 +298,11 @@ async function renderTree() {
     for (const e of entries) {
       const open = state.expanded.has(e.path);
       if (e.dir) {
-        rows.push(`<div class="row" style="--depth:${depth}" data-dir="${esc(e.path)}" draggable="true"><span class="caret ${open ? "open" : ""}">${icon("chevron")}</span><span class="ficon dir">${icon(open ? "folderOpen" : "folder")}</span><span class="name">${esc(e.name)}</span><button class="icon-btn sm hover-act" data-at="${esc(e.path)}" title="Reference in chat">${icon("at")}</button></div>`);
+        rows.push(`<div class="row ${state.picked === e.path ? "picked" : ""}" style="--depth:${depth}" data-dir="${esc(e.path)}" draggable="true"><span class="caret ${open ? "open" : ""}">${icon("chevron")}</span><span class="ficon dir">${icon(open ? "folderOpen" : "folder")}</span><span class="name">${esc(e.name)}</span><button class="icon-btn sm hover-act" data-at="${esc(e.path)}" title="Reference in chat">${icon("at")}</button></div>`);
         if (open) await walk(e.path, depth + 1);
       } else {
         const on = state.active === "file:" + e.path ? "on" : "";
-        rows.push(`<div class="row ${on}" style="--depth:${depth}" data-file="${esc(e.path)}" draggable="true"><span class="caret"></span>${fileIcon(e.path)}<span class="name">${esc(e.name)}</span><button class="icon-btn sm hover-act" data-at="${esc(e.path)}" title="Reference in chat">${icon("at")}</button></div>`);
+        rows.push(`<div class="row ${on} ${state.picked === e.path ? "picked" : ""}" style="--depth:${depth}" data-file="${esc(e.path)}" draggable="true"><span class="caret"></span>${fileIcon(e.path)}<span class="name">${esc(e.name)}</span><button class="icon-btn sm hover-act" data-at="${esc(e.path)}" title="Reference in chat">${icon("at")}</button></div>`);
       }
     }
   };
@@ -308,7 +311,7 @@ async function renderTree() {
 }
 $("#tree").addEventListener("click", (e) => {
   const picked = e.target.closest("[data-file],[data-dir]");
-  if (picked) { state.picked = picked.dataset.file || picked.dataset.dir; $$("#tree .row").forEach((r) => r.classList.toggle("picked", r === picked)); }
+  if (picked) { state.picked = picked.dataset.file || picked.dataset.dir; state.pickedDir = !!picked.dataset.dir; $$("#tree .row").forEach((r) => r.classList.toggle("picked", r === picked)); }
   const at = e.target.closest("[data-at]");
   if (at) { e.stopPropagation(); insertRef(at.dataset.at); return; }
   const d = e.target.closest("[data-dir]");
@@ -337,14 +340,16 @@ function openTab(tab) {
   if (existing) Object.assign(existing, tab); else state.tabs.push(tab);
   state.active = tab.id; renderEditor();
 }
-function closeTab(id) {
+async function closeTab(id) {
   const i = state.tabs.findIndex((t) => t.id === id); if (i < 0) return;
+  const t = state.tabs[i];
+  if (t.dirty && !(await confirmDialog(`Discard changes to ${t.title}?`, "Your unsaved edits will be lost.", "Discard"))) return;
   state.tabs.splice(i, 1);
   if (state.active === id) state.active = state.tabs[Math.min(i, state.tabs.length - 1)]?.id || null;
   renderEditor();
 }
 function renderTabs() {
-  $("#editorTabs").innerHTML = state.tabs.map((t) => `<div class="tab ${t.id === state.active ? "on" : ""}" data-tab="${esc(t.id)}" title="${esc(t.tip || t.title)}">
+  $("#editorTabs").innerHTML = state.tabs.map((t) => `<div class="tab ${t.id === state.active ? "on" : ""} ${t.dirty ? "dirty" : ""}" data-tab="${esc(t.id)}" title="${esc((t.tip || t.title) + (t.dirty ? " (unsaved)" : ""))}">
     <span class="ticon">${t.kind === "file" ? fileIcon(t.path) : icon(t.icon || "file")}</span><span class="label">${esc(t.title)}</span>
     <button class="icon-btn sm close" data-close="${esc(t.id)}">${icon("x")}</button></div>`).join("");
 }
@@ -395,7 +400,7 @@ async function openFile(path, line) {
   try {
     const d = await api(`/api/sessions/${state.sid}/files?path=${encodeURIComponent(path)}`);
     if (d.entries) { state.expanded.add(path); setView("explorer"); renderTree(); return; }
-    openTab({ id, kind: "file", path: d.path, title: base(d.path), tip: d.path, content: d.content, flash: line || null, sel: null });
+    openTab({ id, kind: "file", path: d.path, title: base(d.path), tip: d.path, content: d.content, mtime: d.mtime, flash: line || null, sel: null });
   } catch (err) { toast(err.message, true); }
 }
 function highlight(text, path) {
@@ -406,6 +411,7 @@ function highlight(text, path) {
   return esc(text);
 }
 function renderFileTab(tab) {
+  if (tab.editing) return renderEditTab(tab);
   const lines = tab.content.split("\n");
   if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
   const sel = tab.sel;
@@ -415,6 +421,7 @@ function renderFileTab(tab) {
       <span class="spacer"></span><span class="muted">${selLabel ? selLabel.replace("lines", "L").replace("line", "L") : lines.length + " lines"}</span>
       <button class="btn" id="fAdd" title="Reference in chat">${icon("at")}${sel ? "Add lines" : "Add to chat"}</button>
       <button class="btn" id="fAsk">${icon("sparkle")}Ask</button>
+      <button class="btn" id="fEdit" title="Edit this file">${icon("edit")}Edit</button>
       <button class="btn ghost" id="fCopy" title="Copy path (right-click a file for more)">${icon("copy")}</button>
       <button class="btn ghost" id="fReload" title="Reload from disk">${icon("refresh")}</button></div>
     <div class="ed-scroll" id="edScroll"><div class="code-view">
@@ -437,6 +444,58 @@ function renderFileTab(tab) {
   $(".crumbs").oncontextmenu = (e) => { e.preventDefault(); showMenu(e.clientX, e.clientY, pathMenu(tab.path, false)); };
   $("#fAsk").onclick = () => { setInput(`Explain @${ref()} — what it does, how it fits in, and any bugs you see.`); };
   $("#fReload").onclick = async () => { tab.content = null; const id = tab.id; await openFile(tab.path); state.active = id; };
+  $("#fEdit").onclick = () => editFile(tab.id);
+}
+
+// edit mode: a plain-text editor with Save (⌘S), dirty tracking and a check for changes made on disk
+function editFile(id) {
+  const t = state.tabs.find((x) => x.id === id); if (!t || t.content == null) return;
+  t.editing = true; if (t.draft == null) t.draft = t.content;
+  state.active = id; renderEditor();
+}
+function indentUnit(text) { return /^\t/m.test(text) ? "\t" : "    "; }
+function setDirty(tab) {
+  const dirty = tab.draft != null && tab.draft !== tab.content;
+  if (dirty !== !!tab.dirty) { tab.dirty = dirty; renderTabs(); }
+  const st = $("#edState"); if (st) st.textContent = dirty ? "Unsaved changes" : "Saved";
+}
+function renderEditTab(tab) {
+  const parts = tab.path.split("/");
+  const mod = isMac ? "⌘" : "Ctrl+";
+  $("#editor").innerHTML = `<div class="ed-bar"><span class="crumbs">${parts.slice(0, -1).map(esc).join(" › ")}${parts.length > 1 ? " › " : ""}<b>${esc(parts.at(-1))}</b></span>
+      <span class="spacer"></span><span class="muted" id="edState">${tab.dirty ? "Unsaved changes" : "Editing"}</span>
+      <button class="btn primary" id="fSave" title="Save (${mod}S)">${icon("check")}Save</button>
+      <button class="btn" id="fDone" title="Back to the highlighted view">Done</button></div>
+    <textarea class="code-edit" id="codeEdit" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" aria-label="Edit ${esc(tab.path)}"></textarea>`;
+  const ta = $("#codeEdit");
+  ta.value = tab.draft ?? tab.content;
+  const caret = Math.min(tab.caret ?? 0, ta.value.length);
+  ta.focus(); ta.setSelectionRange(caret, caret);
+  if (tab.scroll) ta.scrollTop = tab.scroll;
+  ta.oninput = () => { tab.draft = ta.value; setDirty(tab); };
+  ta.onblur = () => { tab.caret = ta.selectionStart; tab.scroll = ta.scrollTop; };
+  ta.onkeydown = (e) => {
+    if (e.key === "Tab" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+      e.preventDefault(); ta.setRangeText(indentUnit(tab.content), ta.selectionStart, ta.selectionEnd, "end"); ta.oninput();
+    }
+  };
+  $("#fSave").onclick = () => saveFile(tab);
+  $("#fDone").onclick = async () => {
+    if (tab.dirty && !(await confirmDialog(`Discard changes to ${tab.title}?`, "Save first to keep them.", "Discard"))) return;
+    tab.editing = false; tab.draft = null; tab.dirty = false; renderEditor();
+  };
+}
+async function saveFile(tab, force = false) {
+  if (!tab || tab.draft == null) return;
+  try {
+    const d = await fsApi({ op: "save", path: tab.path, content: tab.draft, base_mtime: tab.mtime, force });
+    tab.content = tab.draft; tab.mtime = d.mtime; setDirty(tab);
+    toast(`Saved ${tab.path}`); loadGit();
+  } catch (err) {
+    if (/changed on disk/.test(err.message) && await confirmDialog(`${tab.title} changed on disk`,
+      "It was changed after you opened it (by you elsewhere, a tool, or an applied proposal). Overwrite it with your version?", "Overwrite")) return saveFile(tab, true);
+    toast(err.message, true);
+  }
 }
 
 // trace tab
@@ -728,6 +787,16 @@ function md(src) {
   });
   return out.join("");
 }
+// Long messages (a pasted trace, a log) show their first lines with Show all / Show less, so they don't
+// bury the rest of the conversation.
+const CLAMP_LINES = 12, CLAMP_CHARS = 1500;
+function userMessageHtml(text) {
+  const lines = text.split("\n").length;
+  if (lines <= CLAMP_LINES && text.length <= CLAMP_CHARS) return `<div class="msg user"><div class="body">${userHtml(text)}</div></div>`;
+  const size = `${lines.toLocaleString()} line${lines === 1 ? "" : "s"} · ${fmtBytes(new Blob([text]).size)}`;
+  return `<div class="msg user long clamped"><div class="body">${userHtml(text)}</div>
+    <div class="msg-foot"><button class="more" type="button" data-size="${esc(size)}">${icon("chevron")}<span>Show all (${esc(size)})</span></button><button class="more copy-msg" type="button" title="Copy this message">${icon("copy")}<span>Copy</span></button></div></div>`;
+}
 function userHtml(text) {
   return esc(text).replace(/(^|[\s(])@([\w.\-/~]+)(?::(\d+)(?:-(\d+))?)?/g, (m, pre, p, a) => `${pre}<span class="ref" data-path="${p}" ${a ? `data-line="${a}"` : ""}>@${m.slice(pre.length + 1)}</span>`);
 }
@@ -746,7 +815,7 @@ function toolEl(ev) {
 }
 function render(ev, replay) {
   switch (ev.type) {
-    case "user": endText(); add(`<div class="msg user">${userHtml(ev.text)}</div>`); break;
+    case "user": endText(); add(userMessageHtml(ev.text)); break;
     case "attached": add(`<div class="attached">${ev.paths.map((p) => `<span data-path="${esc(p.split(":")[0])}" data-line="${esc(p.split(":")[1]?.split("-")[0] || "")}">${icon("file")} ${esc(p)}</span>`).join("")}</div>`); break;
     case "assistant": endText(); add(`<div class="msg assistant">${md(ev.text)}</div>`); break;
     case "skill": add(`<div class="skill-chip">${icon("sparkle")}skill: ${esc(ev.name)}</div>`); break;
@@ -810,6 +879,15 @@ function renderPlan(items) {
   el.innerHTML = items.map((i) => `<div class="it ${esc(i.status)}"><span class="box"></span><span>${esc(i.text)}</span></div>`).join("");
 }
 $("#transcript").addEventListener("click", (e) => {
+  const more = e.target.closest(".msg.user .more");
+  if (more) {
+    const msg = more.closest(".msg.user");
+    if (more.classList.contains("copy-msg")) { copyText($(".body", msg).innerText, "message"); return; }
+    const clamped = msg.classList.toggle("clamped");
+    $("span", more).textContent = clamped ? `Show all (${more.dataset.size})` : "Show less";
+    if (clamped) msg.scrollIntoView({ block: "nearest" });
+    return;
+  }
   const loc = e.target.closest("a.loc, .ref, .attached span");
   if (loc) { e.preventDefault(); openFile(loc.dataset.path, +loc.dataset.line || undefined); return; }
   const po = e.target.closest("[data-prop-open]"); if (po) { openProposal(po.dataset.propOpen); return; }
@@ -859,7 +937,8 @@ async function send() {
   const text = $("#input").value.trim(); if (!text) return;
   if (state.sid && state.streams.has(state.sid)) return;
   if (!state.sid) { try { await newSession(state.workspace); } catch (err) { toast(err.message, true); return; } }
-  $("#input").value = ""; autosize(); hideMentions();
+  $("#input").value = ""; autosize(); hideMentions(); resetHistory();
+  rememberPrompt(text); (state.prompts ||= []).push(text);
   render({ type: "user", text }); scrollEnd(true);
   if (!state.session?.title) $("#chatTitle").textContent = text.split("\n")[0].slice(0, 80);
   streamTo(state.sid, `/api/sessions/${state.sid}/chat`, { message: text, tier: selectedTier() });
@@ -930,6 +1009,36 @@ $("#tier").addEventListener("change", async () => {
 });
 $("#autoApprove").addEventListener("change", () => state.sid && api(`/api/sessions/${state.sid}`, { method: "PATCH", body: { auto_approve: $("#autoApprove").checked } }));
 
+// ---------------------------------------------------------------- composer: prompt history (Up / Down)
+// Like a shell: Up on the first line recalls earlier prompts (this session's, then other sessions'), Down goes
+// forward and finally restores what you were typing.
+const hist = { list: [], idx: null, draft: "", setting: false };
+function rememberPrompt(text) {
+  let all = [];
+  try { all = JSON.parse(store("cp-prompts") || "[]"); } catch { all = []; }
+  all = all.filter((t) => t !== text); all.push(text);
+  store("cp-prompts", JSON.stringify(all.slice(-200)));
+}
+function promptHistory() {
+  let global = [];
+  try { global = JSON.parse(store("cp-prompts") || "[]"); } catch { global = []; }
+  const mine = state.prompts || [];
+  const seen = new Set(mine);
+  return [...global.filter((t) => !seen.has(t)), ...mine.filter((t, i) => mine.lastIndexOf(t) === i)];
+}
+function historyStep(dir) {
+  if (hist.idx === null) { hist.list = promptHistory(); hist.idx = hist.list.length; hist.draft = input.value; }
+  const next = hist.idx + dir;
+  if (next < 0 || next > hist.list.length) return false;
+  hist.idx = next;
+  const text = next === hist.list.length ? hist.draft : hist.list[next];
+  hist.setting = true; input.value = text; autosize(); hist.setting = false;
+  const caret = dir < 0 ? 0 : text.length; // Up again keeps going back; Down again keeps going forward
+  input.setSelectionRange(caret, caret);
+  return true;
+}
+function resetHistory() { hist.idx = null; }
+
 // ---------------------------------------------------------------- composer: @ mentions, drag & drop
 const input = $("#input");
 function autosize() { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 220) + "px"; }
@@ -968,6 +1077,7 @@ function acceptMention(i) {
   const caret = mention.start + f.length + 2; input.setSelectionRange(caret, caret); hideMentions(); autosize();
 }
 input.addEventListener("input", () => {
+  if (!hist.setting) resetHistory();
   autosize();
   const pos = input.selectionStart; const before = input.value.slice(0, pos);
   const slash = before.match(/^\/([\w.-]*)$/);
@@ -993,6 +1103,12 @@ input.addEventListener("keydown", (e) => {
     if (e.key === "ArrowUp") { e.preventDefault(); mention.idx = (mention.idx - 1 + mention.items.length) % mention.items.length; renderMentions(); return; }
     if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); acceptMention(mention.idx); return; }
     if (e.key === "Escape") { hideMentions(); return; }
+  }
+  if ((e.key === "ArrowUp" || e.key === "ArrowDown") && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey && !e.isComposing
+      && input.selectionStart === input.selectionEnd) {
+    const v = input.value, pos = input.selectionStart;
+    const edge = e.key === "ArrowUp" ? !v.slice(0, pos).includes("\n") : !v.slice(pos).includes("\n");
+    if (edge && historyStep(e.key === "ArrowUp" ? -1 : 1)) { e.preventDefault(); return; }
   }
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
 });
@@ -1078,6 +1194,89 @@ $("#folderDialog").addEventListener("keydown", (e) => {
   if (e.key === "Backspace" && fd.parent) { fd.typed = false; fdLoad(fd.parent); }
 });
 
+// ---------------------------------------------------------------- file operations (File menu, explorer, editor)
+const fsApi = (body) => api(`/api/sessions/${state.sid}/fs`, { method: "POST", body });
+function needFolder() { if (state.sid && state.workspace) return true; toast("Open a folder first.", true); return false; }
+// New items go in the selected folder, or next to the selected file, else at the top of the workspace.
+function targetDir() { return !state.picked ? "" : state.pickedDir ? state.picked : dirOf(state.picked); }
+async function revealInTree(path) {
+  state.tree.clear();
+  for (let p = dirOf(path); p; p = dirOf(p)) state.expanded.add(p);
+  state.picked = path; state.pickedDir = false;
+  ide.classList.remove("no-sidebar"); setView("explorer");
+  await renderTree();
+}
+async function newItem(kind, dir = targetDir()) {
+  if (!needFolder()) return;
+  const where = dir ? dir + "/" : "";
+  const name = await promptDialog(kind === "file" ? "New file" : "New folder", "",
+    `In ${where || base(state.workspace) + "/"} · use / for subfolders, e.g. ${kind === "file" ? "utils/helpers.py" : "src/components"}`);
+  if (!name) return;
+  try {
+    const d = await fsApi({ op: kind === "file" ? "new_file" : "new_folder", path: where + name });
+    await revealInTree(d.path); state.pickedDir = d.dir; renderTree();
+    if (kind === "file") { await openFile(d.path); editFile("file:" + d.path); }
+    toast(`Created ${d.path}`); loadGit();
+  } catch (err) { toast(err.message, true); }
+}
+async function renamePath(rel) {
+  if (!needFolder()) return;
+  const name = base(rel), dot = name.lastIndexOf(".");
+  const next = await promptDialog(`Rename ${name}`, name, "A new name, or a workspace-relative path to move it.", { select: [0, dot > 0 ? dot : name.length] });
+  if (!next || next === name) return;
+  const to = next.includes("/") ? next : (dirOf(rel) ? dirOf(rel) + "/" : "") + next;
+  try {
+    const d = await fsApi({ op: "rename", path: rel, to });
+    for (const t of state.tabs) {
+      if (t.kind !== "file" || !(t.path === rel || t.path.startsWith(rel + "/"))) continue;
+      const p = d.path + t.path.slice(rel.length);
+      if (state.active === t.id) state.active = "file:" + p;
+      Object.assign(t, { id: "file:" + p, path: p, title: base(p), tip: p });
+    }
+    await revealInTree(d.path); state.pickedDir = d.dir; renderEditor(); renderTree(); loadGit();
+    toast(`Renamed to ${d.path}`);
+  } catch (err) { toast(err.message, true); }
+}
+async function deletePath(rel, isDir) {
+  if (!needFolder()) return;
+  const inside = (t) => t.kind === "file" && (t.path === rel || t.path.startsWith(rel + "/"));
+  const unsaved = state.tabs.some((t) => inside(t) && t.dirty);
+  const ok = await confirmDialog(`Delete ${base(rel)}?`, `${isDir ? "The folder and everything in it move" : "It moves"} to codepilot's trash (~/.codepilot/trash), so you can undo.${unsaved ? " Unsaved edits will be lost." : ""}`, "Delete");
+  if (!ok) return;
+  try {
+    const d = await fsApi({ op: "delete", path: rel });
+    state.tabs = state.tabs.filter((t) => !inside(t));
+    if (!state.tabs.some((t) => t.id === state.active)) state.active = state.tabs.at(-1)?.id || null;
+    if (state.picked === rel || state.picked?.startsWith(rel + "/")) state.picked = null;
+    state.tree.clear(); renderEditor(); renderTree(); loadGit();
+    toast(`Deleted ${rel}`, false, { label: "Undo", run: async () => {
+      try { const back = await fsApi({ op: "restore", trash_id: d.trash_id }); await revealInTree(back.path); state.pickedDir = back.dir; renderTree(); loadGit(); toast(`Restored ${back.path}`); }
+      catch (err) { toast(err.message, true); }
+    } });
+  } catch (err) { toast(err.message, true); }
+}
+function activeFileTab() { const t = state.tabs.find((x) => x.id === state.active); return t?.kind === "file" ? t : null; }
+function fileMenuItems() {
+  const mod = isMac ? "⌘" : "Ctrl+", t = activeFileTab();
+  return [
+    { label: "New File…", icon: "filePlus", run: () => newItem("file") },
+    { label: "New Folder…", icon: "folderPlus", run: () => newItem("folder") },
+    "-",
+    { label: "Open Folder…", icon: "folderOpen", run: openFolder },
+    { label: "Go to File…", icon: "search", kbd: mod + "P", run: openPalette },
+    ...(t ? ["-",
+      t.editing ? { label: "Save", icon: "check", kbd: mod + "S", run: () => saveFile(t) } : { label: "Edit File", icon: "edit", run: () => editFile(t.id) },
+      { label: "Rename File…", icon: "edit", run: () => renamePath(t.path) },
+      { label: "Close Tab", icon: "x", kbd: "Alt+W", run: () => closeTab(t.id) }] : []),
+  ];
+}
+$("#fileMenuBtn").onclick = (e) => menuBelow(e.currentTarget, fileMenuItems());
+$("#newFileBtn").onclick = () => newItem("file");
+$("#newFolderBtn").onclick = () => newItem("folder");
+// Keyboard, VS Code style, only while the explorer has focus: F2 renames, Delete (or ⌘⌫) deletes.
+let treeFocused = false;
+document.addEventListener("mousedown", (e) => { treeFocused = !!e.target.closest("#tree"); }, true);
+
 // ---------------------------------------------------------------- copy paths & context menu
 const absPath = (rel) => (rel === "." ? state.workspace : state.workspace + "/" + rel);
 async function copyText(text, label) {
@@ -1102,6 +1301,8 @@ function pathMenu(rel, isDir) {
   return [
     isDir ? { label: "Expand / collapse", icon: "folderOpen", run: () => { state.expanded.has(rel) ? state.expanded.delete(rel) : state.expanded.add(rel); renderTree(); } }
           : { label: "Open", icon: "file", run: () => openFile(rel) },
+    ...(isDir ? [{ label: "New File…", icon: "filePlus", run: () => newItem("file", rel) }, { label: "New Folder…", icon: "folderPlus", run: () => newItem("folder", rel) }]
+              : [{ label: "Edit", icon: "edit", run: async () => { await openFile(rel); editFile("file:" + rel); } }]),
     { label: "Add to chat", icon: "at", run: () => insertRef(rel) },
     "-",
     { label: "Copy relative path", icon: "copy", kbd: mod + "C", run: () => copyText(rel) },
@@ -1110,10 +1311,20 @@ function pathMenu(rel, isDir) {
     "-",
     { label: "Open in Terminal", icon: "terminal", run: () => newTerminal(absPath(isDir ? rel : dirOf(rel) || ".")) },
     ...(isDir ? [{ label: "Open as workspace folder", icon: "folderOpen", run: () => useFolder(absPath(rel)) }] : []),
+    "-",
+    { label: "Rename…", icon: "edit", kbd: "F2", run: () => renamePath(rel) },
+    { label: "Delete", icon: "trash", kbd: isMac ? "⌘⌫" : "Del", run: () => deletePath(rel, isDir) },
   ];
 }
 document.addEventListener("contextmenu", (e) => {
   const el = e.target.closest("[data-file],[data-dir],[data-tab^='file:'],[data-gfile],[data-gitfile],[data-trace]");
+  if (!el && e.target.closest("#tree") && state.workspace) { // empty space in the explorer: create at the top level
+    e.preventDefault();
+    showMenu(e.clientX, e.clientY, [{ label: "New File…", icon: "filePlus", run: () => newItem("file", "") },
+      { label: "New Folder…", icon: "folderPlus", run: () => newItem("folder", "") },
+      { label: "Open in Terminal", icon: "terminal", run: () => newTerminal(state.workspace) }]);
+    return;
+  }
   if (!el) return;
   e.preventDefault();
   const rel = el.dataset.file || el.dataset.dir || el.dataset.gfile || el.dataset.gitfile || el.dataset.trace || el.dataset.tab.slice(5);
@@ -1335,21 +1546,42 @@ $("#paletteList").addEventListener("click", (e) => { const o = e.target.closest(
 $("#palette").addEventListener("mousedown", (e) => { if (e.target.id === "palette") closePalette(); });
 $("#paletteBtn").onclick = openPalette;
 
-function promptDialog(title, value, hint) {
+function promptDialog(title, value, hint, opts = {}) {
   return new Promise((resolve) => {
     $("#dialogTitle").textContent = title; $("#dialogInput").value = value || ""; $("#dialogHint").textContent = hint || "";
-    $("#dialog").hidden = false; $("#dialogInput").focus(); $("#dialogInput").select();
+    $("#dialog").hidden = false; $("#dialogInput").focus();
+    if (opts.select) $("#dialogInput").setSelectionRange(...opts.select); else $("#dialogInput").select();
     const done = (v) => { $("#dialog").hidden = true; $("#dialogOk").onclick = $("#dialogCancel").onclick = $("#dialogInput").onkeydown = null; resolve(v); };
     $("#dialogOk").onclick = () => done($("#dialogInput").value.trim());
     $("#dialogCancel").onclick = () => done(null);
     $("#dialogInput").onkeydown = (e) => { if (e.key === "Enter") done($("#dialogInput").value.trim()); if (e.key === "Escape") done(null); };
   });
 }
-function toast(msg, isErr) {
+function confirmDialog(title, hint, okLabel = "OK") {
+  return new Promise((resolve) => {
+    $("#dialogTitle").textContent = title; $("#dialogHint").textContent = hint || "";
+    $("#dialogInput").hidden = true; $("#dialogOk").textContent = okLabel; $("#dialogOk").classList.toggle("danger", /delete|discard|overwrite/i.test(okLabel));
+    $("#dialog").hidden = false; $("#dialogOk").focus();
+    const done = (v) => {
+      $("#dialog").hidden = true; $("#dialogInput").hidden = false; $("#dialogOk").textContent = "OK"; $("#dialogOk").classList.remove("danger");
+      $("#dialogOk").onclick = $("#dialogCancel").onclick = $("#dialog").onkeydown = null; resolve(v);
+    };
+    $("#dialogOk").onclick = () => done(true);
+    $("#dialogCancel").onclick = () => done(false);
+    $("#dialog").onkeydown = (e) => { if (e.key === "Escape") done(false); };
+  });
+}
+function toast(msg, isErr, action) {
   const el = document.createElement("div");
+  el.className = "toast";
   el.textContent = msg;
+  if (action) {
+    const b = document.createElement("button"); b.className = "toast-act"; b.textContent = action.label;
+    b.onclick = () => { el.remove(); action.run(); }; el.appendChild(b);
+  }
   el.style.cssText = `position:fixed;bottom:36px;left:50%;transform:translateX(-50%);z-index:60;padding:7px 14px;border-radius:8px;font-size:12.5px;box-shadow:var(--shadow);background:var(--bg-4);border:1px solid var(--line-2);color:${isErr ? "var(--err)" : "var(--fg)"}`;
-  document.body.appendChild(el); setTimeout(() => el.remove(), 2600);
+  document.querySelectorAll(".toast").forEach((t) => { if (t !== el) t.style.transform = "translate(-50%, -44px)"; });
+  document.body.appendChild(el); setTimeout(() => el.remove(), action ? 8000 : 2600);
 }
 
 // ---------------------------------------------------------------- keyboard
@@ -1360,6 +1592,9 @@ document.addEventListener("keydown", (e) => {
   else if (mod && e.key.toLowerCase() === "j") { e.preventDefault(); toggle("no-panel"); }
   else if (mod && e.key.toLowerCase() === "l") { e.preventDefault(); ide.classList.remove("no-chat"); input.focus(); }
   else if (e.altKey && e.code === "KeyW") { e.preventDefault(); if (state.active) closeTab(state.active); }
+  else if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); const t = activeFileTab(); if (t?.editing) saveFile(t); }
+  else if (treeFocused && state.picked && !e.target.closest("input,textarea") && e.key === "F2") { e.preventDefault(); renamePath(state.picked); }
+  else if (treeFocused && state.picked && !e.target.closest("input,textarea") && (e.key === "Delete" || (mod && e.key === "Backspace"))) { e.preventDefault(); deletePath(state.picked, state.pickedDir); }
   else if (e.ctrlKey && e.key === "`") { e.preventDefault(); const on = !$(".panel-body[data-ptab=terminal]").hidden && !ide.classList.contains("no-panel"); if (on) toggle("no-panel"); else showPanelTab("terminal"); }
   else if (mod && e.key.toLowerCase() === "c" && state.picked && !String(getSelection()) && !e.target.closest("input,textarea")) { e.preventDefault(); copyText(state.picked); }
   else if (e.key === "Escape") { closePalette(); hideMentions(); $("#ctxMenu").hidden = true; }

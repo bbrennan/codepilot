@@ -20,6 +20,7 @@
     <div class="brand"><span class="logo" data-icon="logo"></span>codepilot</div>
     <button class="workspace-btn" id="workspaceBtn" title="Open folder"><span data-icon="folder"></span><span id="workspaceName">No folder</span></button>
     <button class="palette-btn" id="paletteBtn" title="Go to file (⌘P)"><span data-icon="search"></span><span>Search files</span><kbd>⌘P</kbd></button>
+    <button class="menu-btn" id="fileMenuBtn" title="New file or folder, open, save"><span data-icon="file"></span><span>File</span><span data-icon="chevron" class="caret"></span></button>
     <button class="menu-btn" id="terminalMenuBtn" title="Terminals: new, switch, rename, kill"><span data-icon="terminal"></span><span>Terminal</span><span data-icon="chevron" class="caret"></span></button>
     <div class="spacer"></div>
     <button class="icon-btn" id="toggleSidebar" title="Toggle sidebar (⌘B)" data-icon="sidebar"></button>
@@ -46,6 +47,8 @@
     </section>
     <section class="view" data-view="explorer">
       <div class="view-head"><span id="explorerTitle">Explorer</span><div class="actions">
+        <button class="icon-btn sm" id="newFileBtn" title="New file (in the selected folder)" data-icon="filePlus"></button>
+        <button class="icon-btn sm" id="newFolderBtn" title="New folder (in the selected folder)" data-icon="folderPlus"></button>
         <button class="icon-btn sm" id="openFolderBtn" title="Open folder" data-icon="folderOpen"></button>
         <button class="icon-btn sm" id="refreshTreeBtn" title="Refresh" data-icon="refresh"></button>
         <button class="icon-btn sm" id="collapseTreeBtn" title="Collapse all" data-icon="collapse"></button>

@@ -59,6 +59,18 @@ your user is trusted. Set `CODEPILOT_TERMINAL=0` to turn the terminal off; the p
 and the endpoint refuses every connection. The assistant has no access to the terminal; its commands go
 through `run_command` and your approval.
 
+## Your own file actions
+
+New file, new folder, rename, delete and save from the Explorer and editor are your actions, so they don't
+go through proposals. The server still checks every path:
+- It must stay inside the open workspace (no `..`, `~` or absolute paths), and the workspace folder itself
+  can't be renamed or deleted.
+- Rename and delete act on a symlink itself, never on what it points to. Save follows a link only to a
+  target inside the workspace.
+- Delete moves items to `~/.codepilot/trash`, never removes them outright. Save refuses to overwrite a file
+  that changed on disk since you opened it, unless you confirm.
+- Like every write, these requests need the CSRF header that other websites can't send.
+
 ## What the assistant can do
 
 | Capability | Guard |

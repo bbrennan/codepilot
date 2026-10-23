@@ -48,6 +48,8 @@ assistant's replies in them are scripted so the demo is reproducible.</sub>
 - **Works like an IDE:** file explorer, tabs with syntax highlighting, search, a ⌘P file palette, git
   changes, terminals (as many as you like, and they survive page reloads), and chat docked on the right.
   Reference code with `@file` or `@file:10-40`, drag files in, or select lines and **Add to chat**.
+- **Edit files yourself, too:** a File menu, new file and folder, rename, delete with undo, and a
+  simple editor with Save.
 - **Runs like an app:** `make start` runs it in the background in its own window, and on macOS `make app`
   installs a **Codepilot.app** for the Dock. No terminal to keep open.
 - **Safe by default:** it reads freely, but every edit is a diff you **Apply** (and can **Undo**), and every
