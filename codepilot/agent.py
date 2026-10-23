@@ -15,7 +15,7 @@ from collections.abc import Callable, Generator, Iterator
 from pathlib import Path
 from typing import Any
 
-from . import checks, mentions, models, modes, prompts, repomap, router, skills, specs, steering
+from . import checks, images, mentions, models, modes, prompts, repomap, router, skills, specs, steering, webtools
 from .bedrock import BedrockError, make_client
 from .config import Config
 from .context import CLEARED_PREFIX, ContextManager, is_overflow
@@ -138,8 +138,10 @@ class Agent:
 
     # -- public API -----------------------------------------------------------------------------
 
-    def chat(self, session_id: str, text: str, tier: str | None = None) -> Iterator[dict]:
-        yield from self._chat_once(session_id, text, tier)
+    def chat(self, session_id: str, text: str, tier: str | None = None, pasted: list[dict] | None = None
+             ) -> Iterator[dict]:
+        """`pasted`: image blocks the user pasted or dropped into the message box."""
+        yield from self._chat_once(session_id, text, tier, pasted)
         yield from self._drain_queue_turns(session_id)
 
     def _drain_queue_turns(self, session_id: str) -> Iterator[dict]:
@@ -151,7 +153,8 @@ class Agent:
             yield {"type": "user", "text": text, "queued_ids": [q["id"] for q in items]}
             yield from self._chat_once(session_id, text)
 
-    def _chat_once(self, session_id: str, text: str, tier: str | None = None) -> Iterator[dict]:
+    def _chat_once(self, session_id: str, text: str, tier: str | None = None, pasted: list[dict] | None = None
+                   ) -> Iterator[dict]:
         sess = self.store.get_session(session_id)
         self._cancelled.discard(session_id)
         if sess.pending:
@@ -178,6 +181,14 @@ class Agent:
         if block:
             content.append({"text": block})
             yield {"type": "attached", "paths": labels}
+        linked, problems = images.from_message(text, root)
+        shown = [(b, "pasted") for b in (pasted or [])] + linked
+        for problem in problems:
+            yield {"type": "notice", "message": f"Couldn't attach image {problem}"}
+        if shown:
+            content += [b for b, _ in shown][:images.MAX_PER_MESSAGE]
+            yield {"type": "attached_images", "images": [{"url": images.save(self.cfg.home, b), "source": src}
+                                                         for b, src in shown[:images.MAX_PER_MESSAGE]]}
         started = self._spec_for_message(session_id, root, text)
         if started:
             yield started
@@ -472,6 +483,8 @@ class Agent:
             return f"{cmd} {inp.get('args', '')}".strip()
         if tu["name"] == "github":
             return f"gh {str(inp.get('args', '')).removeprefix('gh ')}"
+        if tu["name"] == "web_fetch":
+            return f"fetch {inp.get('url', '')}"
         if tu["name"] == "run_checks":
             names = ", ".join(c.name for c in checks.detect(root)) if root else ""
             return f"run checks ({inp.get('kind', 'all')}): {names or 'none detected'}"
@@ -722,11 +735,13 @@ class Agent:
             messages.append({"role": "user", "content": results})
         return "explore stopped without a report", True
 
-    @staticmethod
-    def _result_event(tu: dict, output: str, is_error: bool, took: float) -> dict:
+    def _result_event(self, tu: dict, output: str, is_error: bool, took: float) -> dict:
         shown = output if len(output) <= UI_OUTPUT_LIMIT else output[:UI_OUTPUT_LIMIT] + "\n[... truncated in UI]"
-        return {"type": "tool_result", "id": tu["toolUseId"], "name": tu["name"], "output": shown,
-                "is_error": is_error, "seconds": round(took, 2)}
+        event = {"type": "tool_result", "id": tu["toolUseId"], "name": tu["name"], "output": str(shown),
+                 "is_error": is_error, "seconds": round(took, 2)}
+        if getattr(output, "images", None):
+            event["images"] = [images.save(self.cfg.home, b) for b in output.images]
+        return event
 
 def _shrink_local(messages: list[dict], max_tokens: int, ratio: float, keep_last: int = 2) -> None:
     """Explore sub-agent: clear older tool outputs in its private history if it outgrows half the budget."""
@@ -789,12 +804,15 @@ def render_transcript(messages: list[dict], limit: int = 120_000) -> str:
             elif "toolResult" in b:
                 body = " ".join(c.get("text", "") for c in b["toolResult"].get("content", []))
                 lines.append(f"TOOL RESULT: {body[:800]}")
+            elif "image" in b:
+                lines.append(f"{m['role'].upper()}: [image]")
     text = "\n".join(lines)
     return text if len(text) <= limit else text[-limit:]
 
 
 def _tool_result(tool_use_id: str, output: str, is_error: bool) -> dict:
-    return {"toolResult": {"toolUseId": tool_use_id, "content": [{"text": output or "(empty)"}],
+    content = [{"text": str(output) or "(empty)"}] + list(getattr(output, "images", None) or [])
+    return {"toolResult": {"toolUseId": tool_use_id, "content": content,
                            "status": "error" if is_error else "success"}}
 
 
@@ -826,12 +844,17 @@ def allow_rule(tu: dict) -> dict | None:
     if tu["name"] == "github":
         args = str(tu["input"].get("args", "")).removeprefix("gh ").split()
         return {"tool": "github", "prefix": " ".join(args[:2])} if len(args) >= 2 else None
+    if tu["name"] == "web_fetch":
+        host = webtools.host_of(str(tu["input"].get("url", "")))
+        return {"tool": "web_fetch", "prefix": host} if host else None  # exactly this host, not its subdomains
     return None
 
 
 def rule_matches(rule: dict, tu: dict) -> bool:
     if rule.get("tool") != tu["name"]:
         return False
+    if tu["name"] == "web_fetch":
+        return bool(rule.get("prefix")) and webtools.host_of(str(tu["input"].get("url", ""))) == rule["prefix"]
     value = str(tu["input"].get("command" if tu["name"] == "run_command" else "args", "")).strip()
     value = value.removeprefix("gh ") if tu["name"] == "github" else value
     if tu["name"] == "run_command" and SHELL_CHAINING.search(value):
@@ -847,6 +870,7 @@ def _order_results(order: list[str], results: list[dict]) -> list[dict]:
 
 def history_events(store: Store, session_id: str) -> list[dict]:
     """Rebuild UI events from stored messages (including archived ones) to redraw a session."""
+    home = store.home
     events: list[dict] = []
     names: dict[str, str] = {}
     live = {mid for mid, _ in store.messages(session_id)}
@@ -878,9 +902,21 @@ def history_events(store: Store, session_id: str) -> list[dict]:
                 events.append({"type": "tool_call", "id": tu["toolUseId"], "name": tu["name"], "input": tu["input"]})
                 if tu["name"] == "update_plan" and isinstance(tu["input"].get("items"), list):
                     events.append({"type": "plan", "items": tu["input"]["items"]})
+            elif "image" in b and m["role"] == "user":
+                url = images.save(home, b)
+                if events and events[-1]["type"] == "attached_images":
+                    events[-1]["images"].append({"url": url, "source": ""})
+                else:
+                    events.append({"type": "attached_images", "images": [{"url": url, "source": ""}]})
             elif "toolResult" in b:
                 tr = b["toolResult"]
                 out = " ".join(c.get("text", "") for c in tr.get("content", []))
                 tu = {"toolUseId": tr["toolUseId"], "name": names.get(tr["toolUseId"], "")}
-                events.append(Agent._result_event(tu, out, tr.get("status") == "error", 0.0))
+                shown = out if len(out) <= UI_OUTPUT_LIMIT else out[:UI_OUTPUT_LIMIT] + "\n[... truncated in UI]"
+                event = {"type": "tool_result", "id": tu["toolUseId"], "name": tu["name"], "output": shown,
+                         "is_error": tr.get("status") == "error", "seconds": 0.0}
+                pics = [images.save(home, c) for c in tr.get("content", []) if "image" in c]
+                if pics:
+                    event["images"] = pics
+                events.append(event)
     return events

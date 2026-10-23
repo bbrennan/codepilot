@@ -6,6 +6,7 @@ the Bedrock Converse message shape the rest of the app uses, so the agent loop i
 
 from __future__ import annotations
 
+import base64
 import json
 import urllib.error
 import urllib.request
@@ -125,10 +126,12 @@ def to_ollama_messages(messages: list[dict]) -> list[dict]:
     out: list[dict] = []
     names: dict[str, str] = {}
     for m in messages:
-        texts, calls, results = [], [], []
+        texts, calls, results, pics = [], [], [], []
         for block in m["content"]:
             if "text" in block:
                 texts.append(block["text"])
+            elif "image" in block:
+                pics.append(base64.b64encode(block["image"]["source"]["bytes"]).decode())
             elif "toolUse" in block:
                 tu = block["toolUse"]
                 names[tu["toolUseId"]] = tu["name"]
@@ -139,6 +142,8 @@ def to_ollama_messages(messages: list[dict]) -> list[dict]:
                 if tr.get("status") == "error":
                     body = "ERROR: " + body
                 results.append({"role": "tool", "tool_name": names.get(tr["toolUseId"], ""), "content": body})
+                pics += [base64.b64encode(c["image"]["source"]["bytes"]).decode()
+                         for c in tr.get("content", []) if "image" in c]
         if m["role"] == "assistant":
             msg: dict[str, Any] = {"role": "assistant", "content": "\n".join(texts)}
             if calls:
@@ -146,6 +151,9 @@ def to_ollama_messages(messages: list[dict]) -> list[dict]:
             out.append(msg)
         else:
             out += results
-            if texts:
-                out.append({"role": "user", "content": "\n".join(texts)})
+            if texts or pics:
+                msg = {"role": "user", "content": "\n".join(texts) or "(images)"}
+                if pics:
+                    msg["images"] = pics  # needs a vision model (e.g. llava, qwen2.5vl)
+                out.append(msg)
     return out

@@ -54,8 +54,17 @@ def is_overflow(error: Exception | str) -> bool:
     return bool(OVERFLOW.search(str(error)))
 
 
+IMAGE_CHARS = 1600 * 3  # an image costs ~1.6k tokens, not its byte size (see images.TOKENS_PER_IMAGE)
+
+
+def _size_default(o: Any) -> str:
+    if isinstance(o, (bytes, bytearray)):
+        return "x" * (IMAGE_CHARS if len(o) > 2000 else len(o))
+    return str(o)
+
+
 def _chars(obj: Any) -> int:
-    return len(json.dumps(obj, default=str))
+    return len(json.dumps(obj, default=_size_default))
 
 
 def _is_user_turn(m: dict) -> bool:
@@ -162,6 +171,12 @@ class ContextManager:
                 continue
             new_content, changed = [], False
             for b in m["content"]:
+                if "image" in b:  # old images go first: each costs as much as a page of text
+                    new_content.append({"text": "[image removed to free context]"})
+                    freed += IMAGE_CHARS
+                    cleared += 1
+                    changed = True
+                    continue
                 tr = b.get("toolResult")
                 text = "\n".join(c.get("text", "") for c in tr.get("content", [])) if tr else ""
                 name, inp = calls.get(tr["toolUseId"], ("tool", {})) if tr else ("", {})

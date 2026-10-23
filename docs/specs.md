@@ -102,10 +102,11 @@ Specs go stale when code moves on. On the Implement step:
 - **Check spec vs code** has codepilot compare them. It lists criteria not (fully) implemented, behaviour
   the spec doesn't describe, and done tasks whose code doesn't match. Where the code is right, it updates
   the spec; it asks before changing code.
-- **Verify with evals** (shown when `CODEPILOT_EVAL_CMD` is set, e.g. `make eval-bedrock`) runs your evals
-  and maps the results to the acceptance criteria: which journeys or traces exercise each criterion,
-  whether they pass, and which criteria have no eval coverage, with suggested new mock journeys. For an
-  agent you evaluate with mock journeys, this closes the loop from requirement to production behaviour.
+- **Verify with evals** (shown when `CODEPILOT_EVAL_CMD` is set, e.g. `make evals`, `npm run e2e` or an
+  LLM eval suite) runs that command and maps the results to the acceptance criteria. For each criterion it
+  shows which scenarios, test cases or traces exercise it and whether they pass. It also lists criteria
+  with no coverage and suggests new scenarios. This closes the loop from requirement to observed
+  behaviour, for any app with an end-to-end or eval suite.
 
 ## How it works
 

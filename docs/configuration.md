@@ -93,6 +93,9 @@ tiers and the default repo, for compatibility with an older internal tool.
 | Variable | Default | Description |
 |---|---|---|
 | `CODEPILOT_GITHUB` | `1` | Enable the `github` tool (needs `gh` installed and logged in) |
+| `CODEPILOT_WEB` | `1` | Built-in web tools: `library_docs` (Context7) and `web_fetch` (asks per site); `0` turns them off |
+| `BRAVE_API_KEY` | unset | Adds the `web_search` tool (Brave Search API; free tier available) |
+| `CONTEXT7_API_KEY` | unset | Higher rate limits for `library_docs` (works without a key) |
 | `CODEPILOT_GH_HOST` / `GH_HOST` | `github.com` | GitHub Enterprise Server host |
 
 ## Behaviour and safety
@@ -125,6 +128,7 @@ tiers and the default repo, for compatibility with an older internal tool.
 | `~/Applications/Codepilot.app` | The macOS launcher written by `codepilot app` |
 | `~/.codepilot/notes/<folder>-<hash>.md` | Per-workspace notes |
 | `~/.codepilot/scratch/<session>/` | The assistant's throwaway repro scripts |
+| `~/.codepilot/images/` | Copies of images in conversations, for display (safe to delete) |
 | `~/.codepilot/trash/` | Files and folders you deleted from the Explorer (restorable; delete old ones by hand) |
 | `~/.codepilot/skills/`, `~/.codepilot/modes/` | Your custom skills and modes |
 | `~/.codepilot/steering/*.md` | Your steering docs for every workspace ([steering.md](steering.md)) |

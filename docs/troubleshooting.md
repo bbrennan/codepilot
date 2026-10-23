@@ -61,6 +61,9 @@ Start with `make doctor`. It tests each piece and prints the fix for most proble
 
 | Symptom | Fix |
 |---|---|
+| "Multimodal data provided, but model does not support…" or images ignored | The model can't read images (most small local models). Use a Claude or GPT-4o-class model, or a vision model on Ollama (e.g. `qwen2.5vl`) |
+| Ctrl+V doesn't paste on a Mac | It does now: Ctrl+V and ⌘V both paste. The first time, the browser may ask to allow clipboard access |
+| Not sure your Anthropic/OpenAI key setup works | `uv run codepilot smoke` runs a real end-to-end turn and reports each check |
 | `address already in use` | Another codepilot is running, or something else uses the port: `codepilot status`; `codepilot stop` for a background one; otherwise `CODEPILOT_PORT=8766 make serve`, or stop the other one (`pkill -f "codepilot serve"`) |
 | Page loads but nothing works | Hard-reload the browser (an old cached UI); check the log (`codepilot logs`, or the terminal where `make serve` runs) |
 | The terminal fills with `HTTP Request: POST https://bedrock-…` or `Loading cached SSO token` | Older versions logged every request. Update (`git pull && make install`); set `CODEPILOT_VERBOSE=1` only when you want those lines |

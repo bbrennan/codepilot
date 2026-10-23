@@ -40,6 +40,10 @@ def main(argv: list[str] | None = None) -> int:
     p_doc.add_argument("--repo", help="Target repo (default: CODEPILOT_REPO)")
     p_doc.add_argument("--skip-models", action="store_true", help="Don't call the models")
 
+    p_smoke = sub.add_parser("smoke", help="End-to-end check of your provider: tool calls, a proposed fix, images")
+    p_smoke.add_argument("--tier", choices=["auto", "fast", "main", "hard"], default="main")
+    p_smoke.add_argument("--no-vision", action="store_true", help="Skip the image check")
+
     p_models = sub.add_parser("models", help="List the models this account can use (and tier fallbacks)")
     p_models.add_argument("--refresh", action="store_true", help="Probe again instead of using the 12h cache")
 
@@ -105,6 +109,10 @@ def main(argv: list[str] | None = None) -> int:
         return doctor(cfg, args, env_path)
     if args.command == "bench":
         return bench_cmd(cfg, args)
+    if args.command == "smoke":
+        from . import smoke
+
+        return smoke.run(cfg, args.tier, not args.no_vision)
     if args.command == "models":
         return print_models(cfg, refresh=args.refresh)
     return chat(cfg, args)

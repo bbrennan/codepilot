@@ -310,6 +310,20 @@ It checks, depending on the provider:
 Each check prints `ok`, `warn` or `FAIL` with the fix. See [troubleshooting.md](troubleshooting.md) for
 the common failures.
 
+### Then: a real end-to-end check
+
+`make doctor` checks that each model answers. `codepilot smoke` goes further and runs a real agent turn
+against your provider in a throwaway folder (a few thousand tokens):
+
+```bash
+uv run codepilot smoke            # --tier auto|fast|main|hard, --no-vision to skip the image check
+```
+
+It checks streaming, tool calls, that the model proposes the right fix, and whether it can read an image,
+and prints `pass`, `warn` or `FAIL` for each. Run it after setting up any provider, especially your own
+Anthropic or OpenAI key, or after changing models. Small local models usually fail the fix and image checks;
+Claude and GPT-class models should pass everything.
+
 ## 7. Start it
 
 Pick whichever suits you:

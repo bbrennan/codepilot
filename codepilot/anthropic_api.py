@@ -7,6 +7,8 @@ blocks (with their signatures) intact so they can be replayed unchanged, as the 
 
 from __future__ import annotations
 
+import base64
+
 from collections.abc import Iterator
 from typing import Any
 
@@ -224,6 +226,12 @@ def from_anthropic(blocks: list[dict]) -> list[dict]:
     return out
 
 
+def _image(b: dict) -> dict:
+    img = b["image"]
+    return {"type": "image", "source": {"type": "base64", "media_type": f"image/{img['format']}",
+                                        "data": base64.b64encode(img["source"]["bytes"]).decode()}}
+
+
 def to_anthropic(messages: list[dict]) -> list[dict]:
     """Stored (Converse-shaped) messages -> Anthropic Messages API messages."""
     out = []
@@ -240,8 +248,12 @@ def to_anthropic(messages: list[dict]) -> list[dict]:
             elif "toolResult" in b:
                 tr = b["toolResult"]
                 text = "\n".join(c.get("text", "") for c in tr.get("content", [])) or "(empty)"
-                blocks.append({"type": "tool_result", "tool_use_id": tr["toolUseId"], "content": text,
+                pics = [_image(c) for c in tr.get("content", []) if "image" in c]
+                blocks.append({"type": "tool_result", "tool_use_id": tr["toolUseId"],
+                               "content": [{"type": "text", "text": text}, *pics] if pics else text,
                                "is_error": tr.get("status") == "error"})
+            elif "image" in b:
+                blocks.append(_image(b))
             elif "reasoningContent" in b:
                 rc = b["reasoningContent"]
                 if "reasoningText" in rc and rc["reasoningText"].get("signature"):

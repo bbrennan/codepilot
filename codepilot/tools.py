@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import checks, github, skills, specs, steering, traces
+from . import checks, github, images, skills, specs, steering, traces, webtools
 from .config import Config
 from .store import Store
 
@@ -562,6 +562,59 @@ def update_task(ctx: ToolContext, task: str, status: str) -> str:
     return f"Task {t.id} ({t.title}) is now {status}."
 
 
+class WithImages(str):
+    """A tool result that also carries images (see view_image)."""
+
+    images: list[dict]
+
+
+def view_image(ctx: ToolContext, source: str) -> str:
+    """Look at an image: a file in the workspace or an http(s) URL."""
+    source = source.strip()
+    try:
+        if re.match(r"https?://", source, re.I):
+            data = images.fetch(source)
+        else:
+            data = images.load_path(ctx.resolve(source))
+        img = images.block(data)
+    except images.ImageError as exc:
+        raise ToolError(str(exc)) from None
+    out = WithImages(f"Image {source} ({img['image']['format']}, {len(data) / 1024:.0f} KB) is attached below.")
+    out.images = [img]
+    return out
+
+
+def library_docs(ctx: ToolContext, library: str, question: str) -> str:
+    try:
+        return webtools.library_docs(library, question, ctx.cfg.context7_api_key)
+    except webtools.WebError as exc:
+        raise ToolError(str(exc)) from None
+
+
+def web_fetch(ctx: ToolContext, url: str) -> str:
+    try:
+        page = webtools.fetch_page(url.strip())
+    except webtools.WebError as exc:
+        raise ToolError(str(exc)) from None
+    if page["kind"] == "image":
+        try:
+            img = images.block(page["bytes"])
+        except images.ImageError as exc:
+            raise ToolError(str(exc)) from None
+        out = WithImages(f"Image from {page['url']} is attached below.")
+        out.images = [img]
+        return out
+    head = f"# {page['title']}\n" if page["title"] else ""
+    return f"{head}Source: {page['url']}\n\n{page['text']}"
+
+
+def web_search(ctx: ToolContext, query: str) -> str:
+    try:
+        return webtools.web_search(query, ctx.cfg.brave_api_key)
+    except webtools.WebError as exc:
+        raise ToolError(str(exc)) from None
+
+
 def remember(ctx: ToolContext, note: str) -> str:
     ctx.store.add_note(str(ctx.root), note)
     return "Saved to this workspace's notes."
@@ -705,10 +758,28 @@ def build_tools(cfg: Config) -> list[Tool]:
              "number, e.g. '2.1'.", _obj({"task": s, "status": {"type": "string",
                                                                  "enum": ["todo", "in_progress", "done"]}},
                                          ["task", "status"]), update_task, read_only=False),
+        Tool("view_image", "Look at an image: a screenshot, diagram or chart in the workspace (path) or on the web "
+             "(http/https URL). PNG, JPEG, GIF or WebP, up to 3.75 MB.", _obj({"source": s}, ["source"]), view_image),
         Tool("remember", "Save a durable fact about this workspace for future sessions (how to run things, where "
              "key code lives, recurring pitfalls). One line. Never store secrets.",
              _obj({"note": s}, ["note"]), remember, read_only=False),
     ]
+    if cfg.web_tools:
+        tools.append(Tool(
+            "library_docs", "Current documentation and code examples for a library, framework or SDK (from Context7), "
+            "e.g. library='fastapi', question='how to add a dependency with a database session'. Use it "
+            "instead of guessing at APIs. Only the library name and question leave the machine: never put secrets "
+            "or proprietary code in them.",
+            _obj({"library": s, "question": s}, ["library", "question"]), library_docs, needs_workspace=False))
+        tools.append(Tool(
+            "web_fetch", "Read a web page as text (docs, an issue, a changelog), or an image by URL. The user approves "
+            "each site. Don't put secrets or code from the workspace in URLs.",
+            _obj({"url": s}, ["url"]), web_fetch, needs_approval=True, needs_workspace=False))
+        if cfg.brave_api_key:
+            tools.append(Tool(
+                "web_search", "Search the web (Brave Search): titles, URLs and snippets. Read a result with web_fetch. "
+                "Don't put secrets or proprietary code in queries.",
+                _obj({"query": s}, ["query"]), web_search, needs_workspace=False))
     if cfg.github and github.available():
         tools.append(Tool(
             "github", "GitHub via the gh CLI, using the user's existing gh login, for the repo in the workspace (or "

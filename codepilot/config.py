@@ -134,6 +134,10 @@ class Config:
     max_steps: int
     host: str
     port: int
+    # Built-in web tools (no MCP): library_docs (Context7), web_fetch (asks per domain), web_search (Brave key)
+    web_tools: bool = True
+    brave_api_key: str = ""
+    context7_api_key: str = ""
 
     @classmethod
     def from_env(cls) -> Config:
@@ -187,6 +191,9 @@ class Config:
             max_steps=int(_env("CODEPILOT_MAX_STEPS", default="40")),
             host=_env("CODEPILOT_HOST", default="127.0.0.1"),
             port=int(_env("CODEPILOT_PORT", default="8765")),
+            web_tools=_flag("CODEPILOT_WEB", True),
+            brave_api_key=_env("BRAVE_API_KEY", "CODEPILOT_BRAVE_API_KEY", default=""),
+            context7_api_key=_env("CONTEXT7_API_KEY", default=""),
         )
 
     def context_window(self, model: str) -> int:

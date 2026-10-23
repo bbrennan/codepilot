@@ -7,6 +7,7 @@ Set CODEPILOT_OPENAI_BASE_URL for a compatible endpoint.
 
 from __future__ import annotations
 
+import base64
 import json
 from collections.abc import Iterator
 from typing import Any
@@ -123,10 +124,12 @@ def to_openai(messages: list[dict]) -> list[dict]:
     """Stored (Converse-shaped) messages -> Chat Completions messages."""
     out: list[dict] = []
     for m in messages:
-        texts, calls, results = [], [], []
+        texts, calls, results, pics = [], [], [], []
         for b in m["content"]:
             if "text" in b:
                 texts.append(b["text"])
+            elif "image" in b:
+                pics.append(_image_part(b))
             elif "toolUse" in b:
                 tu = b["toolUse"]
                 calls.append({"id": tu["toolUseId"], "type": "function",
@@ -136,6 +139,7 @@ def to_openai(messages: list[dict]) -> list[dict]:
                 body = "\n".join(c.get("text", "") for c in tr.get("content", []))
                 results.append({"role": "tool", "tool_call_id": tr["toolUseId"],
                                 "content": ("ERROR: " if tr.get("status") == "error" else "") + body})
+                pics += [_image_part(c) for c in tr.get("content", []) if "image" in c]  # tool messages are text-only
         if m["role"] == "assistant":
             msg: dict[str, Any] = {"role": "assistant", "content": "\n".join(texts) or None}
             if calls:
@@ -143,6 +147,15 @@ def to_openai(messages: list[dict]) -> list[dict]:
             out.append(msg)
         else:
             out += results
-            if texts:
+            if pics:
+                out.append({"role": "user", "content": [{"type": "text", "text": "\n\n".join(texts) or "(images)"},
+                                                        *pics]})
+            elif texts:
                 out.append({"role": "user", "content": "\n\n".join(texts)})
     return out
+
+
+def _image_part(b: dict) -> dict:
+    img = b["image"]
+    data = base64.b64encode(img["source"]["bytes"]).decode()
+    return {"type": "image_url", "image_url": {"url": f"data:image/{img['format']};base64,{data}"}}

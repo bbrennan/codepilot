@@ -1,7 +1,7 @@
-"""Format-agnostic parsing of agent trace files (JSON / JSONL / OTEL-style spans).
+"""Format-agnostic parsing of trace and log files (JSON / JSONL / OTEL-style spans).
 
-AgentCore/Strands traces vary by exporter, so this finds span-like objects heuristically:
-any dict with a name-ish key and a start-time-ish key. It powers both the model's
+Traces vary by exporter (OpenTelemetry, AgentCore, Strands, LangGraph, custom JSON), so this finds span-like
+objects heuristically: any dict with a name-ish key and a start-time-ish key. It powers both the model's
 `trace_outline` tool and the UI's timeline view.
 """
 

@@ -163,9 +163,12 @@
       <div class="plan" id="plan" hidden></div>
       <div class="mention-pop" id="mentionPop" hidden></div>
       <div class="composer-box" id="composerBox">
+        <div class="attach-tray" id="attachTray" hidden></div>
         <textarea id="input" rows="1" placeholder="Ask codepilot…  @ files · / skills · # steering"></textarea>
         <div class="composer-row">
           <button class="chip-btn" id="atBtn" title="Reference a file" data-icon="at"></button>
+          <button class="chip-btn" id="imgBtn" title="Attach images (or paste / drop them)" data-icon="image"></button>
+          <input type="file" id="imgFile" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
           <label class="toggle" title="Run tests without asking each time"><input type="checkbox" id="autoApprove"><span>auto-run tests</span></label>
           <label class="toggle" title="Write proposed edits immediately, for this session (each can be undone in Changes)"><input type="checkbox" id="autoApply"><span>auto-apply edits</span></label>
           <div class="spacer"></div>

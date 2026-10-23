@@ -66,6 +66,10 @@ def attachment_block(root: Path | None, text: str) -> tuple[str, list[str]]:
                 raw = path.read_bytes()
             except OSError:
                 continue
+            if path.suffix.lower() in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
+                parts.append(f'<file path="{rel}">(image: attached to this message as an image)</file>')
+                labels.append(label)
+                continue
             if b"\0" in raw[:4096]:
                 parts.append(f'<file path="{rel}">(binary file not attached)</file>')
                 labels.append(label)

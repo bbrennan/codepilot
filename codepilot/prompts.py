@@ -30,6 +30,8 @@ regression test, and re-run the original reproduction to confirm. Say what you v
 - If the workspace contains traces or logs (see list_traces), use them as evidence: connect what happened \
 at run time to the code responsible.
 - Use remember for durable facts about the workspace that will help in future sessions. Never store secrets.
+- For a library's or SDK's API, check current docs with library_docs (when available) instead of relying on \
+memory. Use web_fetch to read a specific page the user mentions. Never send secrets or proprietary code to these.
 - <steering> blocks (in the system prompt, in messages, or after a file you read) are the user's standing \
 instructions; follow them. If the user wants a convention kept for the future, suggest adding it to a \
 steering doc in .codepilot/steering/.

@@ -101,6 +101,17 @@ have to go looking. Paths in its answers (`src/app.py:42`) are links that open t
 **Use a skill:** type `/` to pick one, for example `/diagnose-bug the checkout total is wrong`. See
 [skills-and-modes.md](skills-and-modes.md).
 
+**Images:** paste a screenshot (⌘V, or Ctrl+V on a Mac too), drop image files on the message box, or click
+the 🖼 button. Thumbnails appear above the box; ✕ removes one. Images are shrunk in the browser before
+sending, and an image alone (no text) is fine. codepilot also attaches images you point at:
+- an image link (`https://…/screen.png`);
+- a local path (`~/Desktop/shot.png`);
+- an `@path/to/diagram.png` in the workspace.
+
+The assistant can open images itself with `view_image`, for example a screenshot a test wrote. PNG, JPEG,
+GIF and WebP up to 3.75 MB; the model must support images (Claude and GPT-4o-class models do; most small
+local models don't).
+
 **Earlier prompts:** press **↑** in the message box to bring back what you sent before, like a shell's
 history: this session's prompts first, then ones from other sessions. **↓** goes forward, and past the
 newest brings back what you were typing. In multi-line text, ↑ and ↓ move between lines first and recall
@@ -151,6 +162,9 @@ one is also a single line in the chat; click it to see its diff.
   it jumps to the next waiting change. To ask for something different, type it under the diff ("keep the
   old name as an alias"); that sends "About change #3 to …" to the chat.
 - **Apply all** / **Reject all** in the bar decide everything at once.
+- **It carries on by itself:** when you've decided every change it was waiting on and applied at least
+  one, codepilot continues ("Continuing after your review"). It verifies what was applied, usually by
+  running the relevant tests, and finishes the task. If you rejected everything, it waits for you.
 - **Apply** writes it. codepilot then checks the file's syntax (and runs ruff on Python files, if
   installed) and tells the assistant what it found.
 - **Reject** discards it. The assistant is told on your next message.
@@ -211,8 +225,10 @@ risky areas in parallel, and reports only bugs it could demonstrate.
 
 ## Traces and logs
 
-The **Traces** view lists JSON/JSONL trace and log files from folders named `traces/`, `logs/`,
-`eval_results/` or `results/` in the workspace (add more with `CODEPILOT_TRACE_DIRS`). Opening one shows:
+The **Traces** view (the pulse icon) appears only when the open folder has trace or log files. It lists
+JSON/JSONL trace and log files from folders named `traces/`, `logs/`, `eval_results/` or `results/` (add
+more with `CODEPILOT_TRACE_DIRS`). In codepilot's own repo it shows the demo agent's sample traces. Opening
+one shows:
 
 - record, span and error counts, total duration, and trace/session ids
 - a **timeline** of spans, with failures in red (hover a bar for its attributes)
@@ -222,7 +238,7 @@ The **Traces** view lists JSON/JSONL trace and log files from folders named `tra
 responsible. This works with OpenTelemetry-style spans (AgentCore, Strands, LangGraph and others) and with
 most structured JSON logs. With `CODEPILOT_LOG_GROUPS` set, it can also search CloudWatch Logs (read-only).
 
-If your project produces traces with a command (an eval or mock-journey run), set `CODEPILOT_EVAL_CMD`.
+If your project has an end-to-end or eval command that writes results or traces, set `CODEPILOT_EVAL_CMD`.
 It's pre-filled in **Output**, and the assistant can run it (with approval) to regenerate traces after a fix.
 
 ## GitHub
@@ -288,6 +304,21 @@ then **tasks**, and you approve each in the **Spec** tab before the next. Then *
 **Run all remaining**. **Check spec vs code** and **Verify with evals** keep the spec and the code in
 step. Specs live in `.codepilot/specs/` in Kiro's format; Kiro and Spec Kit specs are listed too. Full
 guide: [specs.md](specs.md).
+
+## Web tools
+
+Three built-in tools reach outside your machine. They're plain code in codepilot, not MCP servers, and
+`CODEPILOT_WEB=0` turns them all off.
+
+| Tool | What it does | Asks you? |
+|---|---|---|
+| `library_docs` | Current docs and code examples for a library or SDK, from [Context7](https://context7.com) (e.g. FastAPI, React, boto3, the Bedrock AgentCore SDK). Only the library name and question are sent | No |
+| `web_fetch` | Reads a web page as text, or an image by URL | Yes, per site. "Always allow" covers that exact site for the session |
+| `web_search` | Web results from Brave Search | No. Only offered when `BRAVE_API_KEY` is set (Brave's free tier: 2,000 queries a month) |
+
+`web_fetch` never pre-approves any site, refuses redirects to a different site, and never fetches
+cloud-metadata addresses. A fetched URL could carry data out, so read what you approve.
+`CONTEXT7_API_KEY` (free from context7.com) raises Context7's rate limit.
 
 ## Model tiers and cost
 

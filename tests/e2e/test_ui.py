@@ -290,3 +290,15 @@ def test_run_command_from_the_output_panel(page, server, session):
     page.press("#cmdInput", "Enter")
     page.locator("#output pre", has_text="panel-5").wait_for()
     assert page.locator("#output .status").text_content() == "exit 0"
+
+
+def test_traces_view_only_appears_for_folders_with_traces(page, server, session, tmp_path):
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    (plain / "main.py").write_text("print('hi')\n")
+    server.store.create_session(str(plain), "main")  # the newest session, so the app opens it first
+    open_app(page)
+    page.wait_for_function("() => document.querySelector('#activitybar [data-view=traces]').hidden")
+    page.click("[data-view=sessions]")
+    page.locator(f".session[data-id='{session.id}']").click()  # the sample repo has a traces/ folder
+    page.wait_for_function("() => !document.querySelector('#activitybar [data-view=traces]').hidden")

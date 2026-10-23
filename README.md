@@ -71,6 +71,9 @@ assistant's replies in them are scripted so the demo is reproducible.</sub>
 - **Review without losing your place:** proposed changes and command approvals wait in a bar above
   the message box. A Review tab with keyboard shortcuts, Apply all, and "always allow `pytest`" for the
   session.
+- **Images:** paste or drop screenshots, link an image, or point at a file; the assistant can open images itself.
+- **Trusted web tools, no MCP:** current library docs (Context7), web pages (asks per site), optional web
+  search.
 - **Chat that keeps up with you:** type while it works (messages queue for its next step), edit or retry
   any message, ↑ for earlier prompts, and desktop notifications when it's done.
 - **Spec-driven development:** for bigger work, requirements (EARS acceptance criteria), then design, then
@@ -203,6 +206,7 @@ Click **Open folder…** (or say "review ~/code/my-service" in chat) and go. See
 |---|---|
 | `make install` | Install or update dependencies (providers and unit-test tools) |
 | `make doctor` | Check your setup |
+| `uv run codepilot smoke` | End-to-end check of your provider: tool calls, a proposed fix, images |
 | `uv run codepilot models --refresh` | List the models your account can use |
 | `make serve` | Start the UI in this terminal |
 | `make start` / `make stop` | Run it in the background, opened in its own window / stop it |

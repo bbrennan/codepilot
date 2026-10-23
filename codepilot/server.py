@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import contextlib
 import inspect
 import json
@@ -27,7 +29,7 @@ from starlette.websockets import WebSocket
 from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 
-from . import checks, github, mentions, models, modes, skills, specs, steering, traces
+from . import checks, github, images, mentions, models, modes, skills, specs, steering, traces
 from .agent import Agent, history_events
 from .config import TIER_CHOICES, TIERS, Config
 from .store import Store
@@ -169,6 +171,13 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                 term.name = name
         return JSONResponse(term.info())
 
+    async def image_view(request: Request) -> Response:
+        path = images.cached(cfg.home, request.path_params["name"])
+        if path is None:
+            return err("No such image", 404)
+        return Response(path.read_bytes(), media_type=images.MIME[path.suffix[1:]],
+                        headers={"Cache-Control": "private, max-age=31536000, immutable"})
+
     async def config_view(request: Request) -> Response:
         return JSONResponse({
             "provider": cfg.provider, "models": cfg.models, "tiers": list(TIERS), "default_tier": cfg.default_tier,
@@ -249,6 +258,14 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         sid = request.path_params["sid"]
         data = await request.json()
         text = (data.get("message") or "").strip()
+        pasted = []
+        for i, item in enumerate((data.get("images") or [])[:images.MAX_PER_MESSAGE]):
+            try:
+                pasted.append(images.block(base64.b64decode(str(item.get("data") or ""), validate=True)))
+            except (binascii.Error, ValueError) as exc:
+                return err(f"Image {i + 1}: {exc}")
+        if pasted and not text:
+            text = "(see the attached image)" if len(pasted) == 1 else "(see the attached images)"
         if not text:
             return err("Empty message")
         tier = data.get("tier")
@@ -258,7 +275,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             store.get_session(sid)
         except KeyError:
             return err("No such session", 404)
-        return stream(sid, agent.chat(sid, text, tier))
+        return stream(sid, agent.chat(sid, text, tier, pasted))
 
     gh_status: dict = {}
 
@@ -401,7 +418,10 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                              "skills": [{"name": sk.name, "description": sk.description, "path": str(sk.path),
                                          "user_only": sk.user_only}
                                         for sk in skills.discover(root, cfg.home)],
-                             "instructions": skills.project_instructions(root, cfg.home)[:4000]})
+                             "instructions": skills.project_instructions(root, cfg.home)[:4000],
+                             "trace_roots": [str(p) for p in await run_in_threadpool(
+                                 trace_roots, ToolContext(root=root, cfg=cfg, store=store, session_id=sess.id))]
+                             if root else []})
 
     def browse(request: Request) -> Response:  # blocking I/O: runs in a worker thread
         """Directory listing for the Open Folder dialog (folders only, names and markers, no file contents)."""
@@ -749,6 +769,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         Route("/", index),
         Mount("/static", app=StaticFiles(directory=STATIC), name="static"),
         Route("/api/config", config_view),
+        Route("/api/images/{name}", image_view),
         Route("/api/browse", browse),
         Route("/api/github", github_view),
         Route("/api/models", models_view),

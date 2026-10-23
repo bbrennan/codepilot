@@ -79,6 +79,18 @@ go through proposals. The server still checks every path:
   that changed on disk since you opened it, unless you confirm.
 - Like every write, these requests need the CSRF header that other websites can't send.
 
+## Web tools and images
+
+- `library_docs` sends a library name and a question to Context7. `web_search` (only with `BRAVE_API_KEY`)
+  sends a query to Brave. The model is told never to put secrets or proprietary code in them, but treat
+  them as leaving the machine. `CODEPILOT_WEB=0` disables both, plus `web_fetch`.
+- `web_fetch` asks before each site and pre-approves none. A URL can carry data out, as CVE-2026-54316 in
+  another tool showed when a domain was pre-approved. Redirects to another site are refused, and
+  link-local and cloud-metadata addresses are never fetched.
+- Images you attach go to your model provider with the message, like text. Image links and paths you
+  write are fetched or read by codepilot on your behalf. The model's `view_image` reads workspace files
+  and http(s) URLs only.
+
 ## What the assistant can do
 
 | Capability | Guard |

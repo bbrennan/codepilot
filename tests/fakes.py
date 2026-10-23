@@ -1,6 +1,6 @@
 """Test doubles shared by the unit tests (import from here, not from conftest)."""
 
-import json
+import copy
 
 
 class FakeLLM:
@@ -11,7 +11,7 @@ class FakeLLM:
         self.calls = []
 
     def stream(self, model, system, messages, tools=None, max_tokens=None):
-        self.calls.append({"model": model, "system": system, "messages": json.loads(json.dumps(messages)),
+        self.calls.append({"model": model, "system": system, "messages": copy.deepcopy(messages),
                            "tools": tools})
         content = self.script.pop(0)
         for block in content:

@@ -26,6 +26,7 @@ const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = se
 // ---------------------------------------------------------------- icons (Lucide-style, ISC)
 const ICONS = {
   compass: '<circle cx="12" cy="12" r="10"/><path d="m16.24 7.76-1.8 5.4a2 2 0 0 1-1.28 1.28l-5.4 1.8 1.8-5.4a2 2 0 0 1 1.28-1.28z"/>',
+  image: '<rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21"/>',
   filePlus: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6"/><path d="M12 18v-6"/>',
   folderPlus: '<path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
   logo: '<path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="m9.5 10-2 2 2 2"/><path d="m14.5 10 2 2-2 2"/>',
@@ -95,6 +96,7 @@ const state = {
   cfg: null, sid: null, session: null, workspace: "", streams: new Set(), proposals: new Map(), toolEls: new Map(),
   tabs: [], active: null, tree: new Map(), expanded: new Set(), activity: 0, context: null, testCmd: "", traceFiles: [],
   msgText: new Map(), // message id -> the text the user sent (for edit and retry)
+  attachments: [], // images waiting to be sent with the next message
 };
 
 // ---------------------------------------------------------------- layout
@@ -338,6 +340,10 @@ async function loadWorkspaceInfo() {
   state.testCmd = w?.test_cmd || "";
   $("#sbTest").innerHTML = state.workspace ? `${icon("beaker")}${esc(state.testCmd || "no test command")}` : "";
   renderModes();
+  // The Traces view only appears when this folder has trace or log folders (traces/, logs/, results/...).
+  const hasTraces = !!(w?.trace_roots || []).length;
+  $("#activitybar [data-view=traces]").hidden = !hasTraces;
+  if (!hasTraces && $(".view.on")?.dataset.view === "traces") setView("explorer", false);
   if ($(".view.on")?.dataset.view === "memory") renderMemory();
 }
 
@@ -603,6 +609,18 @@ function renderReviewBar() {
     $("#rbRejectAll").onclick = () => bulkProposals("reject");
   }
 }
+// When you've decided every change codepilot was waiting on (and applied at least one), it carries on by itself.
+const REVIEW_DONE = "I've reviewed your proposed changes (the outcome of each is above). Continue: verify what was applied, for example by running the relevant tests, then carry on with the task. If nothing is left to do, say so briefly.";
+function maybeResumeAfterReview() {
+  const sid = state.sid;
+  if (!sid || state.awaitingReview !== sid || state.streams.has(sid) || state.approval) return;
+  const props = [...state.proposals.values()];
+  if (props.some((p) => p.status === "pending")) return;
+  state.awaitingReview = null;
+  if (!props.some((p) => p.status === "applied" && state.reviewBatch?.has(p.id))) return; // all rejected: wait for you
+  add(`<div class="wait-row approved">${icon("refresh")}<span>Continuing after your review…</span></div>`);
+  streamTo(sid, `/api/sessions/${sid}/chat`, { message: REVIEW_DONE, tier: selectedTier() });
+}
 function decideApproval(approve) {
   if (!state.approval || !state.sid) return;
   const remember = approve && !!$("#rbAllow")?.checked;
@@ -713,7 +731,9 @@ async function loadTraces() {
   if (!state.sid || !state.workspace) { $("#traceRoots").textContent = "Open a folder to see its traces and logs."; $("#traceList").innerHTML = ""; return; }
   const d = await api(`/api/sessions/${state.sid}/traces`).catch(() => ({ roots: [], files: [] }));
   state.traceFiles = d.files;
-  $("#traceRoots").textContent = d.roots.length ? d.roots.map((r) => r.replace(state.workspace + "/", "")).join(", ") : "No traces/ or logs/ folder found (CODEPILOT_TRACE_DIRS adds more).";
+  $("#traceRoots").innerHTML = d.roots.length
+    ? `Trace and log files from this folder's <span class="mono">${d.roots.map((r) => esc(r.replace(state.workspace + "/", "") + "/")).join(", ")}</span>: for example logs, test or eval results, or OpenTelemetry traces your app writes. Open one for a timeline, or ask codepilot about it. <span class="muted">CODEPILOT_TRACE_DIRS points elsewhere.</span>`
+    : "No traces/ or logs/ folder found (CODEPILOT_TRACE_DIRS adds more).";
   renderTraceList();
 }
 function renderTraceList() {
@@ -764,6 +784,7 @@ document.addEventListener("click", async (e) => {
 });
 function refreshProposalViews(id) {
   renderReviewBar();
+  setTimeout(maybeResumeAfterReview, 0);
   if (state.tabs.some((t) => t.id === "review") && state.active === "review") renderEditor();
   const p = state.proposals.get(id); if (!p) return;
   $$(`[data-prop="${id}"]`).forEach((card) => { const s = $(".status", card); s.className = "status " + p.status; s.textContent = p.status; const a = $(".pacts", card); if (a) a.innerHTML = propActions(p); });
@@ -977,6 +998,7 @@ function render(ev, replay) {
   switch (ev.type) {
     case "user": {
       endText();
+      if (ev.text === REVIEW_DONE) { add(`<div class="wait-row approved">${icon("refresh")}<span>Continued after your review</span></div>`); break; }
       for (const id of ev.queued_ids || (ev.queued_id ? [ev.queued_id] : [])) $(`#transcript .msg.queued[data-qid="${id}"]`)?.remove();
       const el = add(userMessageHtml(ev.text));
       if (ev.queued || ev.queued_id) el.insertAdjacentHTML("afterbegin", `<div class="sent-while">sent while codepilot was working</div>`);
@@ -993,6 +1015,7 @@ function render(ev, replay) {
       break;
     }
     case "advisor": endText(); add(`<details class="card advisor" open><summary>${icon("sparkle")}Second opinion from ${esc(shortModel(ev.model))}</summary><div class="md">${md(ev.text)}</div></details>`); break;
+    case "attached_images": add(`<div class="img-row">${ev.images.map((im) => `<a href="${esc(im.url)}" target="_blank" rel="noopener" title="${esc(im.source && im.source !== "pasted" ? im.source : "Open full size")}"><img src="${esc(im.url)}" alt="attached image" loading="lazy"></a>`).join("")}</div>`); break;
     case "attached": add(`<div class="attached">${ev.paths.map((p) => `<span data-path="${esc(p.split(":")[0])}" data-line="${esc(p.split(":")[1]?.split("-")[0] || "")}">${icon("file")} ${esc(p)}</span>`).join("")}</div>`); break;
     case "assistant": endText(); add(`<div class="msg assistant">${md(ev.text)}</div>`); break;
     case "skill": add(`<div class="skill-chip">${icon("sparkle")}skill: ${esc(ev.name)}</div>`); break;
@@ -1012,6 +1035,7 @@ function render(ev, replay) {
       const st = $(".st", el); st.className = "st " + (ev.is_error ? "err" : failedRun ? "warn" : "ok");
       st.innerHTML = `${icon(ev.is_error || failedRun ? "alert" : "check")}${failedRun ? "exit " + exit[1] + " · " : ""}${ev.seconds ? ev.seconds + "s" : ""}`;
       el.insertAdjacentHTML("beforeend", `<pre>${esc(ev.output)}</pre>`);
+      if (ev.images?.length) { el.insertAdjacentHTML("beforeend", `<div class="img-row">${ev.images.map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="image" loading="lazy"></a>`).join("")}</div>`); el.open = true; }
       if (!replay) activity(ev.is_error ? "error" : "result", ev.name, `${ev.output.length.toLocaleString()} chars${ev.seconds ? " · " + ev.seconds + "s" : ""}`, ev.output);
       break;
     }
@@ -1138,6 +1162,10 @@ async function streamTo(sid, url, body) {
   finally {
     typing?.remove(); state.streams.delete(sid); updateBusy(); loadSessions();
     notifyDone(sid);
+    if (sid === state.sid) {
+      const pending = [...state.proposals.values()].filter((p) => p.status === "pending");
+      if (pending.length) { state.awaitingReview = sid; state.reviewBatch = new Set(pending.map((p) => p.id)); }
+    }
     if (sid === state.sid && (state.runAll || state.tabs.some((t) => t.kind === "spec") || $(".view.on")?.dataset.view === "specs")) afterSpecTurn();
     if (sid === state.sid) { loadGit(); const d = await api(`/api/sessions/${sid}`).catch(() => null); if (d) { state.summary = d.summary; state.allow = d.allow || []; $("#chatTitle").textContent = d.session.title || "New session"; if ($(".view.on")?.dataset.view === "memory") renderMemory(); } }
   }
@@ -1159,15 +1187,72 @@ async function unqueue(el, edit) {
   if (edit) setInput(input.value ? input.value + "\n" + text : text);
 }
 async function send() {
-  const text = $("#input").value.trim(); if (!text) return;
-  if (state.sid && state.streams.has(state.sid)) { if (await queueMessage(text)) return; }
+  const text = $("#input").value.trim();
+  const pics = state.attachments.slice();
+  if (!text && !pics.length) return;
+  if (state.sid && state.streams.has(state.sid)) {
+    if (pics.length) return toast("Images go with your next message: send them when codepilot finishes (or press Stop).", true);
+    if (await queueMessage(text)) return;
+  }
   if (!state.sid) { try { await newSession(state.workspace); } catch (err) { toast(err.message, true); return; } }
-  $("#input").value = ""; autosize(); hideMentions(); resetHistory(); askNotifyPermission();
-  rememberPrompt(text); (state.prompts ||= []).push(text);
-  render({ type: "user", text }); scrollEnd(true);
-  if (!state.session?.title) $("#chatTitle").textContent = text.split("\n")[0].slice(0, 80);
-  streamTo(state.sid, `/api/sessions/${state.sid}/chat`, { message: text, tier: selectedTier() });
+  $("#input").value = ""; autosize(); hideMentions(); resetHistory(); askNotifyPermission(); clearAttachments();
+  if (text) { rememberPrompt(text); (state.prompts ||= []).push(text); }
+  render({ type: "user", text: text || (pics.length > 1 ? "(see the attached images)" : "(see the attached image)") }); scrollEnd(true);
+  if (!state.session?.title) $("#chatTitle").textContent = (text || "Image").split("\n")[0].slice(0, 80);
+  streamTo(state.sid, `/api/sessions/${state.sid}/chat`, { message: text, tier: selectedTier(), images: pics.map((a) => ({ data: a.data, media_type: a.type })) });
 }
+
+// ---------------------------------------------------------------- composer: images (paste, drop, attach)
+// Images are shrunk in the browser (long side ≤ 1568 px, the size Claude reads at full detail) before sending.
+async function addImageFile(file) {
+  if (!file || !/^image\/(png|jpeg|gif|webp)$/.test(file.type)) return toast("Only PNG, JPEG, GIF and WebP images can be attached.", true);
+  if (state.attachments.length >= 8) return toast("Up to 8 images per message.", true);
+  try {
+    const { data, type } = await shrinkImage(file);
+    const url = URL.createObjectURL(file);
+    state.attachments.push({ data, type, url, name: file.name || "pasted image" });
+    renderAttachments();
+  } catch (err) { toast(`Couldn't read that image: ${err.message}`, true); }
+}
+async function shrinkImage(file, maxSide = 1568, maxBytes = 3_000_000) {
+  const toB64 = (blob) => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(",")[1]); fr.onerror = () => rej(fr.error); fr.readAsDataURL(blob); });
+  const bmp = await createImageBitmap(file);
+  const scale = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
+  if (scale === 1 && file.size <= maxBytes && file.type !== "image/gif") return { data: await toB64(file), type: file.type };
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bmp.width * scale); canvas.height = Math.round(bmp.height * scale);
+  canvas.getContext("2d").drawImage(bmp, 0, 0, canvas.width, canvas.height);
+  let blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
+  if (blob.size > maxBytes) blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.85)); // photos
+  return { data: await toB64(blob), type: blob.type };
+}
+function renderAttachments() {
+  const tray = $("#attachTray");
+  tray.innerHTML = state.attachments.map((a, i) => `<span class="att"><img src="${a.url}" alt="${esc(a.name)}" title="${esc(a.name)}"><button class="icon-btn sm" data-unattach="${i}" title="Remove">${icon("x")}</button></span>`).join("");
+  tray.hidden = !state.attachments.length;
+}
+function clearAttachments() { state.attachments.forEach((a) => URL.revokeObjectURL(a.url)); state.attachments = []; renderAttachments(); }
+$("#attachTray").addEventListener("click", (e) => { const b = e.target.closest("[data-unattach]"); if (!b) return; const [a] = state.attachments.splice(+b.dataset.unattach, 1); URL.revokeObjectURL(a.url); renderAttachments(); });
+$("#imgBtn").onclick = () => $("#imgFile").click();
+$("#imgFile").onchange = (e) => { [...e.target.files].forEach(addImageFile); e.target.value = ""; };
+$("#input").addEventListener("paste", (e) => { // ("input" is declared further down)
+  const files = [...(e.clipboardData?.items || [])].filter((it) => it.kind === "file" && it.type.startsWith("image/")).map((it) => it.getAsFile());
+  if (!files.length) return; // plain text pastes normally
+  e.preventDefault(); files.forEach(addImageFile);
+});
+// Ctrl+V on a Mac (where the system shortcut is ⌘V): read the clipboard ourselves.
+async function pasteFromClipboard() {
+  try {
+    if (navigator.clipboard.read) {
+      for (const item of await navigator.clipboard.read()) {
+        const img = item.types.find((t) => /^image\/(png|jpeg|gif|webp)$/.test(t));
+        if (img) { const blob = await item.getType(img); await addImageFile(new File([blob], "pasted image", { type: img })); continue; }
+        if (item.types.includes("text/plain")) insertAtCaret(await (await item.getType("text/plain")).text());
+      }
+    } else insertAtCaret(await navigator.clipboard.readText());
+  } catch { toast("The browser blocked clipboard access; use ⌘V to paste.", true); }
+}
+function insertAtCaret(text) { input.setRangeText(text, input.selectionStart, input.selectionEnd, "end"); input.dispatchEvent(new Event("input")); autosize(); }
 $("#sendBtn").onclick = send;
 $("#stopBtn").onclick = async () => {
   if (!state.sid) return;
@@ -1364,6 +1449,7 @@ input.addEventListener("keydown", (e) => {
     const edge = e.key === "ArrowUp" ? !v.slice(0, pos).includes("\n") : !v.slice(pos).includes("\n");
     if (edge && historyStep(e.key === "ArrowUp" ? -1 : 1)) { e.preventDefault(); return; }
   }
+  if (isMac && e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === "v") { e.preventDefault(); pasteFromClipboard(); return; }
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
 });
 $("#mentionPop").addEventListener("mousedown", (e) => { const o = e.target.closest("[data-i]"); if (o) { e.preventDefault(); acceptMention(+o.dataset.i); } });
@@ -1373,6 +1459,8 @@ box.addEventListener("dragover", (e) => { e.preventDefault(); box.classList.add(
 box.addEventListener("dragleave", () => box.classList.remove("drop"));
 box.addEventListener("drop", (e) => {
   e.preventDefault(); box.classList.remove("drop");
+  const files = [...(e.dataTransfer.files || [])].filter((f) => f.type.startsWith("image/"));
+  if (files.length) { files.forEach(addImageFile); return; }
   const t = e.dataTransfer.getData("text/plain"); if (t && t.startsWith("@")) insertRef(t.slice(1).trim());
 });
 
@@ -1624,7 +1712,7 @@ async function renderSpecTab(tab) {
   on("#spNext", () => runSpecTask(spec, spec.tasks.find((t) => t.status !== "done")));
   on("#spAll", () => { state.runAll = spec.name; runSpecTask(spec, spec.tasks.find((t) => t.status !== "done")); });
   on("#spDrift", () => specSay(spec, `Check spec ${spec.name} against the current code. List: acceptance criteria that aren't implemented or only partly; behaviour in the code the spec doesn't describe; tasks marked done whose code doesn't match the design. If the code is right and the spec is stale, update the spec with write_spec. Don't change code without asking.`));
-  on("#spEvals", () => specSay(spec, `Verify spec ${spec.name} with the evals: run the eval command (${state.specs.eval_cmd}), then map the results to the acceptance criteria in the requirements: for each criterion, which journeys or traces exercise it and whether they pass. List criteria with no eval coverage and suggest new mock journeys for them.`));
+  on("#spEvals", () => specSay(spec, `Verify spec ${spec.name} with the evals: run the eval command (${state.specs.eval_cmd}), then map the results to the acceptance criteria in the requirements: for each criterion, which scenarios, test cases or traces exercise it and whether they pass. List criteria with no coverage and suggest new scenarios for them.`));
   $$("[data-sp-run]").forEach((b) => (b.onclick = () => runSpecTask(spec, spec.tasks.find((t) => t.id === b.dataset.spRun))));
 }
 async function approveSpec(spec, phase) {

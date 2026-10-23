@@ -575,3 +575,11 @@ details.card.prop[open] > summary { border-bottom: 1px solid var(--line); }
 .sp-id { font: 12px var(--mono); color: var(--muted); min-width: 28px; margin-top: 1px; }
 .sp-tt { flex: 1; min-width: 0; }
 .sp-req { font-size: 11.5px; }
+/* images */
+.attach-tray { display: flex; gap: 6px; flex-wrap: wrap; padding: 6px 6px 0; }
+.attach-tray .att { position: relative; }
+.attach-tray img { width: 64px; height: 64px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line-2); display: block; }
+.attach-tray .icon-btn { position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; background: var(--bg-4); border: 1px solid var(--line-2); border-radius: 50%; }
+.img-row { display: flex; gap: 6px; flex-wrap: wrap; margin: -6px 0 12px; }
+.img-row img { max-width: 220px; max-height: 160px; border-radius: 6px; border: 1px solid var(--line-2); display: block; background: var(--bg-3); }
+.tool .img-row { margin: 6px 10px 10px; }
