@@ -32,6 +32,8 @@ store.py (SQLite in ~/.codepilot): sessions, messages, proposals, usage, notes
 | `github.py` | `gh` command classification (read/write/refused) and execution |
 | `modes.py` | Built-in and custom modes |
 | `skills.py` | SKILL.md discovery and slash commands |
+| `specs.py` | Specs (Kiro format, plus Kiro and Spec Kit folders): phases, approvals, task parsing, per-phase instructions |
+| `router.py` | Auto model routing: the per-turn rules, and failed-run detection for the second opinion |
 | `steering.py` | Steering docs (Kiro format, plus Cursor, Copilot and other instruction files): discovery, inclusion modes, glob matching, `#[[file:]]` references |
 | `repomap.py` | Symbol map of the workspace (Python via `ast`, others via regex) |
 | `mentions.py` | `@file` references and fuzzy file search |

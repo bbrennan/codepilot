@@ -543,3 +543,35 @@ details.card.prop[open] > summary { border-bottom: 1px solid var(--line); }
 .rv-ask textarea { flex: 1; resize: vertical; font: inherit; }
 .allow-chip { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--line-2); border-radius: 6px; padding: 0 0 0 6px; margin: 2px 4px 2px 0; }
 .allow-chip .icon-btn { width: 20px; height: 20px; }
+/* specs */
+.spec-chip { background: color-mix(in srgb, var(--syn-fn) 14%, transparent); color: var(--syn-fn); cursor: pointer; }
+.row.spec-row .incl { font: 10.5px var(--mono); padding: 0 6px; border-radius: 999px; border: 1px solid var(--line-2); color: var(--muted); white-space: nowrap; }
+.row.spec-row .incl.phase-implement { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+.spec-tab { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.sp-head { gap: 12px; }
+.sp-steps { display: flex; align-items: center; gap: 4px; }
+.sp-step { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line-2); background: transparent; color: var(--muted); border-radius: 999px; padding: 1px 9px 1px 4px; font-size: 11.5px; cursor: pointer; height: 22px; }
+.sp-step .n { display: inline-grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; background: var(--bg-4); font-size: 10px; }
+.sp-step svg { width: 13px; height: 13px; color: var(--ok); }
+.sp-step.current { color: var(--fg); border-color: var(--accent); }
+.sp-step.current .n { background: var(--accent); color: var(--accent-fg); }
+.sp-step.on { background: var(--accent-soft); }
+.sp-step:disabled { opacity: .5; cursor: default; }
+.sp-sep { color: var(--faint); }
+.sp-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.sp-doc-bar, .sp-bar { display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--line); font-size: 12px; flex-wrap: wrap; }
+.sp-doc-bar .spacer, .sp-bar .spacer { flex: 1; }
+.sp-doc { flex: 1; overflow: auto; padding: 14px 24px 30px; max-width: 920px; font-size: 13.5px; line-height: 1.55; }
+.sp-impl { flex: 1; overflow: auto; display: flex; flex-direction: column; }
+.sp-progress { width: 140px; height: 6px; border-radius: 3px; background: var(--bg-4); overflow: hidden; }
+.sp-progress i { display: block; height: 100%; background: var(--ok); }
+.sp-tip { padding: 6px 16px; }
+.sp-tasks { padding: 6px 0 20px; }
+.sp-task { display: flex; align-items: flex-start; gap: 8px; padding: 6px 16px 6px calc(16px + var(--depth, 0) * 22px); border-bottom: 1px solid var(--line); font-size: 13px; }
+.sp-task.done .sp-tt > div:first-child { color: var(--muted); text-decoration: line-through; }
+.sp-check { width: 16px; height: 16px; border: 1px solid var(--line-2); border-radius: 4px; display: grid; place-items: center; flex: none; margin-top: 2px; }
+.sp-task.done .sp-check { background: var(--ok); border-color: var(--ok); color: #fff; }
+.sp-check svg { width: 12px; height: 12px; }
+.sp-id { font: 12px var(--mono); color: var(--muted); min-width: 28px; margin-top: 1px; }
+.sp-tt { flex: 1; min-width: 0; }
+.sp-req { font-size: 11.5px; }

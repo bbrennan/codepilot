@@ -27,7 +27,7 @@ from starlette.websockets import WebSocket
 from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 
-from . import checks, github, mentions, models, modes, skills, steering, traces
+from . import checks, github, mentions, models, modes, skills, specs, steering, traces
 from .agent import Agent, history_events
 from .config import TIER_CHOICES, TIERS, Config
 from .store import Store
@@ -207,9 +207,12 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         if request.method == "PATCH":
             data = await request.json()
             fields = {k: data[k] for k in ("title", "tier", "auto_approve", "repo", "mode", "model") if k in data}
-            if isinstance(data.get("allow"), list):  # replace this session's "always allow" rules (e.g. clear them)
+            if isinstance(data.get("allow"), list) or "auto_apply" in data:
                 state = dict(sess.context_state or {})
-                state["allow"] = [r for r in state.get("allow", []) if r in data["allow"]]
+                if isinstance(data.get("allow"), list):  # replace "always allow" rules (only removing is possible)
+                    state["allow"] = [r for r in state.get("allow", []) if r in data["allow"]]
+                if "auto_apply" in data:
+                    state["auto_apply"] = bool(data["auto_apply"])
                 store.update_session(sid, context_state=state)
             if "model" in fields:
                 fields["model"] = str(fields["model"] or "").strip()[:200]
@@ -235,6 +238,8 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             "events": history_events(store, sid),
             "pending": sess.pending and agent.approval_view(sess.pending["awaiting"], root),
             "allow": (sess.context_state or {}).get("allow", []),
+            "auto_apply": bool((sess.context_state or {}).get("auto_apply")) or cfg.auto_apply_edits,
+            "spec": (sess.context_state or {}).get("spec"),
             "proposals": [_proposal_json(p, root) for p in store.list_proposals(sid)],
             "usage": store.usage(sid),
             "context": agent.context_usage(sid),
@@ -566,6 +571,52 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         shutil.rmtree(slot, ignore_errors=True)
         return {"path": meta["path"], "dir": dest.is_dir()}
 
+    # -- specs ----------------------------------------------------------------------------------
+
+    def spec_list(request: Request) -> Response:  # blocking I/O: runs in a worker thread
+        ctx = ctx_for(request.path_params["sid"])
+        active = (store.get_session(ctx.session_id).context_state or {}).get("spec")
+        return JSONResponse({"specs": [sp.info(ctx.root) for sp in specs.discover(ctx.root)], "active": active,
+                             "eval_cmd": cfg.eval_cmd})
+
+    def set_active_spec(sid: str, name: str) -> None:
+        sess = store.get_session(sid)
+        state = dict(sess.context_state or {})
+        state["spec"] = name
+        store.update_session(sid, context_state=state, mode="spec")
+
+    async def spec_create(request: Request) -> Response:
+        ctx = ctx_for(request.path_params["sid"])
+        data = await request.json()
+        name = str(data.get("name") or "").strip() or specs.slug(str(data.get("description") or ""))
+        try:
+            spec = await run_in_threadpool(specs.create, ctx.root, name, str(data.get("kind") or "feature"))
+        except FileExistsError as exc:
+            return err(str(exc), 409)
+        except ValueError as exc:
+            return err(str(exc))
+        set_active_spec(ctx.session_id, spec.name)
+        return JSONResponse(spec.info(ctx.root), status_code=201)
+
+    async def spec_action(request: Request) -> Response:
+        ctx = ctx_for(request.path_params["sid"])
+        spec = specs.get(ctx.root, request.path_params["name"])
+        if spec is None:
+            return err("No such spec", 404)
+        action = request.path_params["action"]
+        if action == "activate":
+            set_active_spec(ctx.session_id, spec.name)
+            return JSONResponse(spec.info(ctx.root))
+        if action == "approve":
+            phase = str((await request.json()).get("phase") or spec.phase)
+            try:
+                spec = specs.approve(ctx.root, spec, phase)
+            except (ValueError, FileNotFoundError) as exc:
+                return err(str(exc), 409)
+            set_active_spec(ctx.session_id, spec.name)
+            return JSONResponse(spec.info(ctx.root))
+        return err("action must be activate or approve", 404)
+
     # -- steering docs ---------------------------------------------------------------------------
 
     def session_root(sid: str) -> Path | None:
@@ -723,6 +774,9 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         Route("/api/sessions/{sid}/find", needs_workspace(find)),
         Route("/api/sessions/{sid}/git", needs_workspace(git_view)),
         Route("/api/sessions/{sid}/fs", needs_workspace(fs), methods=["POST"]),
+        Route("/api/sessions/{sid}/specs", needs_workspace(spec_list)),
+        Route("/api/sessions/{sid}/specs", needs_workspace(spec_create), methods=["POST"]),
+        Route("/api/sessions/{sid}/specs/{name}/{action}", needs_workspace(spec_action), methods=["POST"]),
         Route("/api/sessions/{sid}/steering", steering_list),
         Route("/api/sessions/{sid}/steering", steering_create, methods=["POST"]),
         Route("/api/steering/global", steering_global, methods=["GET", "PUT"]),

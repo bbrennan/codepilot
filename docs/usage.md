@@ -11,6 +11,7 @@
 - [GitHub](#github)
 - [Memory](#memory)
 - [Steering](#steering)
+- [Specs](#specs)
 - [Model tiers and cost](#model-tiers-and-cost)
 - [The terminal](#the-terminal)
 - [Terminal mode](#terminal-mode)
@@ -133,6 +134,7 @@ Pick a mode in the chat header. Each is a focused agent with its own instruction
 | **Build** (default) | Implementing changes end to end, verified by tests and checks | |
 | **Debug** | A specific bug: reproduce, find the root cause, fix, add a regression test | |
 | **Bug-hunt** | Searching for real bugs, each confirmed with evidence | Edit (switch to Debug to fix) |
+| **Spec** | Bigger features and tricky bugs: requirements, design and tasks, each reviewed, then task by task ([specs.md](specs.md)) | Edit code before the task list is approved |
 | **Review** | Reviewing changes or code against the intent and the repo's standards | Edit, unless asked |
 
 You can switch mode mid-conversation, and you can add your own modes
@@ -277,6 +279,15 @@ commit them) or `~/.codepilot/steering/` (all your workspaces), in Kiro's format
 - Edits apply from your next message. A **steering: name** chip in the chat shows when a doc loaded.
 
 The full guide, with examples, is in [steering.md](steering.md).
+
+## Specs
+
+For bigger changes, open the **Specs** view (the list icon) → **New spec**, or switch to **Spec** mode and
+describe what you want. codepilot writes **requirements** (EARS acceptance criteria), then a **design**,
+then **tasks**, and you approve each in the **Spec** tab before the next. Then **Run** tasks one by one or
+**Run all remaining**. **Check spec vs code** and **Verify with evals** keep the spec and the code in
+step. Specs live in `.codepilot/specs/` in Kiro's format; Kiro and Spec Kit specs are listed too. Full
+guide: [specs.md](specs.md).
 
 ## Model tiers and cost
 

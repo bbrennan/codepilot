@@ -73,6 +73,9 @@ assistant's replies in them are scripted so the demo is reproducible.</sub>
   session.
 - **Chat that keeps up with you:** type while it works (messages queue for its next step), edit or retry
   any message, ↑ for earlier prompts, and desktop notifications when it's done.
+- **Spec-driven development:** for bigger work, requirements (EARS acceptance criteria), then design, then
+  tasks, each reviewed in a Spec tab, then task-by-task implementation. Includes drift checks and mapping
+  eval results to acceptance criteria. It uses Kiro's format, and reads Kiro and Spec Kit specs too.
 - **Steering:** standing instructions it always follows, in Kiro's format (`.codepilot/steering/`):
   always on, for matching files, by `#name`, or when relevant. It drafts them from your repo, and reads
   `AGENTS.md`, `CLAUDE.md`, Kiro, Cursor and Copilot instruction files too.
@@ -185,6 +188,7 @@ Click **Open folder…** (or say "review ~/code/my-service" in chat) and go. See
 | [Setup](docs/setup.md) | Prerequisites, install, every provider (accounts, IAM, keys), GitHub, analysers, `make doctor` |
 | [Usage](docs/usage.md) | The UI, modes, approvals, Apply/Undo, workflows, traces, GitHub, memory, shortcuts, tips |
 | [Configuration](docs/configuration.md) | Every environment variable, and where files are stored |
+| [Specs](docs/specs.md) | Spec-driven development: requirements → design → tasks → implementation, bugfix specs, evals |
 | [Steering](docs/steering.md) | Standing instructions: where they live, inclusion modes, writing good ones, other tools' files |
 | [Skills and modes](docs/skills-and-modes.md) | Built-in skills, installing and writing skills, custom modes |
 | [Benchmark](docs/benchmark.md) | Running, comparing and extending the planted-bug benchmark |

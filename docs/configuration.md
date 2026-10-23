@@ -130,4 +130,5 @@ tiers and the default repo, for compatibility with an older internal tool.
 | `~/.codepilot/steering/*.md` | Your steering docs for every workspace ([steering.md](steering.md)) |
 | `~/.codepilot/AGENTS.md` | Global instructions applied to every workspace (always on) |
 | `<workspace>/.codepilot/steering/*.md` | The workspace's steering docs (commit them) |
+| `<workspace>/.codepilot/specs/<name>/` | Specs: `requirements.md`/`bugfix.md`, `design.md`, `tasks.md`, `spec.json` ([specs.md](specs.md)) |
 | `<workspace>/.codepilot/modes/`, `.agents/skills/`, `.claude/skills/` | Project-specific modes and skills |

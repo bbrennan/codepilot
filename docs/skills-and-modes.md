@@ -94,6 +94,7 @@ A mode is the same agent loop with different settings. The built-ins:
 | `build` (default) | Implement end to end, verify with tests and checks | | |
 | `debug` | Follow `diagnose-bug` strictly | | `diagnose-bug` |
 | `bughunt` | Prioritise risky code, explore in parallel, confirm each bug, report | `propose_edit` | |
+| `spec` | Spec-driven: follow the current phase's instructions; `write_spec` and `update_task` ([specs.md](specs.md)) | `propose_edit` until the task list is approved | |
 | `review` | Review against intent and standards; verify findings | `propose_edit` | `code-review` |
 
 ### Custom modes
@@ -117,7 +118,7 @@ change one thing at a time, and report before/after numbers.
 It appears in the mode picker right away; reopen the session to refresh the list. Tool names you can
 block: `open_workspace`, `list_files`, `read_file`, `search_code`, `git`, `explore`, `run_tests`,
 `run_checks`, `run_command`, `list_traces`, `trace_outline`, `search_traces`, `read_trace`, `write_scratch`,
-`propose_edit`, `update_plan`, `load_skill`, `recall`, `remember`, `github`, `cloudwatch_logs`.
+`propose_edit`, `update_plan`, `write_spec`, `update_task`, `load_skill`, `recall`, `remember`, `github`, `cloudwatch_logs`.
 
 ### How modes reach the model
 

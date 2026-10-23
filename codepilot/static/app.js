@@ -108,6 +108,7 @@ function setView(view, reveal = true) {
   if (view === "changes") { renderProposalList(); loadGit(); }
   if (view === "memory") renderMemory();
   if (view === "steering") loadSteering();
+  if (view === "specs") loadSpecs();
   if (view === "search") $("#grepInput").focus();
 }
 $("#activitybar").addEventListener("click", (e) => {
@@ -231,7 +232,7 @@ async function openSession(sid) {
   const data = await api(`/api/sessions/${sid}`);
   state.session = data.session;
   $("#chatTitle").textContent = data.session.title || "New session";
-  syncModelSelect(); $("#autoApprove").checked = data.session.auto_approve;
+  syncModelSelect(); $("#autoApprove").checked = data.session.auto_approve; $("#autoApply").checked = !!data.auto_apply;
   state.mode = data.session.mode || "build";
   $("#transcript").innerHTML = ""; state.toolEls.clear(); endText();
   state.proposals = new Map(data.proposals.map((p) => [p.id, p]));
@@ -374,6 +375,7 @@ function renderEditor() {
   else if (tab.kind === "diff") renderDiffTab(tab);
   else if (tab.kind === "gitdiff") renderGitDiffTab(tab);
   else if (tab.kind === "review") renderReviewTab(tab);
+  else if (tab.kind === "spec") renderSpecTab(tab);
   $$("#tree .row[data-file]").forEach((r) => r.classList.toggle("on", "file:" + r.dataset.file === state.active));
 }
 function welcomeHtml() {
@@ -960,6 +962,8 @@ function argSummary(name, input) {
   if (!input) return "";
   if (!Object.values(input).some((v) => v !== "" && v != null)) return "";
   if (name === "update_plan" && Array.isArray(input.items)) return `${input.items.filter((i) => i.status === "done").length}/${input.items.length} done`;
+  if (name === "write_spec") return `${input.doc || ""}.md · ${(input.content || "").split("\n").length} lines`;
+  if (name === "update_task") return `task ${input.task} → ${String(input.status || "").replace("_", " ")}`;
   if (input.path && (input.start_line || input.end_line)) return `${input.path}:${input.start_line || 1}-${input.end_line || ""}`;
   return input.path || input.pattern || input.query || input.command || input.task || input.args || input.name || input.log_group || input.note || JSON.stringify(input).slice(0, 120);
 }
@@ -981,6 +985,13 @@ function render(ev, replay) {
     }
     case "turn": { const u = [...$$("#transcript .msg.user:not(.queued)")].reverse().find((x) => !x.dataset.mid && !$(".sent-while", x)); if (u) markTurn(u, ev.mid); break; }
     case "route": endText(); add(`<div class="skill-chip route-chip" title="Auto picked this model because: ${esc(ev.reason)}">${icon("sparkle")}auto → ${esc(shortModel(ev.model))} · ${esc(ev.reason)}</div>`); if (!replay) activity("model", "auto", `${shortModel(ev.model)} (${ev.tier}): ${ev.reason}`); break;
+    case "spec": {
+      endText();
+      const what = ev.created ? `started ${ev.kind === "bugfix" ? "bugfix " : ""}spec` : ev.doc ? `wrote ${ev.doc}` : ev.task ? `task ${ev.task} → ${ev.status.replace("_", " ")}` : "updated";
+      add(`<div class="skill-chip spec-chip" data-spec-open="${esc(ev.name)}">${icon("list")}spec ${esc(ev.name)}: ${esc(what)}</div>`);
+      if (!replay) { loadSpecs(true).then(() => { if (ev.created || ev.doc === "requirements") openSpec(ev.name); }); }
+      break;
+    }
     case "advisor": endText(); add(`<details class="card advisor" open><summary>${icon("sparkle")}Second opinion from ${esc(shortModel(ev.model))}</summary><div class="md">${md(ev.text)}</div></details>`); break;
     case "attached": add(`<div class="attached">${ev.paths.map((p) => `<span data-path="${esc(p.split(":")[0])}" data-line="${esc(p.split(":")[1]?.split("-")[0] || "")}">${icon("file")} ${esc(p)}</span>`).join("")}</div>`); break;
     case "assistant": endText(); add(`<div class="msg assistant">${md(ev.text)}</div>`); break;
@@ -1073,6 +1084,7 @@ $("#transcript").addEventListener("click", (e) => {
   const loc = e.target.closest("a.loc, .ref, .attached span");
   if (loc) { e.preventDefault(); openFile(loc.dataset.path, +loc.dataset.line || undefined); return; }
   const po = e.target.closest("[data-prop-open]"); if (po) { e.preventDefault(); openProposal(po.dataset.propOpen); return; }
+  const so = e.target.closest("[data-spec-open]"); if (so) { openSpec(so.dataset.specOpen); return; }
   const cp = e.target.closest(".copy");
   if (cp) { navigator.clipboard?.writeText(cp.parentElement.querySelector("code").innerText); toast("Copied"); }
 });
@@ -1126,6 +1138,7 @@ async function streamTo(sid, url, body) {
   finally {
     typing?.remove(); state.streams.delete(sid); updateBusy(); loadSessions();
     notifyDone(sid);
+    if (sid === state.sid && (state.runAll || state.tabs.some((t) => t.kind === "spec") || $(".view.on")?.dataset.view === "specs")) afterSpecTurn();
     if (sid === state.sid) { loadGit(); const d = await api(`/api/sessions/${sid}`).catch(() => null); if (d) { state.summary = d.summary; state.allow = d.allow || []; $("#chatTitle").textContent = d.session.title || "New session"; if ($(".view.on")?.dataset.view === "memory") renderMemory(); } }
   }
 }
@@ -1158,6 +1171,7 @@ async function send() {
 $("#sendBtn").onclick = send;
 $("#stopBtn").onclick = async () => {
   if (!state.sid) return;
+  state.runAll = null;
   const r = await api(`/api/sessions/${state.sid}/cancel`, { method: "POST" }).catch(() => null);
   if (r?.queued?.length) { // stopped: queued messages come back to the message box, not lost
     $$("#transcript .msg.queued").forEach((q) => q.remove());
@@ -1229,6 +1243,7 @@ $("#tier").addEventListener("change", async () => {
   if (d) { state.session = d.session; setContext(d.context); }
 });
 $("#autoApprove").addEventListener("change", () => state.sid && api(`/api/sessions/${state.sid}`, { method: "PATCH", body: { auto_approve: $("#autoApprove").checked } }));
+$("#autoApply").addEventListener("change", () => state.sid && api(`/api/sessions/${state.sid}`, { method: "PATCH", body: { auto_apply: $("#autoApply").checked } }).then(() => toast($("#autoApply").checked ? "Edits are applied as they're proposed (each can be undone)" : "Edits wait for your review again")));
 
 // ---------------------------------------------------------------- composer: prompt history (Up / Down)
 // Like a shell: Up on the first line recalls earlier prompts (this session's, then other sessions'), Down goes
@@ -1515,6 +1530,132 @@ $("#newFolderBtn").onclick = () => newItem("folder");
 // Keyboard, VS Code style, only while the explorer has focus: F2 renames, Delete (or ⌘⌫) deletes.
 let treeFocused = false;
 document.addEventListener("mousedown", (e) => { treeFocused = !!e.target.closest("#tree"); }, true);
+
+// ---------------------------------------------------------------- specs (spec-driven development)
+const SPEC_PHASES = ["requirements", "design", "tasks", "implement"];
+const phaseLabel = (spec, ph) => ({ requirements: spec?.kind === "bugfix" ? "Bug analysis" : "Requirements", design: "Design", tasks: "Tasks", implement: "Implement" })[ph];
+const specSlug = (t) => { const stop = new Set(["a", "an", "the", "to", "for", "of", "and", "with", "in", "on", "i", "we", "want", "add", "make"]); const w = (t.toLowerCase().match(/[a-z0-9]+/g) || []); return ((w.filter((x) => !stop.has(x)).slice(0, 5).length ? w.filter((x) => !stop.has(x)) : w).slice(0, 5).join("-") || "spec").slice(0, 60); };
+async function loadSpecs(quiet) {
+  if (!state.sid || !state.workspace) { state.specs = null; if (!quiet) renderSpecs(); return; }
+  state.specs = await api(`/api/sessions/${state.sid}/specs`).catch((err) => ({ specs: [], error: err.message }));
+  renderSpecs();
+  if (state.tabs.some((t) => t.kind === "spec" && t.id === state.active)) renderEditor();
+}
+const findSpec = (name) => (state.specs?.specs || []).find((x) => x.name === name);
+function renderSpecs() {
+  const el = $("#specsView"); if (!el) return;
+  const d = state.specs;
+  if (!d) { el.innerHTML = `<div class="empty-state">Open a folder to work with specs.</div>`; return; }
+  const row = (x) => `<div class="row spec-row ${x.name === d.active ? "on" : ""}" data-spec-open="${esc(x.name)}" title="${esc(x.folder)}"><span class="ficon">${icon(x.kind === "bugfix" ? "alert" : "list")}</span><span class="name">${esc(x.name)}</span>${x.source !== "codepilot" ? `<span class="incl">${x.source === "speckit" ? "spec kit" : x.source}</span>` : ""}<span class="incl phase-${x.phase}">${x.phase === "implement" ? `${x.progress[0]}/${x.progress[1]}` : esc(phaseLabel(x, x.phase).toLowerCase())}</span></div>`;
+  el.innerHTML = `<div class="hint" style="padding:6px 14px 2px">Plan bigger changes before coding: requirements, then design, then tasks, each reviewed, then build task by task. Kiro-compatible (<span class="mono">.codepilot/specs</span>; Kiro and Spec Kit specs are listed too).</div>
+    <div style="display:flex;gap:6px;padding:8px 14px 4px;flex-wrap:wrap"><button class="btn sm primary" id="specNew">${icon("plus")}New spec</button><button class="btn sm" id="specNewBug">${icon("alert")}New bugfix spec</button></div>
+    ${(d.specs || []).map(row).join("") || `<div class="hint" style="padding:4px 14px">No specs yet.</div>`}
+    ${d.error ? `<div class="banner error">${esc(d.error)}</div>` : ""}`;
+  $("#specNew").onclick = () => newSpec("feature");
+  $("#specNewBug").onclick = () => newSpec("bugfix");
+}
+$("#specsView").addEventListener("click", (e) => { const r = e.target.closest("[data-spec-open]"); if (r) openSpec(r.dataset.specOpen); });
+$("#newSpecBtn").onclick = () => newSpec("feature");
+$("#refreshSpecsBtn").onclick = () => loadSpecs();
+async function newSpec(kind) {
+  if (!needFolder()) return;
+  const desc = await promptDialog(kind === "bugfix" ? "Describe the bug" : "What do you want to build?", "", kind === "bugfix" ? "What happens, what should happen, and how to reproduce it if you know." : "A sentence or two. codepilot drafts the requirements first; you review each step before any code.");
+  if (!desc) return;
+  const name = await promptDialog("Spec name", specSlug(desc), "Lowercase letters, digits and dashes. It becomes .codepilot/specs/<name>/.");
+  if (!name) return;
+  try {
+    const sp = await api(`/api/sessions/${state.sid}/specs`, { method: "POST", body: { name, kind, description: desc } });
+    setMode("spec"); state.session && (state.session.mode = "spec");
+    await loadSpecs(true); openSpec(sp.name);
+    setInput(desc); send();
+  } catch (err) { toast(err.message, true); }
+}
+function openSpec(name) {
+  if (!findSpec(name) && !state.specs) { loadSpecs(true).then(() => openSpec(name)); return; }
+  openTab({ id: "spec:" + name, kind: "spec", icon: "list", title: name, tip: `Spec ${name}`, name, view: null });
+}
+async function ensureSpecActive(spec) {
+  if (state.specs?.active === spec.name && state.mode === "spec") return;
+  await api(`/api/sessions/${state.sid}/specs/${encodeURIComponent(spec.name)}/activate`, { method: "POST" });
+  setMode("spec"); state.specs.active = spec.name;
+}
+async function specSay(spec, text) {
+  await ensureSpecActive(spec); setInput(text); send(); // while codepilot works, send() queues it for the next step
+}
+async function renderSpecTab(tab) {
+  const spec = findSpec(tab.name);
+  if (!spec) { $("#editor").innerHTML = `<div class="empty-state">Spec ${esc(tab.name)} not found. <button class="btn sm" id="spRefresh">Refresh</button></div>`; $("#spRefresh").onclick = () => loadSpecs(); return; }
+  const cur = SPEC_PHASES.indexOf(spec.phase);
+  const view = tab.view && SPEC_PHASES.indexOf(tab.view) <= cur ? tab.view : spec.phase;
+  const steps = SPEC_PHASES.map((ph, i) => `<button class="sp-step ${i < cur ? "done" : i === cur ? "current" : "todo"} ${ph === view ? "on" : ""}" data-sp-view="${ph}" ${i > cur ? "disabled" : ""}>${i < cur ? icon("check") : `<span class="n">${i + 1}</span>`}${esc(phaseLabel(spec, ph))}</button>`).join(`<span class="sp-sep">›</span>`);
+  const head = `<div class="ed-bar sp-head"><span class="crumbs"><b>${esc(spec.name)}</b> <span class="muted">${spec.kind === "bugfix" ? "bugfix spec" : "spec"}${spec.source !== "codepilot" ? " · " + spec.source : ""}</span></span><div class="sp-steps">${steps}</div><span class="spacer"></span>${spec.name === state.specs.active ? `<span class="incl">active</span>` : ""}</div>`;
+  let body = "";
+  if (view === "implement") {
+    const pending = spec.tasks.filter((t) => t.status !== "done");
+    const pct = spec.tasks.length ? Math.round((spec.progress[0] / spec.tasks.length) * 100) : 0;
+    body = `<div class="sp-impl"><div class="sp-bar"><div class="sp-progress"><i style="width:${pct}%"></i></div><span class="muted">${spec.progress[0]} of ${spec.progress[1]} tasks done</span><span class="spacer"></span>
+      ${pending.length ? `<button class="btn sm primary" id="spNext">${icon("play")}Run next task</button><button class="btn sm" id="spAll" title="Runs tasks one after another, pausing when something needs your review">${icon("play")}Run all remaining</button>` : `<span class="status applied">complete</span>`}
+      <button class="btn sm" id="spDrift" title="Compare the spec with the code and report differences">${icon("diff")}Check spec vs code</button>${state.specs.eval_cmd ? `<button class="btn sm" id="spEvals" title="Run the eval command and map results to acceptance criteria">${icon("beaker")}Verify with evals</button>` : ""}
+      <button class="btn sm ghost" id="spEditTasks">${icon("edit")}Edit tasks</button></div>
+      ${!$("#autoApply").checked && pending.length ? `<div class="hint sp-tip">Tip: tick <b>auto-apply edits</b> below the chat so tasks can run back to back; every change can still be undone in Changes.</div>` : ""}
+      <div class="sp-tasks">${spec.tasks.map((t) => `<div class="sp-task ${t.status}" style="--depth:${t.depth}"><span class="sp-check">${t.status === "done" ? icon("check") : t.status === "in_progress" ? '<span class="spinner"></span>' : ""}</span><span class="sp-id">${esc(t.id)}</span><div class="sp-tt"><div>${esc(t.title)}</div>${t.requirements.length ? `<div class="muted sp-req">requirements ${esc(t.requirements.join(", "))}</div>` : ""}</div>${t.status !== "done" ? `<button class="btn sm" data-sp-run="${esc(t.id)}">${icon("play")}Run</button>` : ""}</div>`).join("") || `<div class="hint">No tasks found in tasks.md.</div>`}</div></div>`;
+  } else {
+    const rel = spec.docs[view];
+    let content = null;
+    if (rel) { const f = await api(`/api/sessions/${state.sid}/files?path=${encodeURIComponent(rel)}`).catch(() => null); content = f?.content ?? null; }
+    if (state.active !== tab.id) return; // the user moved on while we loaded
+    const isCurrent = view === spec.phase;
+    body = `<div class="sp-doc-bar">${rel ? `<span class="mono muted">${esc(rel)}</span>` : ""}<span class="spacer"></span>
+        ${rel ? `<button class="btn sm" id="spEdit">${icon("edit")}Edit</button>` : ""}
+        ${isCurrent && rel ? `<button class="btn sm primary" id="spApprove">${icon("check")}Approve ${esc(phaseLabel(spec, view).toLowerCase())} &amp; continue</button>` : ""}</div>
+      <div class="sp-doc md">${content != null ? md(content) : `<div class="empty-state">${state.streams.has(state.sid) ? '<span class="spinner"></span> codepilot is drafting this…' : `Not written yet.<br><button class="btn sm" id="spWrite">${icon("sparkle")}Ask codepilot to write it</button>`}</div>`}</div>
+      ${rel ? `<div class="rv-ask"><textarea class="field" id="spAsk" rows="2" placeholder="Ask for changes to the ${esc(phaseLabel(spec, view).toLowerCase())}…"></textarea><button class="btn" id="spAskBtn">${icon("send")}Send</button></div>` : ""}`;
+  }
+  $("#editor").innerHTML = `<div class="spec-tab">${head}<div class="sp-body">${body}</div></div>`;
+  $$(".sp-step[data-sp-view]").forEach((b) => (b.onclick = () => { tab.view = b.dataset.spView; renderSpecTab(tab); }));
+  const on = (id, fn) => $(id) && ($(id).onclick = fn);
+  on("#spEdit", async () => { const rel = spec.docs[view]; await openFile(rel); editFile("file:" + rel); });
+  on("#spEditTasks", async () => { const rel = spec.doc_paths.tasks; await openFile(rel); editFile("file:" + rel); });
+  on("#spWrite", () => specSay(spec, `Write the ${view} for spec ${spec.name}.`));
+  on("#spApprove", () => approveSpec(spec, view));
+  const ask = () => { const t = $("#spAsk").value.trim(); if (t) specSay(spec, `About the ${phaseLabel(spec, view).toLowerCase()} of spec ${spec.name}: ${t}`); };
+  on("#spAskBtn", ask);
+  $("#spAsk") && ($("#spAsk").onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(); } });
+  on("#spNext", () => runSpecTask(spec, spec.tasks.find((t) => t.status !== "done")));
+  on("#spAll", () => { state.runAll = spec.name; runSpecTask(spec, spec.tasks.find((t) => t.status !== "done")); });
+  on("#spDrift", () => specSay(spec, `Check spec ${spec.name} against the current code. List: acceptance criteria that aren't implemented or only partly; behaviour in the code the spec doesn't describe; tasks marked done whose code doesn't match the design. If the code is right and the spec is stale, update the spec with write_spec. Don't change code without asking.`));
+  on("#spEvals", () => specSay(spec, `Verify spec ${spec.name} with the evals: run the eval command (${state.specs.eval_cmd}), then map the results to the acceptance criteria in the requirements: for each criterion, which journeys or traces exercise it and whether they pass. List criteria with no eval coverage and suggest new mock journeys for them.`));
+  $$("[data-sp-run]").forEach((b) => (b.onclick = () => runSpecTask(spec, spec.tasks.find((t) => t.id === b.dataset.spRun))));
+}
+async function approveSpec(spec, phase) {
+  try {
+    await api(`/api/sessions/${state.sid}/specs/${encodeURIComponent(spec.name)}/approve`, { method: "POST", body: { phase } });
+    await loadSpecs(true); setMode("spec");
+    const tab = state.tabs.find((t) => t.id === "spec:" + spec.name); if (tab) tab.view = null;
+    if (phase === "tasks") { toast("Task list approved: run tasks from the Implement step."); renderEditor(); return; }
+    specSay(spec, phase === "requirements" ? `${spec.kind === "bugfix" ? "The bug analysis is" : "The requirements are"} approved. Write the design.` : "The design is approved. Write the task list.");
+  } catch (err) { toast(err.message, true); }
+}
+function runSpecTask(spec, task) {
+  if (!task) { state.runAll = null; return toast("All tasks are done."); }
+  state.runTask = { spec: spec.name, id: task.id };
+  specSay(spec, `Implement task ${task.id} of spec ${spec.name}: ${task.title}`);
+}
+async function afterSpecTurn() {
+  await loadSpecs(true);
+  if (!state.runAll || !state.runTask) return;
+  const spec = findSpec(state.runAll), ran = spec?.tasks.find((t) => t.id === state.runTask.id);
+  const pendingChanges = [...state.proposals.values()].some((p) => p.status === "pending");
+  let why = null;
+  if (!spec) why = "the spec is gone";
+  else if (state.approval) why = "a command needs your approval";
+  else if (pendingChanges) why = "changes are waiting for your review (or tick auto-apply edits)";
+  else if (ran?.status !== "done") why = `task ${state.runTask.id} isn't marked done`;
+  if (why) { state.runAll = null; toast(`Run all paused: ${why}. Press Run next task to continue.`, true); return; }
+  const next = spec.tasks.find((t) => t.status !== "done");
+  if (!next) { state.runAll = null; toast(`Spec ${spec.name}: all tasks done.`); return; }
+  runSpecTask(spec, next);
+}
 
 // ---------------------------------------------------------------- steering docs
 const inclLabel = (d) => ({ always: "always on", fileMatch: "for " + d.patterns.join(", "), manual: "when you write #" + d.name, auto: "when relevant" })[d.inclusion];

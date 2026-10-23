@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import checks, github, skills, steering, traces
+from . import checks, github, skills, specs, steering, traces
 from .config import Config
 from .store import Store
 
@@ -41,6 +41,7 @@ class ToolContext:
     session_id: str
     logs_client_factory: Callable[[], Any] | None = None
     events: list[dict] = field(default_factory=list)
+    auto_apply: bool = False  # this session writes edits immediately (CODEPILOT_AUTO_APPLY does it everywhere)
 
     def resolve(self, rel: str | None, must_exist: bool = True) -> Path:
         if self.root is None:
@@ -498,7 +499,7 @@ def propose_edit(ctx: ToolContext, path: str, old_text: str, new_text: str, reas
     rel = ctx.rel(target)
     proposal = ctx.store.add_proposal(ctx.session_id, rel, old_text, new_text, reason)
     diff = unified_diff(rel, content, after)
-    if ctx.cfg.auto_apply_edits:
+    if ctx.cfg.auto_apply_edits or ctx.auto_apply:
         before, written = apply_proposal(ctx.root, proposal)
         found = checks.quick_check(ctx.root, rel)
         ctx.store.record_applied(proposal.id, before, written, found)
@@ -523,6 +524,42 @@ def recall(ctx: ToolContext, query: str, scope: str = "session", limit: int = 6)
         src = "" if h["session_id"] == ctx.session_id else f", session '{h['session_title'] or h['session_id'][:8]}'"
         out.append(f"--- {h['role']} message #{h['message_id']} ({when}{src})\n{h['text']}")
     return "\n".join(out)
+
+
+def _active_spec(ctx: ToolContext):
+    name = (ctx.store.get_session(ctx.session_id).context_state or {}).get("spec")
+    spec = specs.get(ctx.root, name) if name and ctx.root else None
+    if spec is None:
+        raise ToolError("No spec is active. The user starts one in the Specs view or in Spec mode.")
+    return spec
+
+
+def write_spec(ctx: ToolContext, doc: str, content: str) -> str:
+    spec = _active_spec(ctx)
+    if doc not in specs.PHASES[:3]:
+        raise ToolError("doc must be requirements, design or tasks")
+    phase = spec.phase
+    if specs.PHASES.index(doc) > specs.PHASES.index(phase):
+        raise ToolError(f"The spec is in the {phase} phase; the user approves it before you write {doc}.")
+    path = spec.doc(doc)
+    path.write_text(content.rstrip() + "\n")
+    rel = ctx.rel(path)
+    ctx.events.append({"type": "spec", "name": spec.name, "doc": doc, "path": rel})
+    return f"Wrote {rel}. Ask the user to review it in the Spec tab." if phase != "implement" else f"Updated {rel}."
+
+
+def update_task(ctx: ToolContext, task: str, status: str) -> str:
+    spec = _active_spec(ctx)
+    if spec.phase != "implement":
+        raise ToolError("Tasks are tracked once the task list is approved.")
+    if status not in ("todo", "in_progress", "done"):
+        raise ToolError("status must be todo, in_progress or done")
+    try:
+        t = specs.set_task_status(spec.doc("tasks"), str(task), status)
+    except KeyError as exc:
+        raise ToolError(str(exc)) from None
+    ctx.events.append({"type": "spec", "name": spec.name, "task": t.id, "status": status})
+    return f"Task {t.id} ({t.title}) is now {status}."
 
 
 def remember(ctx: ToolContext, note: str) -> str:
@@ -660,6 +697,14 @@ def build_tools(cfg: Config) -> list[Tool]:
              _obj({"query": {**s, "description": "Keywords, e.g. 'rounding half_up invoice total'"},
                    "scope": {"type": "string", "enum": ["session", "workspace"]}, "limit": i}, ["query"]),
              recall, needs_workspace=False),
+        Tool("write_spec", "Write a document of the active spec (spec mode): requirements, design or tasks. Writes "
+             "the whole file; no approval needed. The user reviews and approves each phase in the Spec tab.",
+             _obj({"doc": {"type": "string", "enum": ["requirements", "design", "tasks"]}, "content": s},
+                  ["doc", "content"]), write_spec, read_only=False),
+        Tool("update_task", "Mark a task of the active spec todo, in_progress or done (implementation phase), by its "
+             "number, e.g. '2.1'.", _obj({"task": s, "status": {"type": "string",
+                                                                 "enum": ["todo", "in_progress", "done"]}},
+                                         ["task", "status"]), update_task, read_only=False),
         Tool("remember", "Save a durable fact about this workspace for future sessions (how to run things, where "
              "key code lives, recurring pitfalls). One line. Never store secrets.",
              _obj({"note": s}, ["note"]), remember, read_only=False),

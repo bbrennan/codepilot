@@ -15,7 +15,7 @@ from collections.abc import Callable, Generator, Iterator
 from pathlib import Path
 from typing import Any
 
-from . import checks, mentions, models, modes, prompts, repomap, router, skills, steering
+from . import checks, mentions, models, modes, prompts, repomap, router, skills, specs, steering
 from .bedrock import BedrockError, make_client
 from .config import Config
 from .context import CLEARED_PREFIX, ContextManager, is_overflow
@@ -178,6 +178,9 @@ class Agent:
         if block:
             content.append({"text": block})
             yield {"type": "attached", "paths": labels}
+        started = self._spec_for_message(session_id, root, text)
+        if started:
+            yield started
         guide = self._message_steering(session_id, root, text)
         if guide:
             content.append({"text": guide[0]})
@@ -197,6 +200,37 @@ class Agent:
             mid = self.store.add_message(session_id, "user", content)
         yield {"type": "turn", "mid": mid}
         yield from self._loop(session_id)
+
+    # -- specs ----------------------------------------------------------------------------------
+
+    def _spec_for_message(self, session_id: str, root: Path | None, text: str) -> dict | None:
+        """In Spec mode with no active spec, the message describes a new one: create it."""
+        sess = self.store.get_session(session_id)
+        state = dict(sess.context_state or {})
+        if sess.mode != "spec" or root is None or (state.get("spec") and specs.get(root, state["spec"])):
+            return None
+        kind = "bugfix" if re.search(r"\b(bug|broken|fails?|failing|error|crash|regression|wrong)\b", text, re.I) \
+            else "feature"
+        base_name, n = specs.slug(text), 1
+        name = base_name
+        while specs.get(root, name):
+            n += 1
+            name = f"{base_name}-{n}"
+        spec = specs.create(root, name, kind)
+        state["spec"] = spec.name
+        self.store.update_session(session_id, context_state=state)
+        return {"type": "spec", "name": spec.name, "created": True, "kind": kind}
+
+    def _spec_blocks(self, sess: Session, root: Path | None, tu: dict) -> str | None:
+        """Before the task list is approved, a spec session plans; it doesn't edit code."""
+        if sess.mode != "spec" or tu["name"] != "propose_edit" or root is None:
+            return None
+        name = (self.store.get_session(sess.id).context_state or {}).get("spec")
+        spec = specs.get(root, name) if name else None
+        if spec and spec.phase != "implement":
+            return (f"Spec '{spec.name}' is in the {spec.phase} phase: code changes wait until the user approves "
+                    "the task list. Write the spec with write_spec.")
+        return None
 
     # -- steering: always-on docs live in the system prompt; these load the rest when they apply --------
 
@@ -252,6 +286,16 @@ class Agent:
         if git and git != state.get("git"):
             lines.append("Git:\n" + git)
             state["git"] = git
+        auto = bool(state.get("auto_apply")) and not self.cfg.auto_apply_edits
+        if auto != bool(state.get("auto_apply_told")):
+            lines.append("Auto-apply is now ON for this session: propose_edit writes the change immediately (the user "
+                         "can undo it), so verify each change with tests right after making it." if auto else
+                         "Auto-apply is now OFF: proposed edits wait for the user to apply them.")
+            state["auto_apply_told"] = auto
+        spec_name = state.get("spec") if mode.name == "spec" else None
+        spec = specs.get(root, spec_name) if spec_name and root else None
+        if spec:
+            lines.append(specs.turn_text(root, spec))
         outcomes = self.store.take_unreported_outcomes(sess.id)
         for p in outcomes:
             note = f"Proposal #{p.id} ({p.path}) was {p.status} by the user."
@@ -438,7 +482,8 @@ class Agent:
     def _ctx(self, sess: Session) -> ToolContext:
         root = Path(sess.repo).expanduser().resolve() if sess.repo else None
         return ToolContext(root=root, cfg=self.cfg, store=self.store, session_id=sess.id,
-                           logs_client_factory=self._logs_factory)
+                           logs_client_factory=self._logs_factory,
+                           auto_apply=bool((sess.context_state or {}).get("auto_apply")))
 
     def _system(self, sess: Session, ctx: ToolContext) -> list[dict]:
         root = ctx.root
@@ -568,6 +613,8 @@ class Agent:
                 tool = self.tools.get(tu["name"])
                 if session_id in self._cancelled:
                     output, is_error, took = "Cancelled: the user stopped this turn.", True, 0.0
+                elif self._spec_blocks(sess, ctx.root, tu):
+                    output, is_error, took = self._spec_blocks(sess, ctx.root, tu), True, 0.0
                 elif tu["name"] in mode.blocked:
                     output, is_error, took = (f"{tu['name']} is disabled in {mode.label} mode. Work within the mode; "
                                               "the user can switch modes if they want this."), True, 0.0

@@ -10,7 +10,7 @@ from fakes import FakeLLM, tool_use
 
 def test_builtin_and_custom_modes(repo, cfg):
     names = [m.name for m in modes.all_modes(repo, cfg.home)]
-    assert names == ["ask", "plan", "build", "debug", "bughunt", "review"]
+    assert names == ["ask", "plan", "build", "debug", "bughunt", "spec", "review"]
     assert modes.get("act", repo, cfg.home).name == "build"  # old sessions keep working
     assert modes.get(None, repo, cfg.home).name == "build"
     assert "propose_edit" in modes.get("bughunt", repo, cfg.home).blocked

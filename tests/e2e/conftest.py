@@ -31,6 +31,15 @@ def pytest_collection_modifyitems(items):
             item.add_marker(pytest.mark.e2e)
 
 
+SPEC_DOCS = {
+    "requirements": "# Requirements\n\n## 1. Export\n\nAs a user, I want CSV export, so that I can use Excel.\n\n"
+                    "1.1 WHEN the user clicks Export THEN the system SHALL download a CSV file.\n",
+    "design": "# Design\n\n## Overview\n\nA write_csv function in agent/csv.py (requirement 1.1).\n",
+    "tasks": "# Tasks\n\n- [ ] 1. Add write_csv\n  - agent/csv.py\n  - _Requirements: 1.1_\n"
+             "- [ ] 2. Add a test\n  - _Requirements: 1.1_\n",
+}
+
+
 class ScriptedLLM:
     """A deterministic stand-in for the model, driven by what the user typed."""
 
@@ -42,8 +51,18 @@ class ScriptedLLM:
         last = messages[-1]["content"]
         user_text = " ".join(b.get("text", "") for b in last if "text" in b).split("<turn_context>")[0].lower()
         n = len(self.calls)
+        full = " ".join(b.get("text", "") for b in last if "text" in b)
+        phase = re.search(r'<spec name="[^"]+" kind="\w+" phase="(\w+)"', full)
+        task = re.search(r"implement task ([\d.]+)", user_text)
         if any("toolResult" in b for b in last):
-            content = [{"text": "Done."}]
+            content = [{"text": "Please review it in the Spec tab." if phase else "Done."}]
+        elif phase and phase.group(1) == "implement" and task:
+            content = [{"toolUse": {"toolUseId": f"t{n}", "name": "update_task",
+                                    "input": {"task": task.group(1), "status": "done"}}}]
+        elif phase and phase.group(1) != "implement":
+            doc = phase.group(1)
+            content = [{"toolUse": {"toolUseId": f"t{n}", "name": "write_spec",
+                                    "input": {"doc": doc, "content": SPEC_DOCS[doc]}}}]
         elif "run python" in user_text:
             content = [{"toolUse": {"toolUseId": f"t{n}", "name": "run_command",
                                     "input": {"command": "python -c \"print('ran-' + str(6*7))\""}}}]

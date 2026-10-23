@@ -73,6 +73,10 @@ BUILTIN = [
          "4. Report findings ranked by severity: path:line, the triggering input or scenario, the evidence, and "
          "the fix. No style nits. Don't propose edits; the user switches to Debug or Build to fix.",
          blocked={"propose_edit"}),
+    Mode("spec", "Spec", "Spec-driven: requirements, design and tasks, each reviewed, then task by task.",
+         "SPEC MODE: spec-driven development. Each message carries a <spec> block with the current phase's "
+         "instructions and the spec documents so far; follow it exactly. Write spec documents with write_spec "
+         "and track tasks with update_task. Keep documents concrete and verifiable, grounded in the actual code."),
     Mode("review", "Review", "Review changes or code against intent and the repo's standards.",
          "REVIEW MODE: follow the code-review workflow below. Use run_checks for deterministic findings and "
          "verify suspected defects before reporting them. Don't propose edits unless the user asks.",
