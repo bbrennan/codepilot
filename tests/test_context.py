@@ -7,7 +7,8 @@ from starlette.testclient import TestClient
 
 from codepilot.agent import Agent
 from codepilot.bedrock import BedrockError
-from codepilot.context import CLEARED_PREFIX, is_overflow
+from codepilot.context import CLEARED_PREFIX, is_overflow, pick_verbatim
+from codepilot.tools import ToolContext, recall
 from codepilot.server import create_app
 
 
@@ -100,6 +101,7 @@ def test_summarises_earlier_turns_with_exact_working_state(cfg, store, repo):
     assert s.summary.startswith("SUMMARY: earlier work")
     assert "Working state (exact" in s.summary and "[x] read the code; [>] fix it" in s.summary
     assert "big.py" in s.summary
+    assert "> question 0" in s.summary  # the original task survives every compaction, word for word
     live = store.live_messages(sess.id)
     assert live[0]["role"] == "user" and live[0]["content"][0]["text"].startswith("question")
     assert any("SUMMARY: earlier work" in b["text"] for b in llm.calls[-1]["system"])
@@ -153,3 +155,34 @@ def test_handoff_and_compact_endpoints(cfg, store, repo):
     assert new["id"] != sess["id"] and new["repo"] == str(repo.resolve()) and new["has_summary"]
     out = client.post(f"/api/sessions/{new['id']}/compact", json={"focus": ""}, headers=H).text
     assert '"type": "done"' in out
+
+
+def test_verbatim_keeps_original_task_recent_and_constraints():
+    asks = [f"message {i}" for i in range(30)]
+    asks[0] = "Fix the rounding bug in invoices"
+    asks[5] = "Never change the public API of billing.py"
+    kept = pick_verbatim(asks)
+    assert kept[0] == asks[0] and asks[5] in kept and "message 3" not in kept
+    assert kept[-10:] == asks[-10:]
+    assert pick_verbatim(["x" * 100] * 5, budget=250) == ["x" * 100] * 2
+
+
+def test_recall_searches_compacted_and_earlier_sessions(cfg, store, repo, tmp_path):
+    old = store.create_session(str(repo), "main")
+    store.add_message(old.id, "user", [{"text": "Use banker's rounding (ROUND_HALF_EVEN) for invoice totals"}])
+    sess = store.create_session(str(repo), "main")
+    a = store.add_message(sess.id, "user", [{"text": "The flaky test is test_invoice_total_rounding"}])
+    store.add_message(sess.id, "assistant", [{"toolUse": {"toolUseId": "t1", "name": "run_tests",
+                                                          "input": {"args": "-k rounding"}}}])
+    store.add_message(sess.id, "user", [{"text": "rounding is still in context"}])
+    store.archive_messages(sess.id, [a])
+    other = tmp_path / "elsewhere"
+    other.mkdir()
+    store.add_message(store.create_session(str(other), "main").id, "user", [{"text": "rounding elsewhere"}])
+
+    ctx = ToolContext(root=repo, cfg=cfg, store=store, session_id=sess.id)
+    out = recall(ctx, "invoice rounding")
+    assert "test_invoice_total_rounding" in out and "still in context" not in out and "ROUND_HALF" not in out
+    out = recall(ctx, "invoice rounding", scope="workspace")
+    assert "ROUND_HALF_EVEN" in out and "elsewhere" not in out
+    assert "No matches" in recall(ctx, "kubernetes")

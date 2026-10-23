@@ -171,7 +171,7 @@ With `gh` logged in (status bar shows `github: <you>`), ask things like:
 
 ## Memory
 
-A session isn't a series of one-off prompts. It remembers in three layers:
+A session isn't a series of one-off prompts. It remembers in four layers:
 
 1. **The conversation.** Every step includes the session's history: messages, tool calls and results. It's
    stored locally (`~/.codepilot/codepilot.db`) and survives restarts. Prompt caching keeps resending it
@@ -183,13 +183,20 @@ A session isn't a series of one-off prompts. It remembers in three layers:
      context are replaced by one-line notes. The assistant can re-run a tool if it needs the output again.
    - **At 80%** (`CODEPILOT_COMPACT_AT`), earlier turns are rewritten into one structured summary (goal,
      decisions, work done, current state, next steps). Your latest turns stay word for word, and the plan,
-     proposals, files touched and commands run are carried over exactly.
+     proposals, files touched, commands run, key identifiers, errors and the latest test results are carried
+     over exactly. So are your own messages: your first message (the original task), your latest ten, and
+     any that state a constraint ("never…", "don't…", "must…"), within about 1.5k tokens.
    - **If a provider still rejects a request as too long,** codepilot compacts harder and retries once.
    - **By hand:** type `/compact` (optionally with a focus, e.g. `/compact the API changes`) or click the
      context meter. **Memory → Continue in new session** starts a fresh session seeded with the summary.
 
    The status bar shows `context 42% · 78k/184k`. Hover for details; click to compact now.
-3. **Workspace notes.** One notes file per folder, which the assistant adds to (`remember`) and you can
+3. **Recall.** Compaction never deletes anything: the original messages are archived in the database.
+   When the assistant needs an exact detail the summary lacks (your exact words, a value, an error, a tool
+   result), it searches them with the `recall` tool (BM25 keyword search, exact text back). With scope
+   `workspace` it also searches earlier sessions on the same folder, e.g. "what did we decide about rounding
+   last week?".
+4. **Workspace notes.** One notes file per folder, which the assistant adds to (`remember`) and you can
    edit in the **Memory** view. Every future session on that folder reads it. Put conventions there, such
    as "tests need `make db-up` first".
 

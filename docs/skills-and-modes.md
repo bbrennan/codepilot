@@ -117,7 +117,7 @@ change one thing at a time, and report before/after numbers.
 It appears in the mode picker right away; reopen the session to refresh the list. Tool names you can
 block: `open_workspace`, `list_files`, `read_file`, `search_code`, `git`, `explore`, `run_tests`,
 `run_checks`, `run_command`, `list_traces`, `trace_outline`, `search_traces`, `read_trace`, `write_scratch`,
-`propose_edit`, `update_plan`, `load_skill`, `remember`, `github`, `cloudwatch_logs`.
+`propose_edit`, `update_plan`, `load_skill`, `recall`, `remember`, `github`, `cloudwatch_logs`.
 
 ### How modes reach the model
 

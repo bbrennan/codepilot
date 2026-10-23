@@ -33,6 +33,16 @@ DEFAULT_TOKENS_PER_CHAR = 1 / 3.0  # conservative for code until a real reply ca
 MIN_CLEAR_CHARS = 800  # tool outputs shorter than this aren't worth clearing
 NEVER_CLEAR = {"load_skill", "update_plan", "remember", "open_workspace"}
 CLEARED_PREFIX = "[cleared to free context:"
+TICKET = re.compile(r"\b[A-Z][A-Z0-9]{1,9}-\d{2,6}\b")
+FILE_LINE = re.compile(r"\b[\w./-]+\.[A-Za-z]{1,5}:\d+\b")
+TRACE_ID = re.compile(r"\b(?:trc|trace|req|span|sess|run|job)[_-][A-Za-z0-9]{4,}\b")
+TEST_RESULT = re.compile(r"\b\d+ (?:passed|failed|errors?|skipped)\b[^\n]{0,40}")
+VERBATIM_HEADER = "User's messages (verbatim, in order):"
+VERBATIM_CHARS = 6000  # about 1.5k tokens of the user's own words survive every compaction
+CONSTRAINT = re.compile(r"\b(?:don'?t|do not|never|always|must|avoid|instead|prefer|make sure|only|"
+                        r"should(?:n'?t)?)\b", re.IGNORECASE)
+ERROR_LINE = re.compile(r"^.*\b(?:\w*Error|\w*Exception|FAILED|Traceback)\b.*$", re.MULTILINE)
+CONTEXT_MARKERS = ("<turn_context>", "<attached_files>", "<skill ")
 OVERFLOW = re.compile(
     r"too long|too many (?:input |total )?(?:tokens|text bytes)|context (?:length|window|limit)|maximum context|"
     r"prompt is too long|input length|context_length_exceeded|exceeds? (?:the )?(?:model'?s? )?(?:maximum|context)",
@@ -51,6 +61,29 @@ def _chars(obj: Any) -> int:
 def _is_user_turn(m: dict) -> bool:
     return m["role"] == "user" and any("text" in b and not b["text"].startswith("<turn_context>")
                                        for b in m["content"])
+
+
+def _unique(items) -> list[str]:
+    seen: list[str] = []
+    for i in items:
+        if i not in seen:
+            seen.append(i)
+    return seen
+
+
+def pick_verbatim(asks: list[str], budget: int = VERBATIM_CHARS) -> list[str]:
+    """Which of the user's messages to keep word for word: the original task, the latest ten, then
+    messages that state constraints or preferences (newest first), within a character budget."""
+    n = len(asks)
+    order = [0] + list(range(n - 1, max(0, n - 11), -1)) + \
+        [i for i in range(n - 1, 0, -1) if CONSTRAINT.search(asks[i])]
+    keep: set[int] = set()
+    used = 0
+    for i in order:
+        if i < n and i not in keep and used + len(asks[i]) <= budget:
+            keep.add(i)
+            used += len(asks[i])
+    return [asks[i] for i in sorted(keep)]
 
 
 class ContextManager:
@@ -170,7 +203,7 @@ class ContextManager:
         sess = self.store.get_session(session_id)
         yield {"type": "notice", "message": f"Compacting memory: summarising {len(old)} earlier messages"
                                             f"{' (focus: ' + focus + ')' if focus else ''}…"}
-        state = self.working_state(session_id, [m for _, m in old])
+        state = self.working_state(session_id, [m for _, m in old], previous=sess.summary)
         from .agent import render_transcript  # local import: agent imports this module
 
         prompt = (f"Existing summary (rewrite it, don't append to it):\n{sess.summary or '(none)'}\n\n"
@@ -186,7 +219,7 @@ class ContextManager:
         self.store.archive_messages(session_id, [mid for mid, _ in old])
         return True
 
-    def working_state(self, session_id: str, old_messages: list[dict]) -> str:
+    def working_state(self, session_id: str, old_messages: list[dict], previous: str = "") -> str:
         """Exact, non-paraphrased state to carry across a compaction."""
         lines: list[str] = []
         plan = None
@@ -220,7 +253,44 @@ class ContextManager:
             lines.append("Files examined or changed earlier: " + ", ".join(files[-25:]))
         if commands:
             lines.append("Commands run earlier: " + "; ".join(commands[-10:]))
-        return ("Working state (exact, carried across compaction):\n- " + "\n- ".join(lines)) if lines else ""
+        # The user's own words carry their constraints and preferences, which summarisers most often drop.
+        # Carry earlier verbatim messages forward too, so they survive repeated compactions.
+        asks: list[str] = []
+        for header in (VERBATIM_HEADER, "User's messages (verbatim, most recent last):"):
+            if header in previous:
+                asks += [ln[2:] for ln in previous.split(header, 1)[1].splitlines() if ln.startswith("> ")]
+                break
+        texts: list[str] = []
+        for m in old_messages:
+            for b in m["content"]:
+                if "text" in b:
+                    texts.append(b["text"])
+                    if m["role"] == "user" and not b["text"].startswith(CONTEXT_MARKERS):
+                        t = " ".join(b["text"].split())
+                        if t and t not in asks:
+                            asks.append(t[:500] + ("…" if len(t) > 500 else ""))
+                elif "toolResult" in b:
+                    texts += [c.get("text", "") for c in b["toolResult"].get("content", [])
+                              if not c.get("text", "").startswith(CLEARED_PREFIX)]
+                elif "toolUse" in b:
+                    texts.append(json.dumps(b["toolUse"].get("input") or {}))
+        blob = "\n".join(texts)
+        ids = _unique(TICKET.findall(blob) + TRACE_ID.findall(blob) + FILE_LINE.findall(blob))[:25]
+        errors = _unique(" ".join(e.split())[:200] for e in ERROR_LINE.findall(blob))[:6]
+        if ids:
+            lines.append("Key identifiers: " + ", ".join(ids))
+        if errors:
+            lines.append("Errors seen: " + " | ".join(errors))
+        results = _unique(" ".join(t.split()) for t in TEST_RESULT.findall(blob))[-3:]
+        if results:
+            lines.append("Latest test results: " + " | ".join(results))
+        out = ("Working state (exact, carried across compaction):\n- " + "\n- ".join(lines)) if lines else ""
+        asks = pick_verbatim(asks)
+        if asks:
+            out += ("\n\n" if out else "") + VERBATIM_HEADER + "\n" + "\n".join(f"> {a}" for a in asks)
+        if lines or asks:
+            out += "\n(The full earlier conversation is archived; use the recall tool for exact details.)"
+        return out
 
     # -- orchestration -----------------------------------------------------------------------------
 

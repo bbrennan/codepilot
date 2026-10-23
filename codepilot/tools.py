@@ -507,6 +507,20 @@ def propose_edit(ctx: ToolContext, path: str, old_text: str, new_text: str, reas
     return f"Proposed change #{proposal.id} to {rel} (pending the user's approval; not yet applied)."
 
 
+def recall(ctx: ToolContext, query: str, scope: str = "session", limit: int = 6) -> str:
+    hits = ctx.store.search_history(ctx.session_id, query, scope if scope in ("session", "workspace") else "session",
+                                    max(1, min(int(limit or 6), 15)))
+    if not hits:
+        where = "this session's compacted history" if scope != "workspace" else "earlier history for this folder"
+        return f"No matches in {where}. The current conversation is already in context."
+    out = []
+    for h in hits:
+        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(h["created"]))
+        src = "" if h["session_id"] == ctx.session_id else f", session '{h['session_title'] or h['session_id'][:8]}'"
+        out.append(f"--- {h['role']} message #{h['message_id']} ({when}{src})\n{h['text']}")
+    return "\n".join(out)
+
+
 def remember(ctx: ToolContext, note: str) -> str:
     ctx.store.add_note(str(ctx.root), note)
     return "Saved to this workspace's notes."
@@ -635,6 +649,13 @@ def build_tools(cfg: Config) -> list[Tool]:
              update_plan, needs_workspace=False, read_only=False),
         Tool("load_skill", "Load the full instructions of a skill listed in the system prompt before doing that "
              "kind of task.", _obj({"name": s}, ["name"]), load_skill, needs_workspace=False),
+        Tool("recall", "Search the full original conversation that compaction summarised away (BM25 keyword "
+             "search, exact text back). Use it when you need a detail the Memory summary lacks: the user's exact "
+             "words, a value, an error message, a tool result. scope 'workspace' also searches earlier sessions on "
+             "this folder.",
+             _obj({"query": {**s, "description": "Keywords, e.g. 'rounding half_up invoice total'"},
+                   "scope": {"type": "string", "enum": ["session", "workspace"]}, "limit": i}, ["query"]),
+             recall, needs_workspace=False),
         Tool("remember", "Save a durable fact about this workspace for future sessions (how to run things, where "
              "key code lives, recurring pitfalls). One line. Never store secrets.",
              _obj({"note": s}, ["note"]), remember, read_only=False),

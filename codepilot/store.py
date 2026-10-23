@@ -107,6 +107,20 @@ def _encode(obj: Any) -> Any:
     return obj
 
 
+def _history_chunks(content: list[dict], size: int = 1200) -> list[str]:
+    """Searchable text of one message (text, tool calls, tool results), in pieces small enough to quote."""
+    parts: list[str] = []
+    for b in content:
+        if "text" in b:
+            parts.append(b["text"])
+        elif "toolUse" in b:
+            parts.append(f"[tool {b['toolUse'].get('name')}] {json.dumps(b['toolUse'].get('input') or {})}")
+        elif "toolResult" in b:
+            parts += [c["text"] for c in b["toolResult"].get("content", []) if c.get("text")]
+    text = "\n".join(p for p in parts if p).strip()
+    return [text[i:i + size] for i in range(0, len(text), size)] if text else []
+
+
 def _decode(obj: Any) -> Any:
     if isinstance(obj, dict):
         if set(obj) == {"__b64__"}:
@@ -233,6 +247,37 @@ class Store:
         with self._lock, self._db:
             self._db.executemany("UPDATE messages SET archived = 1 WHERE session_id = ? AND id = ?",
                                  [(sid, i) for i in ids])
+
+    def search_history(self, sid: str, query: str, scope: str = "session", limit: int = 8) -> list[dict]:
+        """BM25 keyword search over conversation history that is no longer in the model's context.
+
+        scope "session": this session's archived (compacted) messages. scope "workspace": also every
+        message of earlier sessions on the same folder. Built in memory per query; histories are small.
+        """
+        terms = re.findall(r"\w{2,}", query)
+        if not terms:
+            return []
+        sql = "SELECT m.id, m.session_id, m.role, m.content, m.created, s.title FROM messages m " \
+              "JOIN sessions s ON s.id = m.session_id WHERE (m.session_id = ? AND m.archived = 1)"
+        args: list[Any] = [sid]
+        if scope == "workspace":
+            sql += " OR (m.session_id != ? AND s.repo = (SELECT repo FROM sessions WHERE id = ?) AND s.repo != '')"
+            args += [sid, sid]
+        with self._lock:
+            rows = self._db.execute(sql, args).fetchall()
+        fts = sqlite3.connect(":memory:")
+        fts.execute("CREATE VIRTUAL TABLE h USING fts5(body, mid UNINDEXED, sid UNINDEXED, role UNINDEXED, "
+                    "created UNINDEXED, title UNINDEXED)")
+        for r in rows:
+            for chunk in _history_chunks(_decode(json.loads(r["content"]))):
+                fts.execute("INSERT INTO h VALUES (?, ?, ?, ?, ?, ?)",
+                            (chunk, r["id"], r["session_id"], r["role"], r["created"], r["title"]))
+        match = " OR ".join('"' + t.replace('"', "") + '"' for t in terms)
+        hits = fts.execute("SELECT body, mid, sid, role, created, title FROM h WHERE h MATCH ? "
+                           "ORDER BY bm25(h) LIMIT ?", (match, limit)).fetchall()
+        fts.close()
+        return [{"text": b, "message_id": m, "session_id": s, "role": ro, "created": c, "session_title": t}
+                for b, m, s, ro, c, t in hits]
 
     # -- proposals ------------------------------------------------------------------------------
 

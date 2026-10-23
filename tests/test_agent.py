@@ -95,7 +95,7 @@ def test_compaction_summarises_old_turns(cfg, store, repo):
     for i in range(6):
         list(agent.chat(sess.id, f"question {i}"))
     s = store.get_session(sess.id)
-    assert s.summary == "SUMMARY: earlier work"
+    assert s.summary.startswith("SUMMARY: earlier work") and "> question 0" in s.summary
     live = store.live_messages(sess.id)
     assert is_user_turn(live[0])
     assert len(store.messages(sess.id, include_archived=True)) > len(live)
