@@ -88,7 +88,7 @@ def test_proposal_outcome_reported_on_next_turn(cfg, store, repo):
 
 
 def test_compaction_summarises_old_turns(cfg, store, repo):
-    cfg = replace(cfg, context_chars=50)
+    cfg = replace(cfg, prune_at=0.0, compact_at=0.0)  # compact at every turn boundary
     llm = FakeLLM([[{"text": f"answer {i} " * 5}] for i in range(6)])
     agent = Agent(cfg, store, llm=llm)
     sess = store.create_session(str(repo), "main")

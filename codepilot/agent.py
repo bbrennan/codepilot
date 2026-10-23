@@ -15,11 +15,11 @@ from typing import Any
 from . import checks, mentions, modes, prompts, repomap, skills
 from .bedrock import Bedrock, BedrockError, make_client
 from .config import Config
+from .context import CLEARED_PREFIX, ContextManager, is_overflow
 from .store import Session, Store
 from .tools import SKIP_DIRS, Tool, ToolContext, build_tools, detect_test_cmd, execute, trace_roots
 
 UI_OUTPUT_LIMIT = 6000
-KEEP_TURNS = 4
 EXPLORE_MAX_STEPS = 12
 
 
@@ -61,6 +61,7 @@ class Agent:
         self._logs_client = None
         self._logs_factory = logs_client_factory or self._default_logs_client
         self._cancelled: set[str] = set()
+        self.ctxm = ContextManager(cfg, store, self.llm)
 
     def cancel(self, session_id: str) -> None:
         """Ask a running turn to stop at the next safe point."""
@@ -79,14 +80,14 @@ class Agent:
         if sess.pending:
             yield {"type": "error", "message": "A tool call is waiting for approval. Approve or deny it first."}
             return
-        if not sess.title:
-            self.store.update_session(session_id, title=text.strip().splitlines()[0][:80])
         if tier and tier != sess.tier:
             self.store.update_session(session_id, tier=tier)
-        try:
-            yield from self._maybe_compact(sess)
-        except BedrockError as exc:
-            yield {"type": "notice", "message": f"Skipped memory compaction: {exc}"}
+        stripped = text.strip()
+        if stripped == "/compact" or stripped.startswith("/compact "):
+            yield from self.compact(session_id, stripped[len("/compact"):].strip())
+            return
+        if not sess.title:
+            self.store.update_session(session_id, title=text.strip().splitlines()[0][:80])
         content = [{"text": text}]
         root = self._ctx(sess).root
         slash = skills.slash_command(text, root, self.cfg.home)
@@ -138,11 +139,37 @@ class Agent:
         self.store.update_session(sess.id, context_state=state)
         return "<turn_context>\n" + "\n\n".join(lines) + "\n</turn_context>" if lines else ""
 
+    def _model_for(self, sess: Session) -> str:
+        root = Path(sess.repo).expanduser().resolve() if sess.repo else None
+        mode = modes.get(sess.mode, root, self.cfg.home)
+        return self.cfg.models[mode.tier or sess.tier]
+
     def context_usage(self, session_id: str) -> dict:
-        """How full the live conversation is relative to the compaction threshold."""
-        size = sum(len(json.dumps(m["content"], default=str)) for m in self.store.live_messages(session_id))
-        return {"type": "context", "chars": size, "limit": self.cfg.context_chars,
-                "has_summary": bool(self.store.get_session(session_id).summary)}
+        """Estimated prompt tokens against the model's budget (window minus reply reserve)."""
+        sess = self.store.get_session(session_id)
+        system = (sess.context_state or {}).get("system") or []
+        return self.ctxm.usage_view(session_id, self._model_for(sess), system,
+                                    [t.spec() for t in self.tools.values()])
+
+    def compact(self, session_id: str, focus: str = "") -> Iterator[dict]:
+        """Manual compaction (/compact [focus] or the Compact button)."""
+        changed = yield from self.ctxm.compact_now(session_id, focus)
+        if changed:
+            self._strip_reasoning(session_id)
+            yield {"type": "notice", "message": "Compacted. Earlier conversation is summarised in Memory; the "
+                                                "assistant keeps the summary and working state."}
+        yield self.context_usage(session_id)
+        yield {"type": "done"}
+
+    def handoff(self, session_id: str) -> str:
+        """Start a fresh session on the same folder, seeded with this one's summary (like Cline's new_task)."""
+        for _ in self.ctxm.compact_now(session_id):
+            pass
+        old = self.store.get_session(session_id)
+        new = self.store.create_session(old.repo, old.tier, auto_approve=old.auto_approve)
+        self.store.update_session(new.id, summary=old.summary, mode=old.mode,
+                                  title=f"{(old.title or 'Session')[:60]} (continued)")
+        return new.id
 
     def resume(self, session_id: str, approve: bool) -> Iterator[dict]:
         sess = self.store.get_session(session_id)
@@ -241,12 +268,20 @@ class Agent:
         model = self.cfg.models[mode.tier or sess.tier]
         system = self._session_system(sess, ctx)
         specs = [t.spec() for t in self.tools.values()]
-        for _ in range(self.cfg.max_steps):
+        recovered = False
+        step = 0
+        while step < self.cfg.max_steps:
+            step += 1
+            changed = yield from self.ctxm.ensure_room(session_id, model, system, specs)
+            if changed:
+                self._strip_reasoning(session_id)
+                system = self._session_system(self.store.get_session(session_id), ctx)
             final = None
             partial = ""
             started = time.monotonic()
+            sent = self.store.live_messages(session_id)
             try:
-                for event in self.llm.stream(model, system, self.store.live_messages(session_id), specs):
+                for event in self.llm.stream(model, system, sent, specs):
                     if session_id in self._cancelled:
                         break
                     if event["type"] == "message":
@@ -256,7 +291,17 @@ class Agent:
                             partial += event["text"]
                         yield event
             except BedrockError as exc:
-                yield {"type": "error", "message": str(exc)}
+                if is_overflow(exc) and not recovered and not partial:
+                    recovered = True
+                    step -= 1
+                    yield {"type": "notice", "message": "The conversation no longer fits the model's context "
+                                                        "window. Compacting and retrying…"}
+                    if (yield from self.ctxm.recover(session_id, model)):
+                        self._strip_reasoning(session_id)
+                        system = self._session_system(self.store.get_session(session_id), ctx)
+                        continue
+                hint = (" Use /compact, or Memory → Continue in new session." if is_overflow(exc) else "")
+                yield {"type": "error", "message": str(exc) + hint}
                 yield self.context_usage(session_id)
                 yield {"type": "done"}
                 return
@@ -273,6 +318,7 @@ class Agent:
             usage = (final or {}).get("usage") or {}
             if usage:
                 self.store.add_usage(session_id, model, usage)
+                self.ctxm.record(session_id, system, specs, sent, usage)
             yield {"type": "usage", "model": model, "usage": usage, "seconds": round(time.monotonic() - started, 1)}
             stop = (final or {}).get("stop_reason")
             if not tool_uses:
@@ -357,6 +403,7 @@ class Agent:
                 return "Cancelled: the user stopped this turn.", True
             if step == EXPLORE_MAX_STEPS - 1:
                 messages[-1]["content"].append({"text": "Step limit reached: write your final report now."})
+            _shrink_local(messages, self.ctxm.budget(model) // 2, self.ctxm.ratio(ctx.session_id))
             final = None
             try:
                 for event in self.llm.stream(model, system, messages, specs):
@@ -394,27 +441,16 @@ class Agent:
         return {"type": "tool_result", "id": tu["toolUseId"], "name": tu["name"], "output": shown,
                 "is_error": is_error, "seconds": round(took, 2)}
 
-    # -- short-term memory: rolling summary ----------------------------------------------------
-
-    def _maybe_compact(self, sess: Session) -> Iterator[dict]:
-        """When the live conversation is large, summarise all but the last few turns into the session summary."""
-        rows = self.store.messages(sess.id)
-        size = sum(len(json.dumps(m["content"], default=str)) for _, m in rows)
-        if size <= self.cfg.context_chars:
-            return
-        turn_starts = [i for i, (_, m) in enumerate(rows) if is_user_turn(m)]
-        if len(turn_starts) <= 1:
-            return
-        cut = turn_starts[-min(KEEP_TURNS, len(turn_starts) - 1)]
-        old = rows[:cut]
-        yield {"type": "notice", "message": f"Compacting memory: summarising {len(old)} earlier messages."}
-        transcript = render_transcript([m for _, m in old])
-        prompt = (f"Existing summary (may be empty):\n{sess.summary}\n\nConversation to fold in:\n{transcript}"
-                  "\n\nWrite the updated summary.")
-        summary = self.llm.complete(self.cfg.models["fast"], prompts.SUMMARIZE, prompt, max_tokens=3000)
-        self.store.update_session(sess.id, summary=summary)
-        self.store.archive_messages(sess.id, [mid for mid, _ in old])
-        sess.summary = summary
+def _shrink_local(messages: list[dict], max_tokens: int, ratio: float, keep_last: int = 2) -> None:
+    """Explore sub-agent: clear older tool outputs in its private history if it outgrows half the budget."""
+    if len(json.dumps(messages, default=str)) * ratio <= max_tokens:
+        return
+    results = [b for m in messages for b in m["content"] if "toolResult" in b]
+    for b in results[:-keep_last]:
+        tr = b["toolResult"]
+        text = "".join(c.get("text", "") for c in tr.get("content", []))
+        if len(text) > 400 and not text.startswith(CLEARED_PREFIX):
+            tr["content"] = [{"text": f"{CLEARED_PREFIX} {len(text):,} chars. Re-run the tool if needed.]"}]
 
 
 def _reopens(tu: dict, root: Path | None) -> bool:

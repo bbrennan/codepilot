@@ -38,7 +38,7 @@ def test_chat_attaches_and_replays(cfg, store, repo):
     sent = llm.calls[0]["messages"][0]["content"]
     assert sent[0]["text"] == "explain @agent/core.py" and "return a - b" in sent[1]["text"]
     ctx = next(e for e in events if e["type"] == "context")
-    assert 0 < ctx["chars"] < ctx["limit"]
+    assert 0 < ctx["tokens"] < ctx["budget"]
     replay = history_events(store, sess.id)
     assert replay[:2] == [{"type": "user", "text": "explain @agent/core.py"},
                           {"type": "attached", "paths": ["agent/core.py"]}]

@@ -599,13 +599,14 @@ function refreshProposalViews(id) {
 // ---------------------------------------------------------------- memory view
 function renderMemory() {
   const c = state.context, w = state.wsInfo;
-  const pct = c ? Math.min(100, Math.round((c.chars / c.limit) * 100)) : 0;
+  const pct = ctxPct(c);
   $("#memoryView").innerHTML = `
     <div class="group-head" style="padding-left:2px">How memory works</div>
-    <div class="hint" style="line-height:1.55">Each turn resends this session's conversation (cached, so it's cheap). When it passes the limit, older turns are folded into a summary. Workspace notes persist across every session on this folder.</div>
+    <div class="hint" style="line-height:1.55">Each step resends this session's conversation (cached, so it's cheap). Before every model call codepilot checks the size: at ${c ? Math.round(c.prune_at * 100) : 60}% of the budget it clears old tool outputs, at ${c ? Math.round(c.compact_at * 100) : 80}% it summarises earlier turns, keeping recent turns, the plan and proposals exact. Workspace notes persist across every session on this folder.</div>
     <div class="group-head" style="padding-left:2px">Working memory</div>
-    <div style="display:flex;align-items:center;gap:8px"><span class="meter" style="width:100%"><i class="${pct > 85 ? "high" : pct > 60 ? "mid" : ""}" style="width:${pct}%"></i></span><span class="mono" style="font-size:11.5px">${pct}%</span></div>
-    <div class="hint">${c ? `${fmtTok(c.chars)} of ${fmtTok(c.limit)} characters before summarising` : "—"}</div>
+    <div style="display:flex;align-items:center;gap:8px"><span class="meter" style="width:100%"><i class="${ctxClass(c)}" style="width:${pct}%"></i></span><span class="mono" style="font-size:11.5px">${pct}%</span></div>
+    <div class="hint">${c ? `~${fmtTok(c.tokens)} of a ${fmtTok(c.budget)}-token budget (model window ${fmtTok(c.window)})` : "—"}</div>
+    <div style="display:flex;gap:6px;margin-top:6px"><button class="btn" id="compactBtn" ${state.sid ? "" : "disabled"}>${icon("collapse")}Compact now</button><button class="btn" id="handoffBtn" ${state.sid ? "" : "disabled"} title="Start a fresh session on this folder, seeded with this one's summary">${icon("plus")}Continue in new session</button></div>
     <div class="group-head" style="padding-left:2px">Conversation summary</div>
     <div class="hint">${state.summary ? esc(state.summary).replace(/\n/g, "<br>") : "None yet — appears when the conversation gets long."}</div>
     <div class="group-head" style="padding-left:2px">Workspace notes</div>
@@ -622,6 +623,8 @@ function renderMemory() {
     <div class="group-head" style="padding-left:2px">Project instructions</div>
     <div class="hint">${w?.instructions ? `<pre class="mono" style="white-space:pre-wrap;margin:0;font-size:11.5px">${esc(w.instructions)}</pre>` : "None found (AGENTS.md, CLAUDE.md, .cursorrules, .kiro/steering …)."}</div>`;
   renderUsage(state.usage);
+  $("#compactBtn") && ($("#compactBtn").onclick = compactNow);
+  $("#handoffBtn") && ($("#handoffBtn").onclick = handoff);
   if (state.workspace && state.sid) {
     api(`/api/sessions/${state.sid}/notes`).then((n) => { $("#notesBox").value = n.notes; $("#notesPath").textContent = n.path; }).catch(() => {});
     $("#saveNotes").onclick = async () => { await api(`/api/sessions/${state.sid}/notes`, { method: "PUT", body: { notes: $("#notesBox").value } }); toast("Notes saved"); };
@@ -635,13 +638,30 @@ function renderUsage(u) {
   const el = $("#usageTable"); if (!el) return;
   el.innerHTML = rows.length ? rows.map((r) => `<div class="mono" style="font-size:11.5px">${esc(shortModel(r.model))}: ${r.calls} calls · in ${fmtTok(r.input)} · out ${fmtTok(r.output)}${r.cache_read ? ` · cache ${fmtTok(r.cache_read)}` : ""}</div>`).join("") : "—";
 }
+const ctxPct = (c) => (c && c.budget ? Math.min(100, Math.round((c.tokens / c.budget) * 100)) : 0);
+const ctxClass = (c) => { const p = ctxPct(c) / 100; return !c ? "" : p >= c.compact_at ? "high" : p >= c.prune_at ? "mid" : ""; };
 function setContext(c) {
-  if (!c) return;
+  if (!c || c.tokens == null) return;
   state.context = c;
-  const pct = Math.min(100, Math.round((c.chars / c.limit) * 100));
-  const bar = $("#ctxBar"); bar.style.width = pct + "%"; bar.className = pct > 85 ? "high" : pct > 60 ? "mid" : "";
-  $("#ctxText").textContent = `context ${pct}%${c.has_summary ? " · summarised" : ""}`;
+  const pct = ctxPct(c);
+  const bar = $("#ctxBar"); bar.style.width = pct + "%"; bar.className = ctxClass(c);
+  $("#ctxText").textContent = `context ${pct}% · ${fmtTok(c.tokens)}/${fmtTok(c.budget)}${c.has_summary ? " · summarised" : ""}`;
+  $("#sbContext").title = `~${c.tokens.toLocaleString()} prompt tokens of a ${c.budget.toLocaleString()}-token budget (window ${c.window.toLocaleString()}). Old tool outputs are cleared at ${Math.round(c.prune_at * 100)}%, earlier turns summarised at ${Math.round(c.compact_at * 100)}%. Click to compact now.`;
 }
+async function compactNow() {
+  if (!state.sid || state.streams.has(state.sid)) return;
+  const focus = await promptDialog("Compact conversation", "", "Optional: what the summary should focus on (e.g. \"the API changes\"). Leave empty for a general summary.");
+  if (focus === null) return;
+  streamTo(state.sid, `/api/sessions/${state.sid}/compact`, { focus });
+}
+async function handoff() {
+  if (!state.sid) return;
+  if (!confirm("Start a fresh session on this folder, seeded with this session's summary?")) return;
+  try { const s = await api(`/api/sessions/${state.sid}/handoff`, { method: "POST" }); await openSession(s.id); toast("Continued in a new session"); }
+  catch (err) { toast(err.message, true); }
+}
+$("#sbContext").style.cursor = "pointer";
+$("#sbContext").addEventListener("click", compactNow);
 async function refreshUsage() { if (state.sid) renderUsage(await api(`/api/sessions/${state.sid}/usage`).catch(() => null)); }
 
 // ---------------------------------------------------------------- chat rendering
@@ -908,7 +928,8 @@ input.addEventListener("input", () => {
   if (m) { mention.kind = "file"; mention.start = pos - m[2].length - 1; fetchMentions(m[2]); } else hideMentions();
 });
 function showSkillMenu(q) {
-  const skills = (state.wsInfo?.skills || []).filter((s) => s.name.includes(q.toLowerCase()));
+  const builtins = [{ name: "compact", description: "Summarise the conversation so far to free context. Add a focus, e.g. /compact the API changes" }];
+  const skills = [...builtins, ...(state.wsInfo?.skills || [])].filter((s) => s.name.includes(q.toLowerCase()));
   if (mention.kind !== "skill" || !mention.open) mention.idx = 0;
   mention.kind = "skill"; mention.start = 0;
   mention.idx = Math.min(mention.idx, Math.max(0, skills.length - 1));

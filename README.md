@@ -58,7 +58,9 @@ assistant's replies in them are scripted so the demo is reproducible.</sub>
   OpenTelemetry, structured logs), plus optional CloudWatch Logs search.
 - **Uses real tools:** linters, type checkers and security scanners (ruff, mypy/pyright, eslint/tsc,
   gitleaks, semgrep, ...) when installed; ripgrep for search; GitHub PRs, issues and CI logs through `gh`.
-- **Remembers:** full session history, an automatic rolling summary for long sessions, and per-folder notes.
+- **Never runs out of room:** token-accurate context management clears stale tool output and summarises
+  earlier turns before the window fills, even mid-task, and recovers automatically if a request is still too
+  long. `/compact` and "continue in new session" are there when you want them. Per-folder notes persist.
   It follows `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, Kiro steering and Copilot instruction files.
 - **Measurable:** `codepilot bench` grades it on planted-bug tasks with hidden tests, so you can compare
   models and changes.

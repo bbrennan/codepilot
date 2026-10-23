@@ -35,6 +35,7 @@ store.py (SQLite in ~/.codepilot): sessions, messages, proposals, usage, notes
 | `repomap.py` | Symbol map of the workspace (Python via `ast`, others via regex) |
 | `mentions.py` | `@file` references and fuzzy file search |
 | `prompts.py` | System prompt text and assembly |
+| `context.py` | Context-window management: token estimates, tool-output pruning, summaries, overflow recovery |
 | `store.py` | SQLite persistence with additive migrations |
 | `server.py` | HTTP API, NDJSON streaming, localhost and CSRF guards, static files, terminal WebSocket |
 | `terminal.py` | PTY shell bridged to xterm.js over a WebSocket |
@@ -44,7 +45,8 @@ store.py (SQLite in ~/.codepilot): sessions, messages, proposals, usage, notes
 ## One turn, step by step
 
 1. `POST /api/sessions/{id}/chat` → `Agent.chat()`.
-2. If the conversation is over the size limit, older turns are summarised (`_maybe_compact`).
+2. Before every model call (step 4 onwards), `context.py` checks the request's estimated size and prunes old
+   tool outputs or summarises earlier turns if needed; a 'too long' error triggers one compact-and-retry.
 3. The user message is stored, with attachments (`@file` contents, an invoked `/skill`) and a
    `<turn_context>` block (current mode, git state, proposal outcomes) appended.
 4. `_loop()` sends the **frozen session system prompt**, the tool specs and the live messages to the

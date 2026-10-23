@@ -15,7 +15,9 @@ Run `make doctor` after any change.
 | `CODEPILOT_DEFAULT_TIER` | `main` | Tier for new sessions: `fast`, `main` or `hard` |
 | `CODEPILOT_MAX_TOKENS` | `16000` | Max output tokens per model reply (Ollama is capped at 8192) |
 | `CODEPILOT_MAX_STEPS` | `40` | Max model↔tool round trips per message; the assistant asks to continue after that |
-| `CODEPILOT_CONTEXT_CHARS` | `350000` | Conversation size before older turns are summarised into memory |
+| `CODEPILOT_CONTEXT_TOKENS` | per model | Context window override. Defaults: 200k (Bedrock Claude, older models), 1M (Claude 4.6+/5.x on the Anthropic API), 128k (OpenAI), `CODEPILOT_OLLAMA_NUM_CTX` (Ollama) |
+| `CODEPILOT_PRUNE_AT` | `0.6` | Fraction of the prompt budget (window minus reply reserve) at which old tool outputs are cleared |
+| `CODEPILOT_COMPACT_AT` | `0.8` | Fraction at which earlier turns are summarised |
 
 ### Amazon Bedrock (`CODEPILOT_PROVIDER=bedrock`)
 
@@ -62,6 +64,7 @@ tiers and the default repo, for compatibility with an older internal tool.
 | `CODEPILOT_OLLAMA_URL` / `OLLAMA_HOST` | `http://localhost:11434` | Ollama server |
 | `CODEPILOT_OLLAMA_MODEL` | `llama3.2:3b` | Model for all tiers |
 | `CODEPILOT_OLLAMA_MODEL_FAST` / `_MAIN` / `_HARD` | `CODEPILOT_OLLAMA_MODEL` | Per-tier overrides |
+| `CODEPILOT_OLLAMA_NUM_CTX` | `32768` | Context size requested from Ollama (and codepilot's budget for it) |
 
 ## Network
 

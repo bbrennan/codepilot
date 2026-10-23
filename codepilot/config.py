@@ -122,7 +122,10 @@ class Config:
     github_host: str | None
     # App
     home: Path
-    context_chars: int
+    context_tokens: int | None  # explicit window override; else per model (see context_window)
+    prune_at: float  # fraction of the prompt budget at which old tool outputs are cleared
+    compact_at: float  # fraction at which earlier turns are summarised
+    ollama_num_ctx: int
     max_steps: int
     host: str
     port: int
@@ -169,8 +172,27 @@ class Config:
             github=_flag("CODEPILOT_GITHUB", True),
             github_host=_env("CODEPILOT_GH_HOST", "GH_HOST"),
             home=Path(_env("CODEPILOT_HOME", default="~/.codepilot")).expanduser(),
-            context_chars=int(_env("CODEPILOT_CONTEXT_CHARS", default="350000")),
+            context_tokens=int(_env("CODEPILOT_CONTEXT_TOKENS", default="0")) or None,
+            prune_at=float(_env("CODEPILOT_PRUNE_AT", default="0.6")),
+            compact_at=float(_env("CODEPILOT_COMPACT_AT", default="0.8")),
+            ollama_num_ctx=int(_env("CODEPILOT_OLLAMA_NUM_CTX", default="32768")),
             max_steps=int(_env("CODEPILOT_MAX_STEPS", default="40")),
             host=_env("CODEPILOT_HOST", default="127.0.0.1"),
             port=int(_env("CODEPILOT_PORT", default="8765")),
         )
+
+    def context_window(self, model: str) -> int:
+        """Context window in tokens for a model. CODEPILOT_CONTEXT_TOKENS overrides the defaults."""
+        if self.context_tokens:
+            return self.context_tokens
+        if self.provider == "ollama":
+            return self.ollama_num_ctx
+        if self.provider == "openai":
+            return 128_000
+        m = model.lower()
+        long_ctx = ("claude-opus-5", "claude-sonnet-5", "claude-haiku-5", "claude-fable", "claude-mythos",
+                    "claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8", "claude-sonnet-4-6")
+        if self.provider == "anthropic" and any(k in m for k in long_ctx):
+            return 1_000_000
+        # Bedrock: 200k is the safe default for Claude; raise CODEPILOT_CONTEXT_TOKENS if your models allow more.
+        return 200_000

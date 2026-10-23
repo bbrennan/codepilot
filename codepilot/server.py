@@ -203,6 +203,26 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             gh_status.update(await run_in_threadpool(github.status, cfg.github_host))
         return JSONResponse(gh_status)
 
+    async def compact(request: Request) -> Response:
+        sid = request.path_params["sid"]
+        data = await request.json() if request.headers.get("content-length") not in (None, "0") else {}
+        try:
+            store.get_session(sid)
+        except KeyError:
+            return err("No such session", 404)
+        return stream(sid, agent.compact(sid, str(data.get("focus", ""))))
+
+    async def handoff(request: Request) -> Response:
+        sid = request.path_params["sid"]
+        with busy_lock:
+            if sid in busy:
+                return err("This session is busy; wait for it to finish.", 409)
+        try:
+            new_id = await run_in_threadpool(agent.handoff, sid)
+        except KeyError:
+            return err("No such session", 404)
+        return JSONResponse(store.get_session(new_id).public())
+
     async def cancel(request: Request) -> Response:
         agent.cancel(request.path_params["sid"])
         return JSONResponse({"ok": True})
@@ -433,6 +453,8 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         Route("/api/sessions/{sid}/chat", chat, methods=["POST"]),
         Route("/api/sessions/{sid}/approve", approve, methods=["POST"]),
         Route("/api/sessions/{sid}/cancel", cancel, methods=["POST"]),
+        Route("/api/sessions/{sid}/compact", compact, methods=["POST"]),
+        Route("/api/sessions/{sid}/handoff", handoff, methods=["POST"]),
         Route("/api/sessions/{sid}/grep", needs_workspace(grep)),
         Route("/api/sessions/{sid}/usage", usage),
         Route("/api/sessions/{sid}/workspace", needs_workspace(workspace_info)),

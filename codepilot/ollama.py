@@ -28,7 +28,8 @@ class Ollama:
             "messages": [{"role": "system", "content": "\n\n".join(b["text"] for b in system)}]
             + to_ollama_messages(messages),
             "stream": True,
-            "options": {"num_predict": min(max_tokens or self.cfg.max_tokens, 8192), "num_ctx": 32768},
+            "options": {"num_predict": min(max_tokens or self.cfg.max_tokens, 8192),
+                        "num_ctx": self.cfg.ollama_num_ctx},
         }
         if tools:
             body["tools"] = [{"type": "function", "function": {

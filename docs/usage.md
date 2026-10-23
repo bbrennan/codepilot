@@ -173,12 +173,22 @@ With `gh` logged in (status bar shows `github: <you>`), ask things like:
 
 A session isn't a series of one-off prompts. It remembers in three layers:
 
-1. **The conversation.** Every turn includes the session's history: messages, tool calls and results. It's
+1. **The conversation.** Every step includes the session's history: messages, tool calls and results. It's
    stored locally (`~/.codepilot/codepilot.db`) and survives restarts. Prompt caching keeps resending it
    cheap.
-2. **The rolling summary.** When the conversation passes `CODEPILOT_CONTEXT_CHARS`, older turns are
-   summarised by the fast model and the latest turns are kept word for word. The status bar's
-   **context %** shows how close you are.
+2. **Automatic context management.** Before **every** model call, including in the middle of a long task,
+   codepilot estimates the request's size in tokens (calibrated from the provider's real counts) against the
+   model's budget, which is its context window minus room for the reply:
+   - **At 60%** (`CODEPILOT_PRUNE_AT`), bulky old tool outputs (file reads, test logs) outside the most recent
+     context are replaced by one-line notes. The assistant can re-run a tool if it needs the output again.
+   - **At 80%** (`CODEPILOT_COMPACT_AT`), earlier turns are rewritten into one structured summary (goal,
+     decisions, work done, current state, next steps). Your latest turns stay word for word, and the plan,
+     proposals, files touched and commands run are carried over exactly.
+   - **If a provider still rejects a request as too long,** codepilot compacts harder and retries once.
+   - **By hand:** type `/compact` (optionally with a focus, e.g. `/compact the API changes`) or click the
+     context meter. **Memory → Continue in new session** starts a fresh session seeded with the summary.
+
+   The status bar shows `context 42% · 78k/184k`. Hover for details; click to compact now.
 3. **Workspace notes.** One notes file per folder, which the assistant adds to (`remember`) and you can
    edit in the **Memory** view. Every future session on that folder reads it. Put conventions there, such
    as "tests need `make db-up` first".

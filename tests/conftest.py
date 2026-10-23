@@ -63,7 +63,7 @@ def cfg(tmp_path):
     base = Config.from_env()
     return replace(base, provider="bedrock", home=tmp_path / "home", trace_dirs=[], log_groups=[],
                    test_cmd="python -c \"print('tests-ran')\"", eval_cmd="make eval-bedrock",
-                   auto_approve_tests=False, context_chars=350_000, max_steps=10)
+                   auto_approve_tests=False, context_tokens=None, max_steps=10)
 
 
 @pytest.fixture

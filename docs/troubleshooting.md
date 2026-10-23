@@ -68,7 +68,9 @@ Start with `make doctor`. It tests each piece and prints the fix for most proble
 | No traces listed | Traces must be `.json`, `.jsonl`, `.ndjson`, `.log` or `.txt` in a `traces/`, `logs/`, `results/` or `eval_results/` folder, or in `CODEPILOT_TRACE_DIRS` |
 | Apply says the file changed since the proposal | You (or a tool) edited the file after the proposal was made; ask codepilot to re-propose |
 | Undo refused | The file changed after the change was applied; undo by hand or ask codepilot |
-| Context meter near 100% | It summarises automatically; for a new topic, start a new session |
+| Context meter near 100% | It clears old tool outputs at 60% and summarises at 80% automatically; click the meter (or `/compact`) to compact now; for a new topic, use Memory → Continue in new session |
+| "no longer fits the model's context window" | codepilot compacts and retries once automatically. If it still fails, the current turn alone is too big (e.g. a huge pasted log): `/compact`, or continue in a new session |
+| Your model has a bigger window than codepilot assumes | Set `CODEPILOT_CONTEXT_TOKENS` (e.g. `1000000` for a 1M-context model on Bedrock) |
 
 ## Getting more detail
 

@@ -85,7 +85,20 @@ def build_system(root: Path | None, test_cmd: str, eval_cmd: str, trace_roots: l
     return blocks
 
 
-SUMMARIZE = """You compress a coding-assistant conversation so it can continue with less context. \
-Write a dense summary that preserves: the user's goals and instructions, the workspace path, decisions made, \
-files and functions examined (with paths), findings and their evidence, proposed or applied changes (with \
-proposal numbers), test/command results, and open questions or next steps. Use terse bullet points."""
+SUMMARIZE = """You compress a coding-assistant conversation so the work can continue in a smaller context. \
+Rewrite the existing summary together with the new conversation into ONE summary (don't nest or append \
+summaries). Keep it under about 800 words, in these sections, omitting empty ones:
+
+## Goal
+The user's current objective and any explicit instructions or preferences, quoted exactly where wording matters.
+## Decisions and findings
+Conclusions reached, root causes, and the evidence for them (path:line, test names, trace ids).
+## Work done
+Changes proposed or applied (proposal numbers, files), commands and tests run, and their outcomes.
+## Current state
+Where things stand right now, what is verified, and what is not.
+## Next steps
+What remains, in order, and any open questions for the user.
+
+Be terse and factual. Preserve identifiers, paths, numbers and error messages exactly. If the user asked for a \
+focus, prioritise it."""
