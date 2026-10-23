@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import inspect
 import json
 import logging
 import re
@@ -54,7 +56,10 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
     agent = agent or Agent(cfg, store)
     busy: set[str] = set()
     busy_lock = threading.Lock()
-    term_token = secrets.token_urlsafe(32)  # new every launch; embedded in the page, required by /api/terminal
+    term_token = secrets.token_urlsafe(32)  # new every launch; embedded in the page, required by terminal routes
+    from .terminal import TerminalManager
+
+    terminals = TerminalManager()
 
     def err(message: str, status: int = 400) -> JSONResponse:
         return JSONResponse({"error": message}, status_code=status)
@@ -91,27 +96,77 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         html = (STATIC / "index.html").read_text().replace("__CODEPILOT_TOKEN__", term_token if cfg.terminal else "")
         return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
+    def term_dir(cwd: str | None, sid: str | None) -> Path:
+        """An explicit folder, else the session's workspace, else home."""
+        if cwd:
+            path = Path(cwd).expanduser()
+            if not path.is_dir():
+                raise ValueError(f"Not a folder: {cwd}")
+            return path.resolve()
+        if sid:
+            with contextlib.suppress(KeyError):
+                repo = store.get_session(sid).repo
+                if repo and Path(repo).is_dir():
+                    return Path(repo)
+        return Path.home()
+
+    def term_allowed(headers: dict, token: str) -> bool:
+        origin = headers.get("origin")
+        same_origin = origin is None or origin.split("://", 1)[-1] == headers.get("host", "")
+        return bool(cfg.terminal) and secrets.compare_digest(token, term_token) and same_origin
+
     async def terminal_ws(ws: WebSocket) -> None:
         from . import terminal
 
         headers = {k.decode().lower(): v.decode() for k, v in ws.scope.get("headers", [])}
-        origin_host = headers.get("origin", "").split("://", 1)[-1]
-        allowed = cfg.terminal and secrets.compare_digest(ws.query_params.get("token", ""), term_token) \
-            and origin_host == headers.get("host", "")
-        if not allowed:
+        if "origin" not in headers or not term_allowed(headers, ws.query_params.get("token", "")):
             await ws.close(code=1008)  # policy violation: wrong token, wrong origin, or terminal disabled
             return
-        cwd = Path.home()
-        sid = ws.query_params.get("sid")
-        if sid:
-            try:
-                repo = store.get_session(sid).repo
-                if repo and Path(repo).is_dir():
-                    cwd = Path(repo)
-            except KeyError:
-                pass
+        tid = ws.query_params.get("id")
+        ephemeral = not tid  # older clients: a fresh shell for this connection only
+        try:
+            term = terminals.get(tid) if tid else terminals.create(term_dir(None, ws.query_params.get("sid")))
+        except terminal.TerminalLimit:
+            term = None
         await ws.accept()
-        await terminal.serve(ws, cwd)
+        if term is None:
+            await ws.close(code=terminal.UNKNOWN)
+            return
+        try:
+            await terminal.attach(ws, term)
+        finally:
+            if ephemeral:
+                await run_in_threadpool(terminals.kill, term.id)
+
+    async def terminals_view(request: Request) -> Response:
+        from .terminal import TerminalLimit
+
+        headers = {k.lower(): v for k, v in request.headers.items()}
+        if not term_allowed(headers, request.headers.get("x-codepilot-terminal", "")):
+            return err("Terminal access refused (disabled, or the page is from an earlier server; reload it).", 403)
+        tid = request.path_params.get("tid")
+        if tid is None and request.method == "POST":
+            data = await request.json()
+            try:
+                term = terminals.create(term_dir(data.get("cwd"), data.get("sid")), str(data.get("name") or "")[:60])
+            except ValueError as exc:
+                return err(str(exc))
+            except TerminalLimit as exc:
+                return err(str(exc), 429)
+            return JSONResponse(term.info(), status_code=201)
+        if tid is None:
+            return JSONResponse({"terminals": [t.info() for t in terminals.list()]})
+        term = terminals.get(tid)
+        if term is None:
+            return err("No such terminal", 404)
+        if request.method == "DELETE":
+            await run_in_threadpool(terminals.kill, tid)
+            return JSONResponse({"ok": True})
+        if request.method == "PATCH":
+            name = str((await request.json()).get("name") or "").strip()[:60]
+            if name:
+                term.name = name
+        return JSONResponse(term.info())
 
     async def config_view(request: Request) -> Response:
         return JSONResponse({
@@ -305,7 +360,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                                         for sk in skills.discover(root, cfg.home)],
                              "instructions": skills.project_instructions(root, cfg.home)[:4000]})
 
-    async def browse(request: Request) -> Response:
+    def browse(request: Request) -> Response:  # blocking I/O: runs in a worker thread
         """Directory listing for the Open Folder dialog (folders only, names and markers, no file contents)."""
         raw = request.query_params.get("path") or str(Path.home())
         try:
@@ -337,7 +392,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         found = await run_in_threadpool(mentions.find_files, ctx.root, q, 30)
         return JSONResponse({"files": found})
 
-    async def trace_list(request: Request) -> Response:
+    def trace_list(request: Request) -> Response:  # blocking I/O: runs in a worker thread
         ctx = ctx_for(request.path_params["sid"])
         files = []
         for f in _trace_files(ctx)[:500]:
@@ -349,7 +404,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             files.append({"path": shown, "size": st.st_size, "mtime": st.st_mtime})
         return JSONResponse({"roots": [str(r) for r in trace_roots(ctx)], "files": files})
 
-    async def trace_view(request: Request) -> Response:
+    def trace_view(request: Request) -> Response:  # blocking I/O: runs in a worker thread
         ctx = ctx_for(request.path_params["sid"])
         try:
             path = _locate_trace(ctx, request.query_params.get("path", ""))
@@ -368,7 +423,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                 raw = None
         return JSONResponse({"path": str(path), "size": size, "outline": outline, "records": raw})
 
-    async def files(request: Request) -> Response:
+    def files(request: Request) -> Response:  # blocking I/O: runs in a worker thread
         ctx = ctx_for(request.path_params["sid"])
         try:
             base = ctx.resolve(request.query_params.get("path", "."))
@@ -385,17 +440,19 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             entries.append({"name": p.name, "path": ctx.rel(p), "dir": p.is_dir()})
         return JSONResponse({"path": ctx.rel(base), "entries": entries})
 
-    async def git_view(request: Request) -> Response:
+    def git_view(request: Request) -> Response:  # blocking I/O: runs in a worker thread
         ctx = ctx_for(request.path_params["sid"])
 
         def run(*args: str) -> str:
             proc = subprocess.run(["git", "--no-pager", "-C", str(ctx.root), *args], capture_output=True,
                                   text=True, timeout=60, errors="replace")
-            return proc.stdout if proc.returncode == 0 else proc.stderr
+            return proc.stdout if proc.returncode == 0 else ""  # never show git's error text as data
 
         if not (ctx.root / ".git").exists():
             return JSONResponse({"git": False})
-        return JSONResponse({"git": True, "branch": run("rev-parse", "--abbrev-ref", "HEAD").strip(),
+        # symbolic-ref works before the first commit too; a detached HEAD shows its short hash.
+        branch = run("symbolic-ref", "--short", "-q", "HEAD").strip() or run("rev-parse", "--short", "HEAD").strip()
+        return JSONResponse({"git": True, "branch": branch,
                              "status": run("status", "--short"), "diff": run("diff")[:MAX_VIEW_BYTES]})
 
     async def notes(request: Request) -> Response:
@@ -442,7 +499,9 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
     def needs_workspace(handler):
         async def wrapped(request: Request) -> Response:
             try:
-                return await handler(request)
+                if inspect.iscoroutinefunction(handler):
+                    return await handler(request)
+                return await run_in_threadpool(handler, request)  # keep filesystem/git work off the event loop
             except ToolError as exc:
                 return err(str(exc), 409)
             except KeyError:
@@ -457,6 +516,8 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         Route("/api/github", github_view),
         Route("/api/models", models_view),
         WebSocketRoute("/api/terminal", terminal_ws),
+        Route("/api/terminals", terminals_view, methods=["GET", "POST"]),
+        Route("/api/terminals/{tid}", terminals_view, methods=["GET", "PATCH", "DELETE"]),
         Route("/api/sessions", sessions, methods=["GET", "POST"]),
         Route("/api/sessions/{sid}", session, methods=["GET", "PATCH", "DELETE"]),
         Route("/api/sessions/{sid}/chat", chat, methods=["POST"]),
@@ -480,7 +541,14 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         Middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"]),
         Middleware(_CsrfHeaderMiddleware),
     ]
-    return Starlette(routes=routes, middleware=middleware)
+    @contextlib.asynccontextmanager
+    async def lifespan(app):
+        yield
+        terminals.close_all()  # don't leave shells running after codepilot stops
+
+    app = Starlette(routes=routes, middleware=middleware, lifespan=lifespan)
+    app.state.terminals = terminals
+    return app
 
 
 class _CsrfHeaderMiddleware:

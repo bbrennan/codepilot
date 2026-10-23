@@ -60,11 +60,16 @@ Start with `make doctor`. It tests each piece and prints the fix for most proble
 
 | Symptom | Fix |
 |---|---|
-| `address already in use` | Another codepilot is running, or something else uses the port: `CODEPILOT_PORT=8766 make serve`, or stop the other one (`pkill -f "codepilot serve"`) |
-| Page loads but nothing works | Hard-reload the browser (an old cached UI); check the terminal where `make serve` runs for errors |
+| `address already in use` | Another codepilot is running, or something else uses the port: `codepilot status`; `codepilot stop` for a background one; otherwise `CODEPILOT_PORT=8766 make serve`, or stop the other one (`pkill -f "codepilot serve"`) |
+| Page loads but nothing works | Hard-reload the browser (an old cached UI); check the log (`codepilot logs`, or the terminal where `make serve` runs) |
+| The terminal fills with `HTTP Request: POST https://bedrock-…` or `Loading cached SSO token` | Older versions logged every request. Update (`git pull && make install`); set `CODEPILOT_VERBOSE=1` only when you want those lines |
+| Codepilot.app opens nothing | See `~/.codepilot/launcher.log` and `codepilot logs`. If you moved the checkout or rebuilt `.venv`, run `codepilot app` again |
+| From Codepilot.app, tests or `gh` aren't found, or the wrong AWS profile is used | The launcher imports your login shell's environment. Check that `zsh -ilc 'echo $PATH'` shows what you expect, or put the settings in `.env` |
+| "At most 12 terminals can run at once" | Kill some from the Terminal menu (**Kill All Terminals**) |
+| A terminal shows "Exited with code N" | The shell ended with an error; read the output, then press any key to close it or click **Restart** |
 | `This session is already working` | A turn is still running in that session; wait or press Stop |
 | `A tool call is waiting for approval` | Scroll the chat to the approval card and Approve or Deny |
-| Terminal says "Refused: reload the page" | The server restarted, so the page's terminal token is stale; reload the page |
+| Terminal says "Refused: reload the page" | The server restarted, so the page's terminal token is stale (and its shells ended); reload the page |
 | Terminal says "disabled" | `CODEPILOT_TERMINAL=0` is set |
 | `github off` in the status bar | `gh auth login` (or `CODEPILOT_GITHUB=0` to hide it) |
 | No test command detected | Set `CODEPILOT_TEST_CMD`, or tell codepilot in chat how to run the tests |
@@ -77,7 +82,8 @@ Start with `make doctor`. It tests each piece and prints the fix for most proble
 
 ## Getting more detail
 
-- `make serve` logs to the terminal it runs in.
+- `make serve` logs to the terminal it runs in; a background server (`codepilot start`) logs to
+  `~/.codepilot/server.log` (`codepilot logs -f`). `CODEPILOT_VERBOSE=1` adds every HTTP request.
 - **Activity** (bottom panel) shows every model and tool call with inputs and outputs.
 - Benchmark transcripts: `bench/results/<run>/transcripts/*.jsonl`.
 - Open an issue with the `make doctor` output (it never prints secrets) and the relevant log lines.

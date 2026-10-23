@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
-from conftest import FakeLLM, tool_use
+from fakes import FakeLLM, tool_use
 from starlette.testclient import TestClient
 
 from codepilot.agent import Agent
@@ -180,3 +180,10 @@ def test_saved_proposals_have_full_context_diffs(client_and_llm, repo):
     assert " def add(a, b):" in pending["diff"]  # context line from the real file, not just the snippet
     applied = client.post(f"/api/proposals/{pending['id']}/apply", headers=H).json()
     assert " def add(a, b):" in applied["diff"] and "+    return a + b" in applied["diff"]
+
+
+def test_git_branch_before_the_first_commit(client_and_llm, repo):
+    client, _ = client_and_llm
+    sess = client.post("/api/sessions", json={"repo": str(repo)}, headers=H).json()
+    g = client.get(f"/api/sessions/{sess['id']}/git").json()
+    assert g["git"] and g["branch"] and "fatal" not in g["branch"]  # fresh `git init`, no commits yet

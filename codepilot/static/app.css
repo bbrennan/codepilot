@@ -275,10 +275,22 @@ kbd { font: 11px var(--mono); padding: 1px 6px; border: 1px solid var(--line-2);
 /* ---------- terminal ---------- */
 .term-body { display: flex; flex-direction: column; padding: 0 0 4px 10px; }
 .term-body[hidden] { display: none !important; }
-.term-bar { display: flex; align-items: center; gap: 6px; padding: 2px 10px 6px 0; font-size: 12px; }
-#termStatus { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.term-host { flex: 1; min-height: 0; }
+.term-bar { display: flex; align-items: center; gap: 6px; padding: 2px 10px 6px 0; font-size: 12px; min-width: 0; }
+.term-bar .spacer { flex: 1; }
+.term-select { max-width: 220px; min-width: 120px; }
+.term-cwd { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%; }
+.term-status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.term-status.err { color: var(--err); }
+.term-host { flex: 1; min-height: 0; position: relative; }
+.term-pane { position: absolute; inset: 0; }
+.term-pane[hidden] { display: none; }
 .term-host .xterm { height: 100%; }
+.term-empty { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; color: var(--muted); font-size: 12.5px; }
+.term-empty[hidden] { display: none; }
+.menu-btn { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border-radius: 6px; border: 1px solid transparent; background: transparent; color: var(--fg-2); font-size: 12.5px; cursor: pointer; }
+.menu-btn:hover { background: var(--bg-3); color: var(--fg); border-color: var(--line); }
+.menu-btn .i { width: 15px; height: 15px; }
+
 .term-host .xterm-viewport::-webkit-scrollbar-thumb { background: var(--bg-4); }
 
 /* ---------- chat ---------- */
@@ -447,3 +459,7 @@ a.loc:hover { text-decoration: underline; }
   .resizer { display: none; }
   .workspace-btn { max-width: 40vw; }
 }
+.btn.sm { height: 24px; padding: 0 8px; font-size: 12px; }
+.btn:disabled, .icon-btn:disabled { opacity: .45; pointer-events: none; }
+.menu-btn .caret svg, #termMore svg { transform: rotate(90deg); }
+.menu-btn .caret svg { width: 12px; height: 12px; opacity: .7; }

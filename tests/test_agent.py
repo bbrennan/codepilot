@@ -1,6 +1,6 @@
 from dataclasses import replace
 
-from conftest import FakeLLM, tool_use
+from fakes import FakeLLM, tool_use
 
 from codepilot.agent import Agent, history_events, is_user_turn
 

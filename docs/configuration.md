@@ -101,7 +101,7 @@ tiers and the default repo, for compatibility with an older internal tool.
 |---|---|---|
 | `CODEPILOT_AUTO_APPROVE_TESTS` | `0` | Run tests and analyser checks without asking (other commands always ask) |
 | `CODEPILOT_AUTO_APPLY` | `0` | Write proposed edits immediately; each can still be undone |
-| `CODEPILOT_TERMINAL` | `1` | Enable the Terminal panel (a local shell; see [security.md](security.md#the-terminal)) |
+| `CODEPILOT_TERMINAL` | `1` | Enable terminals (local shells; see [security.md](security.md#the-terminal)) |
 
 ## App
 
@@ -111,6 +111,8 @@ tiers and the default repo, for compatibility with an older internal tool.
 | `CODEPILOT_HOST` | `127.0.0.1` | Bind address. Keep it on localhost (see [security.md](security.md)) |
 | `CODEPILOT_PORT` | `8765` | UI port |
 | `CODEPILOT_ENV_FILE` | `./.env` | Load settings from another file |
+| `CODEPILOT_VERBOSE` | unset | `1` logs every HTTP request and credential lookup made by the AWS/Anthropic/OpenAI libraries |
+| `CODEPILOT_APP_BROWSER` | auto | Browser for `codepilot start`'s app window, e.g. `Google Chrome`, `Microsoft Edge`, `Brave Browser` |
 
 ## Files codepilot reads and writes
 
@@ -119,6 +121,8 @@ tiers and the default repo, for compatibility with an older internal tool.
 | `.env` | Your settings and keys (git-ignored) |
 | `~/.codepilot/codepilot.db` | Sessions, messages, proposals, token usage (SQLite) |
 | `~/.codepilot/models.json` | Which models your account can use (cached 12h; `codepilot models --refresh`) |
+| `~/.codepilot/server.pid`, `server.log`, `launcher.log` | The background server started by `codepilot start` or Codepilot.app |
+| `~/Applications/Codepilot.app` | The macOS launcher written by `codepilot app` |
 | `~/.codepilot/notes/<folder>-<hash>.md` | Per-workspace notes |
 | `~/.codepilot/scratch/<session>/` | The assistant's throwaway repro scripts |
 | `~/.codepilot/skills/`, `~/.codepilot/modes/` | Your custom skills and modes |

@@ -5,7 +5,7 @@ import pytest
 from codepilot import checks, github, modes, skills
 from codepilot.agent import Agent
 from codepilot.tools import build_tools
-from conftest import FakeLLM, tool_use
+from fakes import FakeLLM, tool_use
 
 
 def test_builtin_and_custom_modes(repo, cfg):

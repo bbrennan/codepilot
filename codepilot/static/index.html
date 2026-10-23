@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Codepilot</title>
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<link rel="apple-touch-icon" href="/static/favicon.png">
 <meta name="codepilot-token" content="__CODEPILOT_TOKEN__">
 <link rel="stylesheet" href="/static/vendor/xterm.css">
 <link rel="stylesheet" href="/static/app.css">
@@ -18,6 +20,7 @@
     <div class="brand"><span class="logo" data-icon="logo"></span>codepilot</div>
     <button class="workspace-btn" id="workspaceBtn" title="Open folder"><span data-icon="folder"></span><span id="workspaceName">No folder</span></button>
     <button class="palette-btn" id="paletteBtn" title="Go to file (⌘P)"><span data-icon="search"></span><span>Search files</span><kbd>⌘P</kbd></button>
+    <button class="menu-btn" id="terminalMenuBtn" title="Terminals: new, switch, rename, kill"><span data-icon="terminal"></span><span>Terminal</span><span data-icon="chevron" class="caret"></span></button>
     <div class="spacer"></div>
     <button class="icon-btn" id="toggleSidebar" title="Toggle sidebar (⌘B)" data-icon="sidebar"></button>
     <button class="icon-btn" id="togglePanel" title="Toggle panel (⌘J)" data-icon="panel"></button>
@@ -89,7 +92,7 @@
       <div class="panel-tabs">
         <button data-ptab="activity" class="on">Activity <span class="count" id="actCount">0</span></button>
         <button data-ptab="output">Output</button>
-        <button data-ptab="terminal" id="terminalTabBtn">Terminal</button>
+        <button data-ptab="terminal" id="terminalTabBtn">Terminal <span class="count" id="termCount" hidden>0</span></button>
         <div class="spacer"></div>
         <button class="icon-btn sm" id="clearActivity" title="Clear" data-icon="trash"></button>
         <button class="icon-btn sm" id="closePanel" title="Close panel" data-icon="x"></button>
@@ -108,11 +111,20 @@
       </div>
       <div class="panel-body term-body" data-ptab="terminal" hidden>
         <div class="term-bar">
-          <span class="muted" id="termStatus">Not started</span>
-          <button class="btn" id="termSendSel" title="Paste the selected terminal text into the chat">Selection → chat</button>
-          <button class="btn" id="termNew" title="Close this shell and start a new one in the session's folder">New terminal</button>
+          <select class="field sm term-select" id="termSelect" title="Switch terminal (double-click to rename)" aria-label="Terminals"></select>
+          <span class="mono muted term-cwd" id="termCwd"></span>
+          <span class="term-status muted" id="termStatus"></span>
+          <button class="btn sm" id="termRestart" hidden>Restart</button>
+          <div class="spacer"></div>
+          <button class="btn sm" id="termSendSel" title="Paste the selected terminal text into the chat">Selection → chat</button>
+          <button class="icon-btn sm" id="termNew" title="New terminal (in the session's folder)" data-icon="plus"></button>
+          <button class="icon-btn sm" id="termRename" title="Rename terminal" data-icon="edit"></button>
+          <button class="icon-btn sm" id="termKill" title="Kill terminal" data-icon="trash"></button>
+          <button class="icon-btn sm" id="termMore" title="More terminal actions" data-icon="chevron"></button>
         </div>
-        <div class="term-host" id="termHost"></div>
+        <div class="term-host" id="termHost">
+          <div class="term-empty" id="termEmpty" hidden><span id="termEmptyText">No terminals are open.</span><button class="btn" id="termEmptyNew"><span data-icon="plus"></span>New Terminal</button></div>
+        </div>
       </div>
     </section>
   </main>

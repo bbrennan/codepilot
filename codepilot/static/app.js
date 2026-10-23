@@ -95,10 +95,10 @@ const state = {
 
 // ---------------------------------------------------------------- layout
 const ide = $("#ide");
-function setView(view) {
+function setView(view, reveal = true) {
   $$("#activitybar button").forEach((b) => b.classList.toggle("on", b.dataset.view === view));
   $$(".sidebar .view").forEach((v) => v.classList.toggle("on", v.dataset.view === view));
-  ide.classList.remove("no-sidebar");
+  if (reveal) { ide.classList.remove("no-sidebar"); store("cp-no-sidebar", "0"); }
   store("cp-view", view);
   if (view === "traces") loadTraces();
   if (view === "changes") { renderProposalList(); loadGit(); }
@@ -107,7 +107,7 @@ function setView(view) {
 }
 $("#activitybar").addEventListener("click", (e) => {
   const b = e.target.closest("button"); if (!b) return;
-  if (b.classList.contains("on") && !ide.classList.contains("no-sidebar")) { ide.classList.add("no-sidebar"); return; }
+  if (b.classList.contains("on") && !ide.classList.contains("no-sidebar")) { ide.classList.add("no-sidebar"); store("cp-no-sidebar", "1"); return; }
   setView(b.dataset.view);
 });
 const toggle = (cls) => { ide.classList.toggle(cls); store("cp-" + cls, ide.classList.contains(cls) ? "1" : "0"); };
@@ -120,7 +120,7 @@ $("#themeBtn").onclick = () => {
   const cur = document.documentElement.dataset.theme || (dark ? "dark" : "light");
   const next = cur === "dark" ? "light" : "dark";
   document.documentElement.dataset.theme = next; store("cp-theme", next);
-  if (termState.term) termState.term.options.theme = termTheme();
+  for (const v of terms.views.values()) v.xterm.options.theme = termTheme();
 };
 function makeResizer(el, varName, axis, min, max, invert) {
   el.addEventListener("mousedown", (e) => {
@@ -148,7 +148,8 @@ $(".panel-tabs").addEventListener("click", (e) => {
 function showPanelTab(name) {
   $$(".panel-tabs [data-ptab]").forEach((b) => b.classList.toggle("on", b.dataset.ptab === name));
   $$(".panel-body").forEach((p) => (p.hidden = p.dataset.ptab !== name));
-  ide.classList.remove("no-panel");
+  ide.classList.remove("no-panel"); store("cp-no-panel", "0");
+  store("cp-ptab", name);
   if (name === "terminal") requestAnimationFrame(openTerminal);
 }
 $("#clearActivity").onclick = () => { $("#activity").innerHTML = ""; state.activity = 0; $("#actCount").textContent = "0"; };
@@ -171,13 +172,16 @@ async function init() {
     $("#sbGithub").innerHTML = g.available ? `${icon("branch")}github: ${esc(g.user)}${g.host !== "github.com" ? " @ " + esc(g.host) : ""}` : `<span title="${esc(g.reason || "")}">${icon("alert")}github off</span>`;
     $("#sbGithub").className = "sb-item " + (g.available ? "" : "warn");
   }).catch(() => {});
-  setView(store("cp-view") || "explorer");
+  setView(store("cp-view") || "explorer", false); // keep a hidden sidebar hidden
   const list = await loadSessions();
   const last = store("cp-session");
   if (last && list.some((s) => s.id === last)) await openSession(last);
   else if (list.length) await openSession(list[0].id);
   else { renderChatEmpty(); renderEditor(); renderTree(); }
   setInterval(pollSessions, 4000);
+  await loadTerminals();
+  const ptab = store("cp-ptab");
+  if (!ide.classList.contains("no-panel") && ptab && (ptab !== "terminal" || terms.list.length)) showPanelTab(ptab);
 }
 const shortModel = (m) => String(m).replace(/^(us|eu|apac|global)\.anthropic\./, "").replace(/-\d{8}-v\d+:\d+$/, "");
 
@@ -626,8 +630,12 @@ function renderMemory() {
   $("#compactBtn") && ($("#compactBtn").onclick = compactNow);
   $("#handoffBtn") && ($("#handoffBtn").onclick = handoff);
   if (state.workspace && state.sid) {
-    api(`/api/sessions/${state.sid}/notes`).then((n) => { $("#notesBox").value = n.notes; $("#notesPath").textContent = n.path; }).catch(() => {});
-    $("#saveNotes").onclick = async () => { await api(`/api/sessions/${state.sid}/notes`, { method: "PUT", body: { notes: $("#notesBox").value } }); toast("Notes saved"); };
+    // Unsaved edits survive re-renders of this view and aren't overwritten by the saved notes arriving late.
+    const key = state.workspace;
+    if (state.notesDraft?.key === key) $("#notesBox").value = state.notesDraft.text;
+    $("#notesBox").oninput = () => { state.notesDraft = { key, text: $("#notesBox").value }; };
+    api(`/api/sessions/${state.sid}/notes`).then((n) => { if (state.notesDraft?.key !== key) $("#notesBox").value = n.notes; $("#notesPath").textContent = n.path; }).catch(() => {});
+    $("#saveNotes").onclick = async () => { await api(`/api/sessions/${state.sid}/notes`, { method: "PUT", body: { notes: $("#notesBox").value } }); state.notesDraft = null; toast("Notes saved"); };
   }
 }
 function renderUsage(u) {
@@ -1022,26 +1030,30 @@ $("#runCmdBtn").onclick = () => runCmd("command");
 $("#cmdInput").addEventListener("keydown", (e) => { if (e.key === "Enter") runCmd("command"); });
 
 // ---------------------------------------------------------------- open-folder browser
-const fd = { path: "", sel: null, resolve: null };
+const fd = { path: "", sel: null, resolve: null, seq: 0 };
 function browseFolder(start) {
   return new Promise((resolve) => {
-    fd.resolve = resolve; fd.sel = null;
+    fd.resolve = resolve; fd.sel = null; fd.typed = false;
     $("#folderDialog").hidden = false;
     fdLoad(start || "");
   });
 }
-async function fdLoad(path) {
+async function fdLoad(path, fromInput = false) {
+  const seq = ++fd.seq;
   try {
     const d = await api(`/api/browse?path=${encodeURIComponent(path)}&hidden=${$("#fdHidden").checked ? 1 : 0}`);
+    if (seq !== fd.seq) return; // a newer navigation won; a slow earlier listing mustn't overwrite it
     fd.path = d.path; fd.parent = d.parent; fd.sel = null;
-    $("#fdInput").value = d.path;
+    // Don't clobber a path the user is typing or pasting (only the path they just submitted may be normalised).
+    const typing = fd.typed || (document.activeElement === $("#fdInput") && !fromInput);
+    if (!typing) $("#fdInput").value = d.path;
     const places = d.places.filter((p) => !p.recent), recent = d.places.filter((p) => p.recent);
     const placeRow = (p) => `<div class="row ${p.path === d.path ? "on" : ""}" data-fdgo="${esc(p.path)}" title="${esc(p.path)}">${icon(p.name === "Home" ? "home" : p.path.includes("CloudStorage") ? "cloud" : p.recent ? "history" : "folder")}<span class="name">${esc(p.name)}</span></div>`;
     $("#fdPlaces").innerHTML = `<div class="sec">Places</div>${places.map(placeRow).join("")}${recent.length ? `<div class="sec">Recent</div>${recent.map(placeRow).join("")}` : ""}`;
     $("#fdList").innerHTML = d.dirs.map((x) => `<div class="row" data-fdpath="${esc(x.path)}"><span class="ficon dir">${icon("folder")}</span><span class="name">${esc(x.name)}</span>${x.project ? `<span class="proj">${esc(x.project)}</span>` : ""}</div>`).join("")
       || `<div class="empty-state">No subfolders here.</div>`;
     fdHint();
-  } catch (err) { $("#fdHint").textContent = err.message; }
+  } catch (err) { if (seq === fd.seq) $("#fdHint").textContent = err.message; }
 }
 function fdHint() { $("#fdHint").textContent = "Open: " + (fd.sel || fd.path); $("#fdOpen").textContent = fd.sel ? "Open selected" : "Open this folder"; }
 function fdClose(value) { $("#folderDialog").hidden = true; const r = fd.resolve; fd.resolve = null; r && r(value); }
@@ -1049,11 +1061,12 @@ $("#fdList").addEventListener("click", (e) => {
   const row = e.target.closest("[data-fdpath]"); if (!row) return;
   $$("#fdList .row").forEach((x) => x.classList.toggle("sel", x === row)); fd.sel = row.dataset.fdpath; fdHint();
 });
-$("#fdList").addEventListener("dblclick", (e) => { const row = e.target.closest("[data-fdpath]"); if (row) fdLoad(row.dataset.fdpath); });
-$("#fdPlaces").addEventListener("click", (e) => { const row = e.target.closest("[data-fdgo]"); if (row) fdLoad(row.dataset.fdgo); });
-$("#fdUp").onclick = () => fd.parent && fdLoad(fd.parent);
+$("#fdList").addEventListener("dblclick", (e) => { const row = e.target.closest("[data-fdpath]"); if (row) { fd.typed = false; fdLoad(row.dataset.fdpath); } });
+$("#fdPlaces").addEventListener("click", (e) => { const row = e.target.closest("[data-fdgo]"); if (row) { fd.typed = false; fdLoad(row.dataset.fdgo); } });
+$("#fdUp").onclick = () => { if (fd.parent) { fd.typed = false; fdLoad(fd.parent); } };
 $("#fdHidden").onchange = () => fdLoad(fd.path);
-$("#fdInput").addEventListener("keydown", (e) => { if (e.key === "Enter") fdLoad($("#fdInput").value.trim()); if (e.key === "Escape") fdClose(null); });
+$("#fdInput").addEventListener("input", () => { fd.typed = true; });
+$("#fdInput").addEventListener("keydown", (e) => { if (e.key === "Enter") { fd.typed = false; fdLoad($("#fdInput").value.trim(), true); } if (e.key === "Escape") fdClose(null); });
 $("#fdOpen").onclick = () => fdClose(fd.sel || fd.path);
 $("#fdCancel").onclick = () => fdClose(null);
 $("#fdClose").onclick = () => fdClose(null);
@@ -1061,8 +1074,8 @@ $("#folderDialog").addEventListener("mousedown", (e) => { if (e.target.id === "f
 $("#folderDialog").addEventListener("keydown", (e) => {
   if (e.target.id === "fdInput") return;
   if (e.key === "Escape") fdClose(null);
-  if (e.key === "Enter") fd.sel ? fdLoad(fd.sel) : fdClose(fd.path);
-  if (e.key === "Backspace" && fd.parent) fdLoad(fd.parent);
+  if (e.key === "Enter") { fd.typed = false; fd.sel ? fdLoad(fd.sel) : fdClose(fd.path); }
+  if (e.key === "Backspace" && fd.parent) { fd.typed = false; fdLoad(fd.parent); }
 });
 
 // ---------------------------------------------------------------- copy paths & context menu
@@ -1094,7 +1107,9 @@ function pathMenu(rel, isDir) {
     { label: "Copy relative path", icon: "copy", kbd: mod + "C", run: () => copyText(rel) },
     { label: "Copy absolute path", icon: "copy", run: () => copyText(absPath(rel)) },
     { label: "Copy @reference", icon: "link", run: () => copyText("@" + rel) },
-    ...(isDir ? ["-", { label: "Open as workspace folder", icon: "folderOpen", run: () => useFolder(absPath(rel)) }] : []),
+    "-",
+    { label: "Open in Terminal", icon: "terminal", run: () => newTerminal(absPath(isDir ? rel : dirOf(rel) || ".")) },
+    ...(isDir ? [{ label: "Open as workspace folder", icon: "folderOpen", run: () => useFolder(absPath(rel)) }] : []),
   ];
 }
 document.addEventListener("contextmenu", (e) => {
@@ -1105,59 +1120,193 @@ document.addEventListener("contextmenu", (e) => {
   showMenu(e.clientX, e.clientY, pathMenu(rel, !!el.dataset.dir));
 });
 
-// ---------------------------------------------------------------- terminal (xterm.js <-> /api/terminal)
-const termState = { term: null, fit: null, ws: null, cwd: null };
+// ---------------------------------------------------------------- terminals (xterm.js <-> /api/terminals, /api/terminal)
+// Terminals live on the server: they keep running (with scrollback) across page reloads and panel switches.
+const terms = { list: [], active: store("cp-term-active") || null, views: new Map(), loaded: false };
 const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const termToken = () => document.querySelector('meta[name="codepilot-token"]')?.content || "";
+const termApi = (path, opts = {}) => api(path, { ...opts, headers: { ...H, "X-Codepilot-Terminal": termToken() } });
+const termInfo = (id) => terms.list.find((t) => t.id === id);
+const termLabel = (t) => `${terms.list.indexOf(t) + 1}: ${t.name}`;
 function termTheme() {
   return { background: cssVar("--bg-2"), foreground: cssVar("--fg"), cursor: cssVar("--accent"), cursorAccent: cssVar("--bg-2"),
     selectionBackground: cssVar("--sel"), black: "#1d2027", red: cssVar("--err"), green: cssVar("--ok"), yellow: cssVar("--warn"),
     blue: cssVar("--accent"), magenta: cssVar("--syn-kw"), cyan: cssVar("--syn-attr"), white: cssVar("--fg-2"),
     brightBlack: cssVar("--faint"), brightWhite: cssVar("--fg") };
 }
-function openTerminal() {
-  const token = document.querySelector('meta[name="codepilot-token"]')?.content;
-  if (!token || !window.Terminal) { $("#termStatus").textContent = "Terminal is disabled (CODEPILOT_TERMINAL=0)."; return; }
-  if (!termState.term) {
-    termState.term = new Terminal({ fontFamily: cssVar("--mono"), fontSize: 12.5, lineHeight: 1.15, cursorBlink: true,
+function terminalsEnabled() {
+  if (termToken() && window.Terminal) return true;
+  $("#termEmpty").hidden = false;
+  $("#termEmptyText").textContent = "The terminal is disabled (CODEPILOT_TERMINAL=0).";
+  $("#termEmptyNew").hidden = true;
+  return false;
+}
+async function loadTerminals() {
+  if (!termToken()) return renderTermBar();
+  try { terms.list = (await termApi("/api/terminals")).terminals; } catch { terms.list = []; }
+  terms.loaded = true;
+  for (const id of [...terms.views.keys()]) if (!termInfo(id)) dropView(id);
+  if (!termInfo(terms.active)) terms.active = terms.list.at(-1)?.id || null;
+  renderTermBar();
+}
+// The Terminal panel was shown: show the active terminal, starting one if there are none.
+async function openTerminal() {
+  if (!terminalsEnabled()) return;
+  if (!terms.loaded) await loadTerminals();
+  if (!terms.list.length) return newTerminal();
+  activateTerminal(terms.active || terms.list[0].id);
+}
+async function newTerminal(cwd) {
+  if (!terminalsEnabled()) return showPanelTab("terminal");
+  let t;
+  try { t = await termApi("/api/terminals", { method: "POST", body: { cwd: cwd || null, sid: state.sid || null } }); }
+  catch (e) { return toast(e.message, true); }
+  terms.list.push(t);
+  terms.active = t.id;
+  if ($(".panel-body[data-ptab=terminal]").hidden || ide.classList.contains("no-panel")) showPanelTab("terminal");
+  activateTerminal(t.id);
+}
+function activateTerminal(id) {
+  if (!termInfo(id)) return;
+  terms.active = id; store("cp-term-active", id);
+  const v = termView(id);
+  for (const [vid, view] of terms.views) view.el.hidden = vid !== id;
+  renderTermBar();
+  requestAnimationFrame(() => { fitTerm(v); v.xterm.focus(); });
+}
+function termView(id) {
+  let v = terms.views.get(id);
+  if (!v) {
+    const el = document.createElement("div");
+    el.className = "term-pane"; el.dataset.term = id;
+    $("#termHost").appendChild(el);
+    const xterm = new Terminal({ fontFamily: cssVar("--mono"), fontSize: 12.5, lineHeight: 1.15, cursorBlink: true,
       theme: termTheme(), scrollback: 5000, allowProposedApi: false });
-    termState.fit = new FitAddon.FitAddon();
-    termState.term.loadAddon(termState.fit);
-    termState.term.open($("#termHost"));
-    termState.term.onData((data) => termState.ws?.readyState === 1 && termState.ws.send(JSON.stringify({ type: "input", data })));
-    new ResizeObserver(() => fitTerminal()).observe($("#termHost"));
+    const fit = new FitAddon.FitAddon();
+    xterm.loadAddon(fit);
+    xterm.open(el);
+    v = { id, el, xterm, fit, ws: null };
+    xterm.onData((data) => {
+      if (termInfo(id) && !termInfo(id).alive) return killTerminal(id); // "press any key to close"
+      if (v.ws?.readyState === 1) v.ws.send(JSON.stringify({ type: "input", data }));
+    });
+    terms.views.set(id, v);
   }
-  if (!termState.ws || termState.ws.readyState > 1) connectTerminal();
-  fitTerminal(); termState.term.focus();
+  if (termInfo(id)?.alive && (!v.ws || v.ws.readyState > 1)) connectTerm(v);
+  return v;
 }
-function fitTerminal() {
-  if (!termState.term || $("#termHost").offsetParent === null) return;
-  try { termState.fit.fit(); } catch { return; }
-  if (termState.ws?.readyState === 1) termState.ws.send(JSON.stringify({ type: "resize", cols: termState.term.cols, rows: termState.term.rows }));
-}
-function connectTerminal() {
-  const token = document.querySelector('meta[name="codepilot-token"]').content;
-  termState.ws?.close();
-  termState.cwd = tilde(state.workspace) || "~";
+function connectTerm(v) {
+  v.xterm.reset(); // the server replays the scrollback on every attach
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  const ws = new WebSocket(`${proto}://${location.host}/api/terminal?token=${encodeURIComponent(token)}&sid=${encodeURIComponent(state.sid || "")}`);
-  termState.ws = ws;
-  $("#termStatus").textContent = "Connecting…";
-  ws.onopen = () => { $("#termStatus").innerHTML = `Shell in <span class="mono">${esc(termState.cwd)}</span>`; fitTerminal(); };
-  ws.onmessage = (ev) => termState.term.write(ev.data);
+  const ws = new WebSocket(`${proto}://${location.host}/api/terminal?token=${encodeURIComponent(termToken())}&id=${encodeURIComponent(v.id)}`);
+  v.ws = ws;
+  ws.onopen = () => fitTerm(v);
+  ws.onmessage = (ev) => v.xterm.write(ev.data);
   ws.onclose = (ev) => {
-    if (termState.ws !== ws) return;
-    $("#termStatus").textContent = ev.code === 1008 ? "Refused: reload the page (the server restarted)." : "Shell closed. Click New terminal.";
+    if (v.ws !== ws) return;
+    const t = termInfo(v.id);
+    if (ev.code === 4000) termExited(v.id, ev.reason === "" ? null : Number(ev.reason));
+    else if (ev.code === 4004) { if (t) forgetTerminal(v.id); }
+    else if (t && ev.code === 1008) { t.status = "Refused: reload the page (the server restarted)."; renderTermBar(); }
+    else if (t) { t.status = "Disconnected. Click the terminal to reconnect."; renderTermBar(); }
   };
 }
-$("#termNew").onclick = () => { if (termState.term) { termState.term.reset(); } connectTerminal(); termState.term?.focus(); };
+function fitTerm(v) {
+  if (!v || v.el.offsetParent === null) return;
+  try { v.fit.fit(); } catch { return; }
+  if (v.ws?.readyState === 1) v.ws.send(JSON.stringify({ type: "resize", cols: v.xterm.cols, rows: v.xterm.rows }));
+}
+function termExited(id, code) {
+  const t = termInfo(id); if (!t) return;
+  t.alive = false; t.exit_code = code;
+  // Like VS Code: a clean `exit` closes the terminal; a failure stays open so you can read why.
+  if (code === 0) return killTerminal(id);
+  terms.views.get(id)?.xterm.write("\r\n\x1b[2mPress any key to close this terminal, or click Restart.\x1b[0m\r\n");
+  renderTermBar();
+}
+function dropView(id) {
+  const v = terms.views.get(id); if (!v) return;
+  v.ws?.close(); v.ws = null; v.xterm.dispose(); v.el.remove(); terms.views.delete(id);
+}
+function forgetTerminal(id) {
+  const i = terms.list.findIndex((t) => t.id === id);
+  if (i < 0) return;
+  terms.list.splice(i, 1); dropView(id);
+  if (terms.active === id) {
+    const next = terms.list[Math.min(i, terms.list.length - 1)];
+    terms.active = next?.id || null;
+    if (next) activateTerminal(next.id);
+  }
+  renderTermBar();
+}
+async function killTerminal(id) {
+  if (!id) return;
+  await termApi(`/api/terminals/${id}`, { method: "DELETE" }).catch(() => null);
+  forgetTerminal(id);
+}
+async function killAllTerminals() { for (const t of [...terms.list]) await killTerminal(t.id); }
+async function renameTerminal(id) {
+  const t = termInfo(id); if (!t) return;
+  const name = await promptDialog("Rename terminal", t.name, "Shown in the terminal list.");
+  if (!name) return;
+  try { Object.assign(t, await termApi(`/api/terminals/${id}`, { method: "PATCH", body: { name } })); } catch (e) { toast(e.message, true); }
+  renderTermBar();
+}
+async function restartTerminal(id) {
+  const t = termInfo(id); if (!t) return;
+  const cwd = t.cwd;
+  await killTerminal(id);
+  newTerminal(cwd);
+}
+function renderTermBar() {
+  const sel = $("#termSelect"), t = termInfo(terms.active);
+  sel.innerHTML = terms.list.map((x) => `<option value="${esc(x.id)}" ${x.id === terms.active ? "selected" : ""}>${esc(termLabel(x))}${x.alive ? "" : " (exited)"}</option>`).join("");
+  sel.disabled = !terms.list.length;
+  for (const b of ["#termRename", "#termKill", "#termSendSel"]) $(b).disabled = !t;
+  $("#termCount").textContent = terms.list.length; $("#termCount").hidden = terms.list.length < 2;
+  $("#termCwd").textContent = t ? tilde(t.cwd) : "";
+  $("#termCwd").title = t ? t.cwd : "";
+  const exited = t && !t.alive;
+  $("#termStatus").textContent = exited ? `Exited with code ${t.exit_code ?? "?"}` : t?.status || "";
+  $("#termStatus").className = exited ? "term-status err" : "term-status muted";
+  $("#termRestart").hidden = !exited;
+  $("#termEmpty").hidden = terms.list.length > 0;
+  if (!terms.list.length && termToken()) { $("#termEmptyText").textContent = "No terminals are open."; $("#termEmptyNew").hidden = false; }
+}
+function terminalMenuItems() {
+  const t = termInfo(terms.active);
+  return [
+    { label: "New Terminal", icon: "plus", run: () => newTerminal() },
+    { label: "New Terminal in Folder…", icon: "folderOpen", run: async () => { const p = await browseFolder(state.workspace || state.cfg?.home); if (p) newTerminal(p); } },
+    { label: "New Terminal in Home Folder", icon: "home", run: () => newTerminal(state.cfg?.home) },
+    ...(terms.list.length ? ["-", ...terms.list.map((x) => ({ label: `${termLabel(x)}${x.alive ? "" : " (exited)"}  ·  ${tilde(x.cwd) === "~" ? "~" : base(x.cwd)}`, icon: x.id === terms.active ? "check" : "terminal",
+      run: () => { showPanelTab("terminal"); activateTerminal(x.id); } }))] : []),
+    ...(t ? ["-", { label: "Rename Terminal…", icon: "edit", run: () => renameTerminal(t.id) },
+      { label: "Kill Terminal", icon: "trash", run: () => killTerminal(t.id) }] : []),
+    ...(terms.list.length > 1 ? [{ label: "Kill All Terminals", icon: "trash", run: killAllTerminals }] : []),
+  ];
+}
+function menuBelow(btn, items) { const r = btn.getBoundingClientRect(); showMenu(r.left, r.bottom + 4, items); }
+$("#terminalMenuBtn").onclick = (e) => menuBelow(e.currentTarget, terminalMenuItems());
+$("#termMore").onclick = (e) => menuBelow(e.currentTarget, terminalMenuItems());
+$("#termNew").onclick = () => newTerminal();
+$("#termEmptyNew").onclick = () => newTerminal();
+$("#termSelect").onchange = (e) => activateTerminal(e.target.value);
+$("#termRename").onclick = () => renameTerminal(terms.active);
+$("#termKill").onclick = () => killTerminal(terms.active);
+$("#termRestart").onclick = () => restartTerminal(terms.active);
+$("#termSelect").ondblclick = () => renameTerminal(terms.active);
+$("#termHost").addEventListener("mousedown", () => { const v = terms.views.get(terms.active); if (v && termInfo(v.id)?.alive && (!v.ws || v.ws.readyState > 1)) { termInfo(v.id).status = ""; connectTerm(v); renderTermBar(); } });
+new ResizeObserver(() => fitTerm(terms.views.get(terms.active))).observe($("#termHost"));
 $("#termSendSel").onclick = () => {
-  const sel = termState.term?.getSelection();
+  const sel = terms.views.get(terms.active)?.xterm.getSelection();
   if (!sel) return toast("Select some terminal text first.", true);
   setInput(`${input.value ? input.value + "\n\n" : ""}Terminal output:\n\`\`\`\n${sel.trimEnd()}\n\`\`\``);
 };
 function onWorkspaceChangedForTerminal() {
-  if (termState.ws?.readyState === 1 && termState.cwd !== (tilde(state.workspace) || "~"))
-    termState.term.write(`\r\n\x1b[2m[codepilot] workspace is now ${tilde(state.workspace) || "~"}; click New terminal for a shell there]\x1b[0m\r\n`);
+  const v = terms.views.get(terms.active), t = termInfo(terms.active);
+  if (v && t?.alive && t.cwd !== state.workspace && state.workspace)
+    v.xterm.write(`\r\n\x1b[2m[codepilot] workspace is now ${tilde(state.workspace)}; use + for a terminal there]\x1b[0m\r\n`);
 }
 
 // ---------------------------------------------------------------- palette & dialog & toast

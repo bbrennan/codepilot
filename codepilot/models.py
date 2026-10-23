@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
@@ -20,6 +21,7 @@ from typing import Callable
 from .config import TIERS, Config
 
 CACHE_TTL = 12 * 3600
+_discover_lock = threading.Lock()  # one probe run at a time; concurrent callers then read its cache
 
 # Claude models served by the Bedrock Messages API (bedrock-mantle), newest first within each family.
 BEDROCK_MESSAGES_CATALOG = [
@@ -98,16 +100,29 @@ def bedrock_candidates(cfg: Config) -> list[str]:
 
         resp = make_client(cfg, "bedrock").list_inference_profiles(maxResults=200)
         ids += sorted(p["inferenceProfileId"] for p in resp.get("inferenceProfileSummaries", [])
-                      if "anthropic.claude" in p["inferenceProfileId"])
+                      if _worth_probing(p["inferenceProfileId"], cfg.region))
     except Exception:  # noqa: BLE001 - listing is optional; the Messages catalog still gets probed
         pass
     ids += [m for m in cfg.models.values() if m and m not in ids]
     return ids
 
 
+def _worth_probing(profile_id: str, region: str) -> bool:
+    """Claude 4+ inference profiles for this region's geography (or global); skips other geos and legacy models."""
+    geo = {"us": "us", "eu": "eu", "ap": "apac", "ca": "us", "sa": "us"}.get(region.split("-")[0], "")
+    prefix = profile_id.split(".", 1)[0]
+    return "anthropic.claude" in profile_id and prefix in (geo, "global") and _version(profile_id)[0] >= 4
+
+
 def discover(cfg: Config, refresh: bool = False, probe: Callable[[Config, str], tuple[bool, str]] | None = None,
              lister: Callable[[Config], list[str]] | None = None) -> dict:
     """Available models for the configured provider (cached)."""
+    with _discover_lock:
+        return _discover(cfg, refresh, probe, lister)
+
+
+def _discover(cfg: Config, refresh: bool, probe: Callable[[Config, str], tuple[bool, str]] | None,
+              lister: Callable[[Config], list[str]] | None) -> dict:
     cache = cfg.home / "models.json"
     key = f"{cfg.provider}|{cfg.region}|{cfg.profile}|{cfg.anthropic_base_url}|{cfg.openai_base_url}|{cfg.ollama_url}"
     if not refresh and cache.exists():

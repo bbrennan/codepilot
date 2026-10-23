@@ -2,7 +2,7 @@ import json
 from dataclasses import replace
 
 import pytest
-from conftest import FakeLLM, tool_use
+from fakes import FakeLLM, tool_use
 from starlette.testclient import TestClient
 
 from codepilot.agent import Agent

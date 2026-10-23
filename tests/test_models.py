@@ -1,7 +1,7 @@
 from dataclasses import replace
 
 from botocore.exceptions import ClientError
-from conftest import FakeLLM
+from fakes import FakeLLM
 from starlette.testclient import TestClient
 
 from codepilot import models

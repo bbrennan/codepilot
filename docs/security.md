@@ -45,13 +45,14 @@ never stored by codepilot; they stay in your `.env` (git-ignored) or environment
 <a id="the-terminal"></a>
 ## The terminal
 
-The Terminal panel is a real login shell running as you. Its WebSocket endpoint accepts a connection only
-when all of these hold:
+Each terminal is a real login shell running as you. Shells run in the codepilot server and keep running
+while no page is attached, until you kill them, they exit, or codepilot stops (which ends them all). The
+terminal endpoints (the WebSocket and `/api/terminals`) accept a request only when all of these hold:
 
 - it comes to the localhost-bound server with a localhost `Host` header
 - the browser's `Origin` is this server, so other websites can't open it
 - it presents a random token generated each time codepilot starts and embedded in the page (`no-store`,
-  never written to disk)
+  never written to disk); the REST endpoints also need the CSRF header every write needs
 
 So only the codepilot page you opened can attach a shell. As with any terminal, other software running as
 your user is trusted. Set `CODEPILOT_TERMINAL=0` to turn the terminal off; the page then contains no token

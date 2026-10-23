@@ -1,6 +1,6 @@
 from codepilot import mentions
 from codepilot.agent import Agent, history_events
-from conftest import FakeLLM
+from fakes import FakeLLM
 
 
 def test_attachment_block_files_ranges_and_dirs(repo):

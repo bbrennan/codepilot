@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import shutil
 import sys
 import threading
@@ -23,6 +24,17 @@ def main(argv: list[str] | None = None) -> int:
     p_serve.add_argument("--host")
     p_serve.add_argument("--port", type=int)
     p_serve.add_argument("--no-browser", action="store_true")
+
+    p_start = sub.add_parser("start", help="Run the web UI in the background and open it (no terminal needed)")
+    p_start.add_argument("--port", type=int)
+    p_start.add_argument("--no-browser", action="store_true")
+    p_start.add_argument("--browser-tab", action="store_true", help="Open a normal browser tab, not an app window")
+    sub.add_parser("stop", help="Stop the background server")
+    sub.add_parser("status", help="Is the background server running?")
+    p_logs = sub.add_parser("logs", help="Show the background server's log")
+    p_logs.add_argument("-n", "--lines", type=int, default=60)
+    p_logs.add_argument("-f", "--follow", action="store_true")
+    sub.add_parser("app", help="Install ~/Applications/Codepilot.app, a double-click launcher (macOS)")
 
     p_doc = sub.add_parser("doctor", help="Check AWS/Bedrock (or Ollama), models, and the target repo")
     p_doc.add_argument("--repo", help="Target repo (default: CODEPILOT_REPO)")
@@ -67,6 +79,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     env_path = load_env_file(args.env_file)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    if not os.environ.get("CODEPILOT_VERBOSE"):
+        # Per-request lines ("HTTP Request: POST ...", "Loading cached SSO token") on every model call are noise.
+        for name in ("httpx", "httpcore", "botocore", "boto3", "urllib3", "anthropic", "openai"):
+            logging.getLogger(name).setLevel(logging.WARNING)
     try:
         cfg = Config.from_env()
     except ValueError as exc:
@@ -74,6 +90,16 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.command == "serve":
         return serve(cfg, args, env_path)
+    if args.command in ("start", "stop", "status", "logs", "app"):
+        from . import service
+
+        if args.command == "start":
+            return service.start(cfg, env_path, args.port, not args.no_browser, not args.browser_tab)
+        if args.command == "logs":
+            return service.logs(cfg, args.lines, args.follow)
+        if args.command == "app":
+            return service.install_app(cfg, env_path)
+        return getattr(service, args.command)(cfg)
     if args.command == "doctor":
         return doctor(cfg, args, env_path)
     if args.command == "bench":

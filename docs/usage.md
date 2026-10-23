@@ -217,15 +217,27 @@ kind of work, use the [benchmark](benchmark.md).
 
 ## The terminal
 
-**Terminal** in the bottom panel (or **Ctrl+`**) opens your login shell in the session's folder, with your
-usual prompt, PATH, aliases and credentials. It's a full terminal: interactive programs, colours,
-`git`, `vim`, `aws sso login` and so on.
+Real terminals, like VS Code's: your login shell with your usual prompt, PATH, aliases and credentials.
+Interactive programs, colours, `git`, `vim`, `aws sso login` and so on all work. Open as many as you
+like (up to 12 running at once).
 
+- **Open one:** the **Terminal** menu in the title bar → **New Terminal** (in the session's folder),
+  **New Terminal in Folder…** or **New Terminal in Home Folder**. Or click the **Terminal** tab in the
+  bottom panel, or right-click a folder or file in the Explorer → **Open in Terminal**.
+- **Switch:** the dropdown at the top of the Terminal panel (`1: zsh`, `2: dev server`, …), or pick one
+  from the title-bar menu. The tab shows how many are open.
+- **Toolbar:** **+** new terminal, ✎ rename (or double-click the dropdown), 🗑 kill, and a menu with
+  everything else, including **Kill All Terminals**.
+- **They keep running.** Terminals live in the codepilot server, not the page: reload the browser, switch
+  panels or sessions, and each one is still there with its scrollback and state (a dev server keeps
+  serving, `export`ed variables stay set). They end when you kill them, when the shell exits, or when
+  codepilot stops.
+- **Exiting:** `exit` closes the terminal. If the shell exits with an error code, the terminal stays open
+  so you can read why; press any key to close it, or **Restart** for a new shell in the same folder.
 - **Selection → chat:** select output (a stack trace, a failing test) and paste it into the chat as a code
   block.
-- **New terminal:** closes the shell and starts a fresh one in the current workspace. When you switch
-  folders, the existing shell stays where it was until you click this.
-- The shell runs as you, so anything you type runs with your permissions. The assistant can't type into it;
+- When you switch folders, existing terminals stay where they are; **+** opens one in the new folder.
+- Shells run as you, so anything you type runs with your permissions. The assistant can't type into it;
   its commands go through `run_command` with your approval. Turn the terminal off with
   `CODEPILOT_TERMINAL=0` (see [security.md](security.md#the-terminal)).
 
@@ -244,7 +256,7 @@ and Ctrl-D to quit. `--session <id>` resumes a session.
 
 | Keys (⌘ = Ctrl on Linux) | Action |
 |---|---|
-| Ctrl+` | Toggle the terminal |
+| Ctrl+` | Toggle the terminal panel (the title-bar **Terminal** menu does everything without shortcuts) |
 | ⌘P | Go to file |
 | ⌘B | Toggle sidebar |
 | ⌘J | Toggle bottom panel |

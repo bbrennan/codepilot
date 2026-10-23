@@ -74,7 +74,7 @@ assistant's replies in them are scripted so the demo is reproducible.</sub>
 <td width="50%"><img alt="Diff review with Undo" src="docs/assets/changes.webp"><br><b>Review every change.</b> Proposed edits are diffs you Apply or Reject; applied ones can be undone. Git status sits alongside.</td>
 </tr>
 <tr>
-<td width="50%"><img alt="Integrated terminal showing a diff and a passing eval" src="docs/assets/terminal.webp"><br><b>Integrated terminal.</b> A real shell in your workspace (Ctrl+`). Send any output to the chat in one click.</td>
+<td width="50%"><img alt="Integrated terminal showing a diff and a passing eval" src="docs/assets/terminal.webp"><br><b>Integrated terminals.</b> As many real shells as you need, from the Terminal menu. They survive page reloads. Send any output to the chat in one click.</td>
 <td width="50%"><img alt="Slash menu listing skills" src="docs/assets/skills.webp"><br><b>Skills and modes.</b> <code>/diagnose-bug</code>, <code>/code-review</code>, <code>/tdd</code> and more, plus Ask, Plan, Build, Debug, Bug-hunt and Review modes.</td>
 </tr>
 <tr>
@@ -158,6 +158,9 @@ make doctor     # checks credentials, models, GitHub and tools, and tells you ho
 make serve      # opens http://127.0.0.1:8765
 ```
 
+No terminal to keep open: `make start` runs it in the background, and on macOS `make app` installs a
+**Codepilot.app** you can keep in the Dock ([details](docs/setup.md#run-without-a-terminal)).
+
 Click **Open folder…** (or say "review ~/code/my-service" in chat) and go. See
 **[docs/usage.md](docs/usage.md)**.
 
@@ -182,9 +185,12 @@ Click **Open folder…** (or say "review ~/code/my-service" in chat) and go. See
 | `make install` | Install or update dependencies (`uv sync --all-extras`) |
 | `make doctor` | Check your setup |
 | `uv run codepilot models --refresh` | List the models your account can use |
-| `make serve` | Start the UI |
+| `make serve` | Start the UI in this terminal |
+| `make start` / `make stop` | Run it in the background, opened in its own window / stop it |
+| `make app` | macOS: install Codepilot.app (double-click to start) |
 | `make chat` | Terminal chat instead of the browser |
 | `make test` | codepilot's own tests (no cloud access needed) |
+| `make e2e` | Browser tests that drive the real UI (`make e2e-setup` once first) |
 | `make bench` / `make bench-validate` | Run or validate the benchmark |
 | `make ollama` / `make demo` | Local model setup and demo |
 

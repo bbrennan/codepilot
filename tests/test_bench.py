@@ -3,7 +3,7 @@ import json
 import pytest
 
 from codepilot import bench
-from conftest import FakeLLM, tool_use
+from fakes import FakeLLM, tool_use
 
 
 def test_tasks_load():

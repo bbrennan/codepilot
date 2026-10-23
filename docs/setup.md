@@ -302,12 +302,40 @@ the common failures.
 
 ## 7. Start it
 
+Pick whichever suits you:
+
 ```bash
-make serve           # opens http://127.0.0.1:8765
+make serve           # in this terminal (logs here; Ctrl+C stops it), opens http://127.0.0.1:8765
+make start           # in the background: no terminal to keep open (stop with: make stop)
+make app             # macOS: installs ~/Applications/Codepilot.app, then just double-click it
 ```
 
 Then click **Open folder…**, or just tell it in chat: "review ~/code/my-service". The
 [usage guide](usage.md) covers everything from there.
+
+<a id="run-without-a-terminal"></a>
+### Running without a terminal
+
+`codepilot start` (or `make start`) runs the server in the background and opens it. If Chrome, Edge,
+Brave, Chromium or Arc is installed, it opens in its own window, without tabs or an address bar, like a
+desktop app. Otherwise it uses your default browser; `--browser-tab` forces a normal tab. Running it
+again while the server is up just opens the window.
+
+| Command | What it does |
+|---|---|
+| `codepilot start` | Start in the background (if needed) and open the UI |
+| `codepilot status` | Is it running, where, since when |
+| `codepilot logs [-f]` | The server log (`~/.codepilot/server.log`) |
+| `codepilot stop` | Stop it (its terminals end too) |
+| `codepilot app` | macOS: install **Codepilot.app** in `~/Applications` |
+
+**Codepilot.app** is a small launcher for `codepilot start`. Open it from Finder, Spotlight or Launchpad,
+or drag it to the Dock. Apps started from Finder don't inherit your shell setup, so the launcher loads your
+login shell's environment first, as VS Code does. Your PATH (Homebrew, nvm, pyenv), `AWS_PROFILE` and
+similar settings therefore work as they do in a terminal. Settings in `.env` work either way. Re-run
+`codepilot app` if you move the checkout or recreate its virtualenv.
+
+To start codepilot when you log in, add **Codepilot.app** to System Settings → General → Login Items.
 
 ## 8. Updating
 
@@ -315,6 +343,8 @@ Then click **Open folder…**, or just tell it in chat: "review ~/code/my-servic
 git pull
 make install
 make test            # optional: codepilot's own tests, no cloud access needed
+make stop && make start   # if it runs in the background: restart on the new code
+make app             # macOS, if you use Codepilot.app: refresh the launcher
 ```
 
 Your sessions, notes and settings live outside the repo (`~/.codepilot`, `.env`) and survive updates.
