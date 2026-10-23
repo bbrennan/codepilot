@@ -240,7 +240,9 @@ async function openSession(sid) {
   if (!data.events.length) renderChatEmpty();
   for (const ev of data.events) render(ev, true);
   for (const p of data.proposals) if (p.status === "pending") renderProposalCard(p);
+  state.approval = null; state.allow = data.allow || [];
   if (data.pending) render({ type: "approval_needed", tools: data.pending }, true);
+  renderReviewBar();
   renderPlan(null); for (const ev of data.events) if (ev.type === "plan") renderPlan(ev.items);
   updateBusy();
   setContext(data.context); renderUsage(data.usage); state.summary = data.summary;
@@ -371,6 +373,7 @@ function renderEditor() {
   else if (tab.kind === "trace") renderTraceTab(tab);
   else if (tab.kind === "diff") renderDiffTab(tab);
   else if (tab.kind === "gitdiff") renderGitDiffTab(tab);
+  else if (tab.kind === "review") renderReviewTab(tab);
   $$("#tree .row[data-file]").forEach((r) => r.classList.toggle("on", "file:" + r.dataset.file === state.active));
 }
 function welcomeHtml() {
@@ -561,10 +564,7 @@ function diffHtml(diff) {
     const c = l.startsWith("+++") || l.startsWith("---") || l.startsWith("@@") || l.startsWith("diff ") ? "h" : l.startsWith("+") ? "a" : l.startsWith("-") ? "d" : "";
     return `<div class="${c}">${esc(l) || " "}</div>`; }).join("")}</div>`;
 }
-function openProposal(id) {
-  const p = state.proposals.get(+id); if (!p) return;
-  openTab({ id: "diff:" + p.id, kind: "diff", icon: "diff", title: `#${p.id} ${base(p.path)}`, tip: p.path, pid: p.id });
-}
+function openProposal(id) { openReview(+id); }
 function renderDiffTab(tab) {
   const p = state.proposals.get(tab.pid);
   if (!p) { $("#editor").innerHTML = `<div class="empty-state">Proposal not found.</div>`; return; }
@@ -574,6 +574,104 @@ function renderDiffTab(tab) {
     <div class="ed-scroll">${diffHtml(p.diff)}</div>`;
   $("#dOpen").onclick = () => openFile(p.path);
 }
+// ---------------------------------------------------------------- review: the bar above the composer and the Review tab
+function renderReviewBar() {
+  const bar = $("#reviewBar"); if (!bar) return;
+  const pend = [...state.proposals.values()].filter((p) => p.status === "pending");
+  const ap = state.approval;
+  const mod = isMac ? "⌘" : "Ctrl+";
+  let html = "";
+  if (ap) {
+    const rule = ap.tools.length === 1 ? ap.tools[0].allow : null;
+    html += `<div class="rb-row rb-approval">${icon("alert")}<div class="rb-main"><b>Run ${ap.tools.length > 1 ? "these" : "this"}?</b>${ap.tools.map((t) => `<code class="rb-cmd">${esc(t.command)}</code>`).join("")}
+      ${rule ? `<label class="toggle rb-allow" title="Run commands starting with this without asking, for the rest of this session. Commands that chain or redirect (;, &&, |, >) always ask."><input type="checkbox" id="rbAllow"><span>always allow <code>${esc(rule.prefix)}</code> in this session</span></label>` : ""}</div>
+      <div class="rb-acts"><button class="btn primary" id="rbApprove" title="${mod}Enter">${icon("check")}Run <kbd>${mod}⏎</kbd></button><button class="btn" id="rbDeny">Deny</button></div></div>`;
+  }
+  if (pend.length) {
+    const tot = pend.reduce((acc, p) => { const st = diffStat(p.diff); acc.a += st.a; acc.d += st.d; return acc; }, { a: 0, d: 0 });
+    const files = [...new Set(pend.map((p) => base(p.path)))];
+    html += `<div class="rb-row rb-changes">${icon("diff")}<div class="rb-main"><b>${pend.length} change${pend.length > 1 ? "s" : ""} to review</b> <span class="dstat"><span class="a">+${tot.a}</span> <span class="d">−${tot.d}</span></span><span class="rb-files muted">${esc(files.slice(0, 4).join(", "))}${files.length > 4 ? ` +${files.length - 4} more` : ""}</span></div>
+      <div class="rb-acts"><button class="btn" id="rbReview">Review</button><button class="btn primary" id="rbApplyAll">Apply all</button><button class="btn ghost" id="rbRejectAll">Reject all</button></div></div>`;
+  }
+  bar.innerHTML = html; bar.hidden = !html;
+  if (ap) { $("#rbApprove").onclick = () => decideApproval(true); $("#rbDeny").onclick = () => decideApproval(false); }
+  if (pend.length) {
+    $("#rbReview").onclick = () => openReview(pend[0].id);
+    $("#rbApplyAll").onclick = () => bulkProposals("apply");
+    $("#rbRejectAll").onclick = () => bulkProposals("reject");
+  }
+}
+function decideApproval(approve) {
+  if (!state.approval || !state.sid) return;
+  const remember = approve && !!$("#rbAllow")?.checked;
+  const tools = state.approval.tools;
+  state.approval = null; renderReviewBar();
+  const row = $("#transcript .wait-row.waiting");
+  if (row) { row.classList.remove("waiting"); row.classList.add(approve ? "approved" : "denied"); row.innerHTML = `${icon(approve ? "check" : "x")}<span>${approve ? "Approved" : "Denied"}: ${tools.map((t) => `<code>${esc(t.command)}</code>`).join(", ")}${remember ? ` · always allowed <code>${esc(tools[0].allow.prefix)}</code> this session` : ""}</span>`; }
+  streamTo(state.sid, `/api/sessions/${state.sid}/approve`, { approve, remember });
+}
+async function proposalAction(p, action) {
+  try {
+    const r = await api(`/api/proposals/${p.id}/${action}`, { method: "POST" }); state.proposals.set(r.id, r);
+    if (action === "apply" && r.checks) activity("error", "checks", r.path, r.checks);
+    return true;
+  } catch (err) { toast(`#${p.id} ${p.path}: ${err.message}`, true); if (action === "apply") p.status = "failed"; return false; }
+}
+async function bulkProposals(action) {
+  const pend = [...state.proposals.values()].filter((p) => p.status === "pending");
+  let ok = 0;
+  for (const p of pend) { if (await proposalAction(p, action)) ok++; refreshProposalViews(p.id); }
+  toast(`${action === "apply" ? "Applied" : "Rejected"} ${ok} of ${pend.length} change${pend.length > 1 ? "s" : ""}`);
+  loadGit(); reloadOpenFiles(pend);
+}
+function reloadOpenFiles(props) {
+  for (const p of props) { const tab = state.tabs.find((t) => t.id === "file:" + p.path); if (tab && !tab.dirty) { tab.content = null; if (state.active === tab.id) openFile(tab.path); } }
+}
+function openReview(pid) {
+  const existing = state.tabs.find((t) => t.id === "review");
+  if (existing) { if (pid) existing.sel = pid; state.active = "review"; renderEditor(); return; }
+  openTab({ id: "review", kind: "review", icon: "diff", title: "Review changes", sel: pid || null });
+}
+function reviewList() {
+  const all = [...state.proposals.values()];
+  return [...all.filter((p) => p.status === "pending"), ...all.filter((p) => p.status !== "pending").reverse()];
+}
+function renderReviewTab(tab) {
+  const list = reviewList();
+  if (!list.length) { $("#editor").innerHTML = `<div class="empty-state">No changes in this session yet. Changes codepilot proposes appear here for review.</div>`; return; }
+  if (!list.some((p) => p.id === tab.sel)) tab.sel = list[0].id;
+  const p = state.proposals.get(tab.sel);
+  const pendN = list.filter((x) => x.status === "pending").length;
+  $("#editor").innerHTML = `<div class="review">
+    <div class="rv-list"><div class="rv-head">${pendN ? `${pendN} waiting` : "All reviewed"}<span class="spacer"></span>${pendN ? `<button class="btn sm primary" id="rvApplyAll">Apply all</button>` : ""}</div>
+      ${list.map((x) => `<div class="rv-item ${x.id === p.id ? "on" : ""}" data-rv="${x.id}">${fileIcon(x.path)}<div class="rv-name"><span>${esc(base(x.path))}</span><span class="muted">${esc(dirOf(x.path))}</span></div>${diffStat(x.diff).html}<span class="status ${x.status}">${x.status}</span></div>`).join("")}
+      <div class="hint rv-keys"><kbd>j</kbd>/<kbd>k</kbd> move · <kbd>a</kbd> apply · <kbd>r</kbd> reject</div></div>
+    <div class="rv-main"><div class="ed-bar"><span class="crumbs"><b>${esc(p.path)}</b> <span class="muted">#${p.id}</span></span><span class="status ${p.status}">${p.status}</span><span class="muted rv-reason">${esc(p.reason || "")}</span><span class="spacer"></span>${propActions(p)}<button class="btn ghost" id="rvOpen">${icon("file")}Open file</button></div>
+      <div class="ed-scroll">${diffHtml(p.diff)}</div>
+      <div class="rv-ask"><textarea class="field" id="rvAsk" rows="2" placeholder="Ask for a change to this, e.g. &quot;keep the old name as an alias&quot;"></textarea><button class="btn" id="rvAskBtn">${icon("send")}Send</button></div></div></div>`;
+  $(".rv-list").onclick = (e) => { const it = e.target.closest("[data-rv]"); if (it) { tab.sel = +it.dataset.rv; renderReviewTab(tab); } };
+  $("#rvOpen").onclick = () => openFile(p.path);
+  $("#rvApplyAll") && ($("#rvApplyAll").onclick = () => bulkProposals("apply"));
+  const ask = () => { const t = $("#rvAsk").value.trim(); if (!t) return; setInput(`About change #${p.id} to ${p.path}: ${t}`); send(); };
+  $("#rvAskBtn").onclick = ask;
+  $("#rvAsk").onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(); } };
+}
+function reviewKeys(e) {
+  const tab = state.tabs.find((t) => t.id === "review");
+  if (!tab || state.active !== "review" || e.target.closest("input,textarea,select") || e.metaKey || e.ctrlKey || e.altKey) return false;
+  const list = reviewList(), i = list.findIndex((p) => p.id === tab.sel), p = list[i];
+  if (e.key === "j" || e.key === "ArrowDown") { tab.sel = list[Math.min(i + 1, list.length - 1)]?.id; renderReviewTab(tab); return true; }
+  if (e.key === "k" || e.key === "ArrowUp") { tab.sel = list[Math.max(i - 1, 0)]?.id; renderReviewTab(tab); return true; }
+  if ((e.key === "a" || e.key === "r") && p?.status === "pending") {
+    proposalAction(p, e.key === "a" ? "apply" : "reject").then(() => {
+      refreshProposalViews(p.id); loadGit(); reloadOpenFiles([p]);
+      const next = reviewList().find((x) => x.status === "pending"); if (next) { tab.sel = next.id; renderReviewTab(tab); }
+    });
+    return true;
+  }
+  return false;
+}
+
 async function openGitDiff() {
   const g = await api(`/api/sessions/${state.sid}/git`).catch(() => null);
   if (!g || !g.git) return toast("Not a git repository.", true);
@@ -650,7 +748,7 @@ $("#gitList").addEventListener("click", (e) => { const r = e.target.closest("[da
 $("#refreshGitBtn").onclick = loadGit;
 document.addEventListener("click", async (e) => {
   const ap = e.target.closest("[data-apply],[data-reject],[data-revert]"); if (!ap) return;
-  e.stopPropagation();
+  e.stopPropagation(); e.preventDefault(); // inside a collapsed row's <summary>: act, don't expand
   const id = ap.dataset.apply || ap.dataset.reject || ap.dataset.revert;
   const action = ap.dataset.apply ? "apply" : ap.dataset.reject ? "reject" : "revert";
   try {
@@ -663,6 +761,8 @@ document.addEventListener("click", async (e) => {
   const tab = state.tabs.find((t) => t.id === "file:" + p?.path); if (tab) { tab.content = null; if (state.active === tab.id) openFile(tab.path); }
 });
 function refreshProposalViews(id) {
+  renderReviewBar();
+  if (state.tabs.some((t) => t.id === "review") && state.active === "review") renderEditor();
   const p = state.proposals.get(id); if (!p) return;
   $$(`[data-prop="${id}"]`).forEach((card) => { const s = $(".status", card); s.className = "status " + p.status; s.textContent = p.status; const a = $(".pacts", card); if (a) a.innerHTML = propActions(p); });
   renderProposalList(); if (state.active === "diff:" + id) renderEditor();
@@ -684,6 +784,8 @@ function renderMemory() {
     <div class="group-head" style="padding-left:2px">Workspace notes</div>
     <textarea class="field mono" id="notesBox" rows="7" style="font-size:12px;resize:vertical" placeholder="${state.workspace ? "Facts codepilot should always know about this folder…" : "Open a folder to keep notes for it."}" ${state.workspace ? "" : "disabled"}></textarea>
     <div style="display:flex;gap:6px;align-items:center;margin-top:6px"><button class="btn" id="saveNotes" ${state.workspace ? "" : "disabled"}>Save notes</button><span class="hint" id="notesPath" style="margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span></div>
+    <div class="group-head" style="padding-left:2px">Always allowed in this session</div>
+    <div class="hint" id="allowList">${(state.allow || []).length ? state.allow.map((r, i) => `<span class="allow-chip"><code>${esc(r.tool === "github" ? "gh " + r.prefix : r.prefix)}</code><button class="icon-btn sm" data-unallow="${i}" title="Ask again for these">${icon("x")}</button></span>`).join(" ") : "Nothing. Tick “always allow” when approving a command to skip asking for it in this session."}</div>
     <div class="group-head" style="padding-left:2px">Token usage</div><div id="usageTable" class="hint">—</div>
     <div class="group-head" style="padding-left:2px">Analysers (run_checks)</div>
     <div class="hint">${(w?.checks || []).length ? w.checks.map((c) => `<span class="mono">${esc(c.name)}</span> <span class="muted">${esc(c.kind)}</span>`).join(" · ") : "None detected. Install ruff / mypy / pyright, eslint / tsc, gitleaks, semgrep… and codepilot uses them automatically."}</div>
@@ -696,6 +798,12 @@ function renderMemory() {
     <div class="hint">${w?.instructions ? `<pre class="mono" style="white-space:pre-wrap;margin:0;font-size:11.5px">${esc(w.instructions)}</pre>` : "None yet."} <a href="#" id="memSteering">Manage in the Steering view</a></div>`;
   $("#memSteering") && ($("#memSteering").onclick = (e) => { e.preventDefault(); setView("steering"); });
   renderUsage(state.usage);
+  $("#allowList").onclick = async (e) => {
+    const b = e.target.closest("[data-unallow]"); if (!b || !state.sid) return;
+    const keep = state.allow.filter((_, i) => i !== +b.dataset.unallow);
+    const d = await api(`/api/sessions/${state.sid}`, { method: "PATCH", body: { allow: keep } }).catch((err) => toast(err.message, true));
+    if (d) { state.allow = d.allow || []; renderMemory(); }
+  };
   $("#compactBtn") && ($("#compactBtn").onclick = compactNow);
   $("#handoffBtn") && ($("#handoffBtn").onclick = handoff);
   if (state.workspace && state.sid) {
@@ -902,13 +1010,12 @@ function render(ev, replay) {
       subs.insertAdjacentHTML("beforeend", `<div>↳ ${esc(ev.name)} ${esc(ev.detail)}</div>`); subs.scrollTop = subs.scrollHeight;
       if (!replay) activity("explore", ev.name, ev.detail); break;
     }
-    case "proposal": endText(); state.proposals.set(ev.proposal.id, ev.proposal); renderProposalCard(ev.proposal); renderProposalList(); break;
+    case "proposal": endText(); state.proposals.set(ev.proposal.id, ev.proposal); renderProposalCard(ev.proposal); renderProposalList(); renderReviewBar(); break;
     case "approval_needed": {
       endText();
-      const el = add(`<div class="card approval"><div class="hd">${icon("alert")}<strong>Approval needed</strong></div>
-        ${ev.tools.map((t) => `<div class="cmd">$ ${esc(t.command)}</div>`).join("")}
-        <div class="acts"><button class="btn primary" data-approve="1">${icon("check")}Approve &amp; run</button><button class="btn" data-approve="0">Deny</button></div></div>`);
-      el.addEventListener("click", (e) => { const b = e.target.closest("[data-approve]"); if (!b) return; el.remove(); streamTo(state.sid, `/api/sessions/${state.sid}/approve`, { approve: b.dataset.approve === "1" }); });
+      $$("#transcript .wait-row.waiting").forEach((w) => w.remove());
+      add(`<div class="wait-row waiting">${icon("alert")}<span>Waiting for your approval: ${ev.tools.map((t) => `<code>${esc(t.command)}</code>`).join(", ")}</span><span class="muted">(see the bar below)</span></div>`);
+      state.approval = { tools: ev.tools }; renderReviewBar();
       break;
     }
     case "workspace": setWorkspace(ev.repo, true); loadSessions(); toast(`Opened ${ev.repo}`); break;
@@ -931,10 +1038,16 @@ function propActions(p) {
   if (p.status === "applied") return `<button class="btn" data-revert="${p.id}" title="Restore the file as it was before this change">${icon("history")}Undo</button>`;
   return "";
 }
+function diffStat(diff) {
+  let a = 0, d = 0;
+  for (const l of (diff || "").split("\n")) { if (l.startsWith("+") && !l.startsWith("+++")) a++; else if (l.startsWith("-") && !l.startsWith("---")) d++; }
+  return { a, d, html: `<span class="dstat"><span class="a">+${a}</span> <span class="d">−${d}</span></span>` };
+}
 function renderProposalCard(p) {
-  return add(`<div class="card" data-prop="${p.id}"><div class="hd">${icon("edit")}<span class="path" data-prop-open="${p.id}">${esc(p.path)}</span><span class="muted">#${p.id}</span><span class="status ${p.status}">${p.status}</span><span class="spacer"></span>
-    <span class="pacts">${propActions(p)}</span></div>
-    ${p.reason ? `<div class="reason">${esc(p.reason)}</div>` : ""}${diffHtml(p.diff)}</div>`);
+  // Compact in the chat: one line with its status; the diff is a click away, and review happens in the bar/tab.
+  return add(`<details class="card prop" data-prop="${p.id}"><summary class="hd">${icon("edit")}<span class="path" data-prop-open="${p.id}" title="Open in Review">${esc(p.path)}</span>${diffStat(p.diff).html}<span class="muted">#${p.id}</span><span class="status ${p.status}">${p.status}</span><span class="spacer"></span>
+    <span class="pacts">${propActions(p)}</span></summary>
+    ${p.reason ? `<div class="reason">${esc(p.reason)}</div>` : ""}${diffHtml(p.diff)}</details>`);
 }
 function renderPlan(items) {
   const el = $("#plan");
@@ -959,7 +1072,7 @@ $("#transcript").addEventListener("click", (e) => {
   }
   const loc = e.target.closest("a.loc, .ref, .attached span");
   if (loc) { e.preventDefault(); openFile(loc.dataset.path, +loc.dataset.line || undefined); return; }
-  const po = e.target.closest("[data-prop-open]"); if (po) { openProposal(po.dataset.propOpen); return; }
+  const po = e.target.closest("[data-prop-open]"); if (po) { e.preventDefault(); openProposal(po.dataset.propOpen); return; }
   const cp = e.target.closest(".copy");
   if (cp) { navigator.clipboard?.writeText(cp.parentElement.querySelector("code").innerText); toast("Copied"); }
 });
@@ -976,7 +1089,7 @@ function activity(kind, name, detail, body) {
 // Desktop notification when codepilot finishes or needs approval while you're in another tab or app.
 function notifyDone(sid) {
   if (!document.hidden || !("Notification" in window) || Notification.permission !== "granted") return;
-  const needs = $("#transcript .card.approval");
+  const needs = state.approval;
   const title = (state.sessionList || []).find((s) => s.id === sid)?.title || "codepilot";
   try { const n = new Notification(needs ? "codepilot needs your approval" : "codepilot finished", { body: title, icon: "/static/favicon.png", tag: sid }); n.onclick = () => { window.focus(); n.close(); }; } catch { /* unsupported */ }
 }
@@ -1013,7 +1126,7 @@ async function streamTo(sid, url, body) {
   finally {
     typing?.remove(); state.streams.delete(sid); updateBusy(); loadSessions();
     notifyDone(sid);
-    if (sid === state.sid) { loadGit(); const d = await api(`/api/sessions/${sid}`).catch(() => null); if (d) { state.summary = d.summary; $("#chatTitle").textContent = d.session.title || "New session"; if ($(".view.on")?.dataset.view === "memory") renderMemory(); } }
+    if (sid === state.sid) { loadGit(); const d = await api(`/api/sessions/${sid}`).catch(() => null); if (d) { state.summary = d.summary; state.allow = d.allow || []; $("#chatTitle").textContent = d.session.title || "New session"; if ($(".view.on")?.dataset.view === "memory") renderMemory(); } }
   }
 }
 // While a turn runs, Enter queues the message: codepilot reads it at its next step (or right after it finishes).
@@ -1784,6 +1897,8 @@ document.addEventListener("keydown", (e) => {
   else if (mod && e.key.toLowerCase() === "j") { e.preventDefault(); toggle("no-panel"); }
   else if (mod && e.key.toLowerCase() === "l") { e.preventDefault(); ide.classList.remove("no-chat"); input.focus(); }
   else if (e.altKey && e.code === "KeyW") { e.preventDefault(); if (state.active) closeTab(state.active); }
+  else if (mod && e.key === "Enter" && state.approval) { e.preventDefault(); decideApproval(true); }
+  else if (reviewKeys(e)) e.preventDefault();
   else if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); const t = activeFileTab(); if (t?.editing) saveFile(t); }
   else if (treeFocused && state.picked && !e.target.closest("input,textarea") && e.key === "F2") { e.preventDefault(); renamePath(state.picked); }
   else if (treeFocused && state.picked && !e.target.closest("input,textarea") && (e.key === "Delete" || (mod && e.key === "Backspace"))) { e.preventDefault(); deletePath(state.picked, state.pickedDir); }

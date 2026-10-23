@@ -140,9 +140,15 @@ You can switch mode mid-conversation, and you can add your own modes
 
 ## Changes: proposals, Apply, Undo
 
-codepilot never writes to your files without you. A change arrives as a **diff card** (in chat, in an editor
-tab, and in the **Changes** view):
+codepilot never writes to your files without you. Proposed changes collect in the **review bar** pinned
+above the message box ("2 changes to review · +12 −3"), so they don't get lost as the chat scrolls. Each
+one is also a single line in the chat; click it to see its diff.
 
+- **Review** opens the **Review** tab: changed files on the left, the full diff on the right. Press
+  <kbd>j</kbd>/<kbd>k</kbd> to move, <kbd>a</kbd> to apply and <kbd>r</kbd> to reject; after each decision
+  it jumps to the next waiting change. To ask for something different, type it under the diff ("keep the
+  old name as an alias"); that sends "About change #3 to …" to the chat.
+- **Apply all** / **Reject all** in the bar decide everything at once.
 - **Apply** writes it. codepilot then checks the file's syntax (and runs ruff on Python files, if
   installed) and tells the assistant what it found.
 - **Reject** discards it. The assistant is told on your next message.
@@ -164,6 +170,16 @@ working tree diff.
 | GitHub reads | Run freely |
 | GitHub writes (comment, create PR or issue, re-run CI) | Always ask |
 | Opening a different folder | Asks |
+
+Approvals appear in the same **review bar** above the message box, with the exact command: **Run**
+(or <kbd>⌘</kbd><kbd>⏎</kbd> from anywhere) or **Deny**. The chat keeps a one-line record ("Approved: …").
+A pending approval is still there after a page reload.
+
+**Always allow … in this session** (under the command) skips asking for commands that start the same way,
+such as `pytest`, `npm test` or `make eval-bedrock`, until the session ends. It's never offered for commands
+that chain or redirect (`;`, `&&`, `|`, `$( )`, `>`), and those always ask even when they start with an
+allowed prefix. It's also never offered for `rm`, `sudo`, `git`, `curl` and similar. **Memory → Always allowed in this
+session** lists the rules; remove any of them there.
 
 Commands run on your machine, in the workspace folder, as you. Read them before approving. The assistant
 also has a scratch folder (`~/.codepilot/scratch/<session>/`) for throwaway reproduction scripts, so it can

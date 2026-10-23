@@ -374,13 +374,15 @@ class Agent:
                                   title=f"{(old.title or 'Session')[:60]} (continued)")
         return new.id
 
-    def resume(self, session_id: str, approve: bool) -> Iterator[dict]:
+    def resume(self, session_id: str, approve: bool, remember: bool = False) -> Iterator[dict]:
         sess = self.store.get_session(session_id)
         self._cancelled.discard(session_id)
         pending = sess.pending
         if not pending:
             yield {"type": "error", "message": "Nothing is waiting for approval."}
             return
+        if approve and remember:
+            self.allow(session_id, [r for r in (allow_rule(tu) for tu in pending["awaiting"]) if r])
         ctx = self._ctx(sess)
         results = list(pending["results"])
         for tu in pending["awaiting"]:
@@ -397,6 +399,22 @@ class Agent:
         self.store.add_message(session_id, "user", _order_results(pending["order"], results))
         yield from self._loop(session_id)
         yield from self._drain_queue_turns(session_id)
+
+    # -- "always allow" rules for this session ---------------------------------------------------
+
+    def allowed(self, session_id: str, tu: dict) -> bool:
+        rules = (self.store.get_session(session_id).context_state or {}).get("allow", [])
+        return any(rule_matches(r, tu) for r in rules)
+
+    def allow(self, session_id: str, rules: list[dict]) -> None:
+        state = dict(self.store.get_session(session_id).context_state or {})
+        current = state.get("allow", [])
+        state["allow"] = current + [r for r in rules if r not in current]
+        self.store.update_session(session_id, context_state=state)
+
+    def approval_view(self, awaiting: list[dict], root: Path | None) -> list[dict]:
+        return [{"id": tu["toolUseId"], "name": tu["name"], "input": tu["input"], "command": self.describe(tu, root),
+                 "allow": allow_rule(tu)} for tu in awaiting]
 
     def describe(self, tu: dict, root: Path | None) -> str:
         """Human-readable form of an approval-gated call."""
@@ -558,7 +576,8 @@ class Agent:
                                               "limit). Retry with smaller input."), True, 0.0
                 elif tool is None:
                     output, is_error, took = f"Unknown tool {tu['name']!r}.", True, 0.0
-                elif tool.requires_approval(tu["input"], sess.auto_approve) and not _reopens(tu, ctx.root):
+                elif tool.requires_approval(tu["input"], sess.auto_approve) and not _reopens(tu, ctx.root) \
+                        and not self.allowed(session_id, tu):
                     awaiting.append(tu)
                     continue
                 else:
@@ -570,9 +589,7 @@ class Agent:
             if awaiting:
                 self.store.update_session(session_id, pending={
                     "results": results, "awaiting": awaiting, "order": [tu["toolUseId"] for tu in tool_uses]})
-                yield {"type": "approval_needed",
-                       "tools": [{"id": tu["toolUseId"], "name": tu["name"], "input": tu["input"],
-                                  "command": self.describe(tu, ctx.root)} for tu in awaiting]}
+                yield {"type": "approval_needed", "tools": self.approval_view(awaiting, ctx.root)}
                 return
             self.store.add_message(session_id, "user", results)
             if session_id in self._cancelled:
@@ -735,6 +752,45 @@ def _tool_result(tool_use_id: str, output: str, is_error: bool) -> dict:
 
 
 QUEUED_PREFIX = "(Sent while you were working) "
+SHELL_CHAINING = re.compile(r"[;&|`$<>\n\\]")
+# Programs whose next word says what runs ("npm test" vs "npm publish"), so a rule keeps that word too.
+RUNNERS = {"npm", "npx", "pnpm", "yarn", "bun", "uv", "uvx", "poetry", "pipenv", "make", "go", "cargo", "bundle",
+           "dotnet", "mvn", "gradle", "./gradlew", "docker", "terraform", "kubectl", "aws", "node", "deno"}
+
+
+def allow_rule(tu: dict) -> dict | None:
+    """The "always allow in this session" rule offered for an approval: a command prefix, never a whole shell.
+    Commands that chain or redirect (;, &&, |, $(), >) get no rule: a prefix can't make them safe."""
+    import shlex
+
+    if tu["name"] == "run_command":
+        cmd = str(tu["input"].get("command", "")).strip()
+        if not cmd or SHELL_CHAINING.search(cmd):
+            return None
+        try:
+            words = shlex.split(cmd)
+        except ValueError:
+            return None
+        if words[0] in ("sudo", "rm", "git", "chmod", "chown", "dd", "mv", "curl", "wget", "ssh", "scp"):
+            return None  # destructive or outward-facing: always ask
+        n = 3 if len(words) > 2 and words[0].startswith("python") and words[1] == "-m" else \
+            2 if words[0] in RUNNERS and len(words) > 1 else 1
+        return {"tool": "run_command", "prefix": " ".join(words[:n])}
+    if tu["name"] == "github":
+        args = str(tu["input"].get("args", "")).removeprefix("gh ").split()
+        return {"tool": "github", "prefix": " ".join(args[:2])} if len(args) >= 2 else None
+    return None
+
+
+def rule_matches(rule: dict, tu: dict) -> bool:
+    if rule.get("tool") != tu["name"]:
+        return False
+    value = str(tu["input"].get("command" if tu["name"] == "run_command" else "args", "")).strip()
+    value = value.removeprefix("gh ") if tu["name"] == "github" else value
+    if tu["name"] == "run_command" and SHELL_CHAINING.search(value):
+        return False
+    prefix = rule.get("prefix", "")
+    return bool(prefix) and (value == prefix or value.startswith(prefix + " "))
 
 
 def _order_results(order: list[str], results: list[dict]) -> list[dict]:

@@ -207,6 +207,10 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         if request.method == "PATCH":
             data = await request.json()
             fields = {k: data[k] for k in ("title", "tier", "auto_approve", "repo", "mode", "model") if k in data}
+            if isinstance(data.get("allow"), list):  # replace this session's "always allow" rules (e.g. clear them)
+                state = dict(sess.context_state or {})
+                state["allow"] = [r for r in state.get("allow", []) if r in data["allow"]]
+                store.update_session(sid, context_state=state)
             if "model" in fields:
                 fields["model"] = str(fields["model"] or "").strip()[:200]
             if "mode" in fields:
@@ -229,8 +233,8 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             "session": sess.public(),
             "summary": sess.summary,
             "events": history_events(store, sid),
-            "pending": sess.pending and [{"id": tu["toolUseId"], "name": tu["name"], "input": tu["input"],
-                                          "command": agent.describe(tu, root)} for tu in sess.pending["awaiting"]],
+            "pending": sess.pending and agent.approval_view(sess.pending["awaiting"], root),
+            "allow": (sess.context_state or {}).get("allow", []),
             "proposals": [_proposal_json(p, root) for p in store.list_proposals(sid)],
             "usage": store.usage(sid),
             "context": agent.context_usage(sid),
@@ -346,7 +350,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
     async def approve(request: Request) -> Response:
         sid = request.path_params["sid"]
         data = await request.json()
-        return stream(sid, agent.resume(sid, bool(data.get("approve"))))
+        return stream(sid, agent.resume(sid, bool(data.get("approve")), bool(data.get("remember"))))
 
     async def proposal_action(request: Request) -> Response:
         pid = int(request.path_params["pid"])

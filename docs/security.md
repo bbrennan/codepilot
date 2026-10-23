@@ -59,6 +59,14 @@ your user is trusted. Set `CODEPILOT_TERMINAL=0` to turn the terminal off; the p
 and the endpoint refuses every connection. The assistant has no access to the terminal; its commands go
 through `run_command` and your approval.
 
+## "Always allow" for commands
+
+When approving a command you can allow its prefix (e.g. `pytest`) for the rest of that session. Rules are
+per session and only ever added by you approving a command; the API can remove rules but not add them.
+A rule never matches a command that chains, pipes, redirects or substitutes (`;`, `&`, `|`, `` ` ``, `$`,
+`<`, `>`), so `pytest; rm -rf ~` still asks. No rule is offered for destructive or outward-facing
+programs (`rm`, `sudo`, `git`, `chmod`, `curl`, `ssh`, …).
+
 ## Your own file actions
 
 New file, new folder, rename, delete and save from the Explorer and editor are your actions, so they don't

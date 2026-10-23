@@ -68,6 +68,9 @@ assistant's replies in them are scripted so the demo is reproducible.</sub>
 - **Auto model routing:** the newest Sonnet for routine work, Opus for planning, debugging and big
   changes (and as a second opinion when tests keep failing), Haiku for quick questions. It shows each pick
   and why, and the benchmark measures whether it saves money.
+- **Review without losing your place:** proposed changes and command approvals wait in a bar above
+  the message box. A Review tab with keyboard shortcuts, Apply all, and "always allow `pytest`" for the
+  session.
 - **Chat that keeps up with you:** type while it works (messages queue for its next step), edit or retry
   any message, ↑ for earlier prompts, and desktop notifications when it's done.
 - **Steering:** standing instructions it always follows, in Kiro's format (`.codepilot/steering/`):

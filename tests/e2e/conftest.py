@@ -41,8 +41,21 @@ class ScriptedLLM:
         self.calls.append({"model": model, "messages": messages, "system": system})
         last = messages[-1]["content"]
         user_text = " ".join(b.get("text", "") for b in last if "text" in b).split("<turn_context>")[0].lower()
+        n = len(self.calls)
         if any("toolResult" in b for b in last):
-            content = [{"text": "I proposed a fix: `add` now returns **a + b**."}]
+            content = [{"text": "Done."}]
+        elif "run python" in user_text:
+            content = [{"toolUse": {"toolUseId": f"t{n}", "name": "run_command",
+                                    "input": {"command": "python -c \"print('ran-' + str(6*7))\""}}}]
+        elif "run ls" in user_text:
+            content = [{"toolUse": {"toolUseId": f"t{n}", "name": "run_command", "input": {"command": "ls"}}}]
+        elif "fix two" in user_text:
+            content = [
+                {"toolUse": {"toolUseId": f"t{n}a", "name": "propose_edit", "input": {
+                    "path": "agent/core.py", "old_text": "a - b", "new_text": "a + b", "reason": "add should add"}}},
+                {"toolUse": {"toolUseId": f"t{n}b", "name": "propose_edit", "input": {
+                    "path": "tests/test_core.py", "old_text": "== 3", "new_text": "== 3  # 1 + 2",
+                    "reason": "explain"}}}]
         elif "fix" in user_text:
             content = [{"toolUse": {"toolUseId": f"t{len(self.calls)}", "name": "propose_edit", "input": {
                 "path": "agent/core.py", "old_text": "a - b", "new_text": "a + b", "reason": "add should add"}}}]

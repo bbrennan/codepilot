@@ -504,3 +504,42 @@ a.loc:hover { text-decoration: underline; }
 .card.advisor summary svg { width: 14px; height: 14px; color: var(--syn-kw); }
 .card.advisor .md { margin-top: 6px; font-size: 13px; }
 .banner.error .btn { margin-left: 8px; }
+/* review: bar above the composer, compact proposal rows, the Review tab */
+.review-bar { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.rb-row { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line-2); background: var(--bg-3); font-size: 12.5px; }
+.rb-row > svg { width: 15px; height: 15px; margin-top: 2px; flex: none; }
+.rb-approval { border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); background: color-mix(in srgb, var(--warn) 9%, var(--bg-3)); }
+.rb-approval > svg { color: var(--warn); }
+.rb-changes > svg { color: var(--accent); }
+.rb-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.rb-cmd { font: 12px var(--mono); white-space: pre-wrap; word-break: break-all; background: var(--bg-2); padding: 3px 6px; border-radius: 5px; }
+.rb-allow { font-size: 11.5px; color: var(--muted); }
+.rb-files { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rb-acts { display: flex; gap: 6px; flex: none; align-items: center; }
+.rb-acts kbd { font-size: 10px; opacity: .8; margin-left: 4px; }
+.dstat { font: 11px var(--mono); white-space: nowrap; }
+.dstat .a { color: var(--ok); } .dstat .d { color: var(--err); }
+details.card.prop > summary { list-style: none; cursor: pointer; border-bottom: 0; }
+details.card.prop > summary::-webkit-details-marker { display: none; }
+details.card.prop[open] > summary { border-bottom: 1px solid var(--line); }
+.wait-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin: 0 0 12px; }
+.wait-row svg { width: 13px; height: 13px; flex: none; }
+.wait-row.waiting { color: var(--warn); }
+.wait-row.approved svg { color: var(--ok); } .wait-row.denied svg { color: var(--err); }
+.wait-row code { font-size: 11.5px; }
+.review { display: grid; grid-template-columns: minmax(200px, 280px) 1fr; flex: 1; min-height: 0; }
+.rv-list { border-right: 1px solid var(--line); overflow: auto; display: flex; flex-direction: column; }
+.rv-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px; font-size: 11px; font-weight: 650; letter-spacing: .5px; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--line); }
+.rv-head .spacer { flex: 1; }
+.rv-item { display: flex; align-items: center; gap: 6px; padding: 6px 10px; cursor: pointer; font-size: 12.5px; border-bottom: 1px solid var(--line); }
+.rv-item:hover { background: var(--bg-3); } .rv-item.on { background: var(--accent-soft); }
+.rv-name { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.rv-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .rv-name .muted { font-size: 11px; }
+.rv-item .status { font-size: 10px; }
+.rv-keys { margin-top: auto; padding: 8px 10px; }
+.rv-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.rv-reason { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.rv-ask { display: flex; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--line); align-items: flex-end; }
+.rv-ask textarea { flex: 1; resize: vertical; font: inherit; }
+.allow-chip { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--line-2); border-radius: 6px; padding: 0 0 0 6px; margin: 2px 4px 2px 0; }
+.allow-chip .icon-btn { width: 20px; height: 20px; }
