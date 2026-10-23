@@ -20,6 +20,7 @@ const fmtMs = (ms) => (ms == null ? "" : ms >= 1000 ? (ms / 1000).toFixed(1) + "
 const ago = (t) => { const s = Date.now() / 1000 - t; return s < 60 ? "just now" : s < 3600 ? Math.floor(s / 60) + "m ago" : s < 86400 ? Math.floor(s / 3600) + "h ago" : Math.floor(s / 86400) + "d ago"; };
 const base = (p) => p.split("/").pop();
 const dirOf = (p) => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
+const tilde = (p) => { const h = state?.cfg?.home; return h && p && (p === h || p.startsWith(h + "/")) ? "~" + p.slice(h.length) : p; };
 const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 
 // ---------------------------------------------------------------- icons (Lucide-style, ISC)
@@ -242,7 +243,7 @@ function setWorkspace(repo, changed = true) {
   state.workspace = repo || "";
   if (state.session) state.session.repo = repo;
   $("#workspaceName").textContent = repo ? base(repo) : "Open folder…";
-  $("#workspaceBtn").title = repo || "Open folder";
+  $("#workspaceBtn").title = tilde(repo) || "Open folder";
   $("#explorerTitle").textContent = repo ? base(repo) : "Explorer";
   if (changed) {
     state.tree.clear(); state.expanded.clear();
@@ -646,7 +647,9 @@ async function refreshUsage() { if (state.sid) renderUsage(await api(`/api/sessi
 // ---------------------------------------------------------------- chat rendering
 let curText = null, curThink = null, curBuf = "";
 function endText() { curText = null; curThink = null; curBuf = ""; }
-function scrollEnd(force) { const t = $("#transcript"); if (force || t.scrollHeight - t.scrollTop - t.clientHeight < 160) t.scrollTop = t.scrollHeight; }
+let stickToBottom = true;
+function scrollEnd(force) { const t = $("#transcript"); if (force) stickToBottom = true; if (stickToBottom) t.scrollTop = t.scrollHeight; }
+$("#transcript").addEventListener("scroll", () => { const t = $("#transcript"); stickToBottom = t.scrollHeight - t.scrollTop - t.clientHeight < 80; });
 function add(html) { $(".chat-empty")?.remove(); const d = document.createElement("div"); d.innerHTML = html; const el = d.firstElementChild; $("#transcript").appendChild(el); return el; }
 function renderChatEmpty() {
   $("#transcript").innerHTML = `<div class="chat-empty">${icon("sparkle")}<b>What should we work on?</b>${state.workspace ? `Working in <span class="mono">${esc(base(state.workspace))}</span>. Ask for a review, a fix, tests, or an explanation.` : "Open a folder, or just say which one — e.g. “review ~/code/payments for bugs”."}</div>`;
@@ -672,6 +675,7 @@ function inline(s) {
     .replace(/`([^`]+)`/g, (m, c) => (/^[\w.-]+(\/[\w.-]+)+$|^[\w-]+\.[a-z]{1,6}$/i.test(c) ? `<code><a class="loc" data-path="${c}">${c}</a></code>` : `<code>${c}</code>`))
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/(^|\W)_([^_\n]+)_(?=\W|$)/g, "$1<em>$2</em>")
+    .replace(/(^|[\s(])\*([^*\s][^*\n]*?)\*(?=[\s.,;:!?)]|$)/g, "$1<em>$2</em>")
     .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>'));
 }
 function md(src) {
@@ -701,6 +705,7 @@ function userHtml(text) {
 }
 function argSummary(name, input) {
   if (!input) return "";
+  if (!Object.values(input).some((v) => v !== "" && v != null)) return "";
   if (name === "update_plan" && Array.isArray(input.items)) return `${input.items.filter((i) => i.status === "done").length}/${input.items.length} done`;
   if (input.path && (input.start_line || input.end_line)) return `${input.path}:${input.start_line || 1}-${input.end_line || ""}`;
   return input.path || input.pattern || input.query || input.command || input.task || input.args || input.name || input.log_group || input.note || JSON.stringify(input).slice(0, 120);
@@ -727,8 +732,10 @@ function render(ev, replay) {
     case "tool_running": { const el = state.toolEls.get(ev.id); if (el) $(".st", el).innerHTML = '<span class="spinner"></span>'; break; }
     case "tool_result": {
       const el = state.toolEls.get(ev.id) || toolEl({ id: ev.id, name: ev.name, input: null });
-      const st = $(".st", el); st.className = "st " + (ev.is_error ? "err" : "ok");
-      st.innerHTML = `${icon(ev.is_error ? "alert" : "check")}${ev.seconds ? ev.seconds + "s" : ""}`;
+      const exit = ev.output.match(/^exit code (-?\d+)/m);
+      const failedRun = !ev.is_error && exit && exit[1] !== "0";
+      const st = $(".st", el); st.className = "st " + (ev.is_error ? "err" : failedRun ? "warn" : "ok");
+      st.innerHTML = `${icon(ev.is_error || failedRun ? "alert" : "check")}${failedRun ? "exit " + exit[1] + " · " : ""}${ev.seconds ? ev.seconds + "s" : ""}`;
       el.insertAdjacentHTML("beforeend", `<pre>${esc(ev.output)}</pre>`);
       if (!replay) activity(ev.is_error ? "error" : "result", ev.name, `${ev.output.length.toLocaleString()} chars${ev.seconds ? " · " + ev.seconds + "s" : ""}`, ev.output);
       break;
@@ -1069,7 +1076,7 @@ function fitTerminal() {
 function connectTerminal() {
   const token = document.querySelector('meta[name="codepilot-token"]').content;
   termState.ws?.close();
-  termState.cwd = state.workspace || "~";
+  termState.cwd = tilde(state.workspace) || "~";
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/api/terminal?token=${encodeURIComponent(token)}&sid=${encodeURIComponent(state.sid || "")}`);
   termState.ws = ws;
@@ -1088,8 +1095,8 @@ $("#termSendSel").onclick = () => {
   setInput(`${input.value ? input.value + "\n\n" : ""}Terminal output:\n\`\`\`\n${sel.trimEnd()}\n\`\`\``);
 };
 function onWorkspaceChangedForTerminal() {
-  if (termState.ws?.readyState === 1 && termState.cwd !== (state.workspace || "~"))
-    termState.term.write(`\r\n\x1b[2m[codepilot] workspace is now ${state.workspace || "~"}; click New terminal for a shell there]\x1b[0m\r\n`);
+  if (termState.ws?.readyState === 1 && termState.cwd !== (tilde(state.workspace) || "~"))
+    termState.term.write(`\r\n\x1b[2m[codepilot] workspace is now ${tilde(state.workspace) || "~"}; click New terminal for a shell there]\x1b[0m\r\n`);
 }
 
 // ---------------------------------------------------------------- palette & dialog & toast

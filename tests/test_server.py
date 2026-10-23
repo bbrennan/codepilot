@@ -170,3 +170,13 @@ def test_terminal_disabled(cfg, store):
     with pytest.raises(WebSocketDisconnect):
         with client.websocket_connect("/api/terminal?token=", headers={"origin": "http://testserver"}) as ws:
             ws.receive_text()
+
+
+def test_saved_proposals_have_full_context_diffs(client_and_llm, repo):
+    client, _ = client_and_llm
+    sess = client.post("/api/sessions", json={"repo": str(repo)}, headers=H).json()
+    ndjson(client.post(f"/api/sessions/{sess['id']}/chat", json={"message": "fix add"}, headers=H))
+    pending = client.get(f"/api/sessions/{sess['id']}").json()["proposals"][0]
+    assert " def add(a, b):" in pending["diff"]  # context line from the real file, not just the snippet
+    applied = client.post(f"/api/proposals/{pending['id']}/apply", headers=H).json()
+    assert " def add(a, b):" in applied["diff"] and "+    return a + b" in applied["diff"]

@@ -120,6 +120,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             "region": cfg.region if cfg.provider == "bedrock" else None,
             "profile": cfg.profile if cfg.provider == "bedrock" else None,
             "log_groups": cfg.log_groups, "auto_approve_default": cfg.auto_approve_tests, "terminal": cfg.terminal,
+            "home": str(Path.home()),
         })
 
     async def sessions(request: Request) -> Response:
@@ -172,7 +173,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             "events": history_events(store, sid),
             "pending": sess.pending and [{"id": tu["toolUseId"], "name": tu["name"], "input": tu["input"],
                                           "command": agent.describe(tu, root)} for tu in sess.pending["awaiting"]],
-            "proposals": [_proposal_json(p) for p in store.list_proposals(sid)],
+            "proposals": [_proposal_json(p, root) for p in store.list_proposals(sid)],
             "usage": store.usage(sid),
             "context": agent.context_usage(sid),
         })
@@ -245,12 +246,12 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             except (ToolError, OSError) as exc:
                 return err(str(exc), 409)
             store.set_proposal_status(pid, "reverted")
-            return JSONResponse(_proposal_json(store.get_proposal(pid)))
+            return JSONResponse(_proposal_json(store.get_proposal(pid), root))
         if prop.status != "pending":
             return err(f"Proposal is already {prop.status}")
         if action == "reject":
             store.set_proposal_status(pid, "rejected")
-            return JSONResponse(_proposal_json(store.get_proposal(pid)))
+            return JSONResponse(_proposal_json(store.get_proposal(pid), root))
         if action != "apply":
             return err("action must be apply, reject or revert", 404)
         try:
@@ -260,7 +261,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             return err(str(exc), 409)
         found = await run_in_threadpool(checks.quick_check, root, prop.path)
         store.record_applied(pid, before, after, found)
-        return JSONResponse({**_proposal_json(store.get_proposal(pid)), "checks": found})
+        return JSONResponse({**_proposal_json(store.get_proposal(pid), root), "checks": found})
 
     async def usage(request: Request) -> Response:
         return JSONResponse(store.usage(request.path_params["sid"]))
@@ -502,5 +503,17 @@ def _places(store: Store) -> list[dict]:
     return places[:30]
 
 
-def _proposal_json(prop) -> dict:
+def _proposal_json(prop, root: Path | None = None) -> dict:
+    """Proposal with a full-context diff: from the saved before/after text once applied, else against the file."""
+    if prop.after_text is not None:
+        return proposal_view(prop, unified_diff(prop.path, prop.before_text or "", prop.after_text))
+    if root is not None and prop.status == "pending":
+        target = root / prop.path
+        try:
+            current = target.read_text() if target.exists() else ""
+        except OSError:
+            current = None
+        if current is not None and (prop.old_text == "" and not current or current.count(prop.old_text) == 1):
+            after = prop.new_text if prop.old_text == "" else current.replace(prop.old_text, prop.new_text, 1)
+            return proposal_view(prop, unified_diff(prop.path, current, after))
     return proposal_view(prop, unified_diff(prop.path, prop.old_text, prop.new_text))

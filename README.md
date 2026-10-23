@@ -1,22 +1,47 @@
-# codepilot
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/banner-dark.svg">
+    <img alt="codepilot: your local, IDE-style AI pair programmer" src="docs/assets/banner-light.svg" width="100%">
+  </picture>
+</p>
 
-A local, IDE-style coding assistant that runs in your browser and works on any folder on your machine.
-Point it at a codebase and ask it, in chat, to review code, find and fix bugs, build features, write tests,
-explain how things work, or work out why a run failed from its traces and logs.
+<p align="center">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-5b8cff"></a>
+  <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-3776ab?logo=python&logoColor=white">
+  <img alt="Providers" src="https://img.shields.io/badge/models-Bedrock%20%7C%20Anthropic%20%7C%20OpenAI%20%7C%20Ollama-8b7bff">
+  <img alt="Local-first" src="https://img.shields.io/badge/runs-locally-4cc38a">
+  <img alt="No build step" src="https://img.shields.io/badge/UI-no%20build%20step-e5b450">
+</p>
 
-It runs on **Claude via Amazon Bedrock**, **Claude via the Anthropic API**, **OpenAI** (or any
-OpenAI-compatible endpoint), or a free **local model via Ollama**.
+<p align="center">
+  <b>Point it at any folder and ask, in chat, to review code, hunt bugs, fix them, build features, or explain
+  why an agent run failed from its traces.</b><br>
+  Every edit is a diff you approve (and can undo). Every command asks first. It never commits or pushes.
+</p>
 
-```
-┌ codepilot ── my-service ── ⌘P ───────────────────────────────────────────────────────────────┐
-│ ▤ │ EXPLORER          │ invoice.py ✕  trace: checkout.json ✕  #3 diff ✕ │ Debug ▾  main ▾      │
-│ ⌕ │ ▾ src             │  12  def line_total(price, qty, discount=0):     │ ▸ run_tests  ✓ 2.1s  │
-│ ∿ │   ▸ billing       │  13      raw = Decimal(str(price)) * qty ...     │ ▸ read_file  ✓       │
-│ ⑂ │   ▸ api           │                                                  │ Root cause: float    │
-│ ◫ │ ▸ tests           ├──────────────────────────────────────────────────┤ math in line_total…  │
-│   │                   │ ACTIVITY  OUTPUT                                 │ [Apply] [Reject]     │
-└ bedrock · us-east-1 · main ─ ⑂ main ─ pytest ─ github: you ─ context 12% ─ 48k tokens ───────┘
-```
+<p align="center">
+  <a href="docs/setup.md"><b>Set up</b></a> ·
+  <a href="docs/usage.md"><b>Use</b></a> ·
+  <a href="docs/benchmark.md"><b>Benchmark</b></a> ·
+  <a href="docs/security.md"><b>Security</b></a> ·
+  <a href="docs/troubleshooting.md"><b>Troubleshooting</b></a>
+</p>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/hero-dark.webp">
+  <img alt="codepilot debugging a planted bug: explorer, editor, and a chat that reproduced the failure, found the root cause, proposed a one-line fix and verified it" src="docs/assets/hero-light.webp" width="100%">
+</picture>
+
+### See it work
+
+Reproduce → root cause → proposed diff → approve → verify, in Debug mode:
+
+<p align="center">
+  <img alt="Animated walkthrough: a bug report with an @file reference, an approved test run, a root-cause analysis, a diff that is applied, and tests passing" src="docs/assets/walkthrough.webp" width="100%">
+</p>
+
+<sub>The screenshots and animation show the real app, tools, test runs and diffs on the bundled demo project. The
+assistant's replies in them are scripted so the demo is reproducible.</sub>
 
 ## What it does
 
@@ -37,6 +62,34 @@ OpenAI-compatible endpoint), or a free **local model via Ollama**.
   It follows `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, Kiro steering and Copilot instruction files.
 - **Measurable:** `codepilot bench` grades it on planted-bug tasks with hidden tests, so you can compare
   models and changes.
+
+
+## A closer look
+
+<table>
+<tr>
+<td width="50%"><img alt="Trace viewer: span timeline with the failing span in red" src="docs/assets/traces.webp"><br><b>Trace timelines.</b> Open an agent run's JSON trace and see every span, with failures flagged. Then ask codepilot which code caused them.</td>
+<td width="50%"><img alt="Diff review with Undo" src="docs/assets/changes.webp"><br><b>Review every change.</b> Proposed edits are diffs you Apply or Reject; applied ones can be undone. Git status sits alongside.</td>
+</tr>
+<tr>
+<td width="50%"><img alt="Integrated terminal showing a diff and a passing eval" src="docs/assets/terminal.webp"><br><b>Integrated terminal.</b> A real shell in your workspace (Ctrl+`). Send any output to the chat in one click.</td>
+<td width="50%"><img alt="Slash menu listing skills" src="docs/assets/skills.webp"><br><b>Skills and modes.</b> <code>/diagnose-bug</code>, <code>/code-review</code>, <code>/tdd</code> and more, plus Ask, Plan, Build, Debug, Bug-hunt and Review modes.</td>
+</tr>
+<tr>
+<td colspan="2"><img alt="Search results across the codebase" src="docs/assets/search.webp"><br><b>Search, ⌘P and @references.</b> Find anything, open it in a tab, and reference files or line ranges in chat with <code>@path:10-40</code>.</td>
+</tr>
+</table>
+
+## How it works
+
+```mermaid
+flowchart LR
+    U([You]) -->|chat, @files, /skills| UI[Browser IDE<br/>localhost]
+    UI <-->|stream| A[Agent loop<br/>modes · memory · approvals]
+    A <-->|tool calls| T[Tools<br/>read · search · git · tests<br/>traces · analysers · gh]
+    T -->|diffs you approve| W[(Your workspace)]
+    A <-->|Converse / Messages API| M{{Bedrock · Anthropic<br/>OpenAI · Ollama}}
+```
 
 ## Quick start
 
