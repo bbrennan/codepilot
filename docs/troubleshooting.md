@@ -7,7 +7,7 @@ Start with `make doctor`. It tests each piece and prints the fix for most proble
 | Symptom | Fix |
 |---|---|
 | `uv: command not found` | `brew install uv` or `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
-| uv fails with certificate or SSL errors | Corporate TLS inspection: `export UV_NATIVE_TLS=1` and retry |
+| uv fails with certificate or SSL errors, or `failed to resolve requirements from 'build-system.requires'` with a hint about `--system-certs` | Corporate TLS inspection. Update codepilot (`git pull`); the `make` commands now make uv trust the OS certificate store. Running uv directly: `uv sync --system-certs …` (older uv: `--native-tls`). Still failing: get the company CA file from IT and `export SSL_CERT_FILE=/path/to/ca.pem` |
 | `requires-python >=3.11` | Install Python 3.11+ (`brew install python@3.12`); uv picks it up |
 | `failed to download "<package>==<version>"` | Usually a company package mirror that doesn't have that release yet (many hold back new versions for a few weeks), or a proxy blocking `files.pythonhosted.org`. `make install` doesn't install the browser-test tools (Playwright, greenlet), so update codepilot first (`git pull`). If another package fails, ask for it to be allowed, or point uv at your mirror with `UV_INDEX_URL` |
 | `The anthropic package isn't installed` | `uv sync --extra anthropic` (or `make install`) |

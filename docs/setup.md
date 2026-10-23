@@ -52,8 +52,10 @@ tests. To install less:
 `uv sync --extra dev` (Bedrock and Ollama only), and add `--extra anthropic` and/or `--extra openai` as
 needed.
 
-> **Behind a corporate proxy that inspects TLS?** If `uv` fails with certificate errors, run
-> `export UV_NATIVE_TLS=1` first (it's also set in `.env.example`), so uv trusts your OS certificate store.
+> **Behind a corporate proxy that inspects TLS?** The `make` commands already tell uv to trust your OS
+> certificate store (where IT installs the company certificate), via `UV_SYSTEM_CERTS` (uv 0.11+) and
+> `UV_NATIVE_TLS` (older uv). If you run `uv` directly, add `--system-certs` (older uv: `--native-tls`). uv
+> doesn't read `.env`. If it still fails, ask IT for the company CA file and `export SSL_CERT_FILE=/path/to/ca.pem`.
 >
 > **Company package mirror?** If a download fails (`failed to download "<package>==<version>"`), the mirror
 > may not carry that release yet; many hold back new versions for a few weeks. See

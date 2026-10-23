@@ -1,3 +1,8 @@
+# Let uv trust the OS certificate store (macOS Keychain), so it works behind TLS-inspecting company proxies.
+# UV_SYSTEM_CERTS is the name in uv >= 0.11; UV_NATIVE_TLS is the older one. Override with UV_SYSTEM_CERTS=false.
+export UV_SYSTEM_CERTS ?= true
+export UV_NATIVE_TLS ?= true
+
 .PHONY: install serve start stop app doctor chat test e2e e2e-setup demo ollama bench bench-validate
 
 install:  ## Create .venv with all providers + unit-test tools (browser-test tools install only with make e2e)
