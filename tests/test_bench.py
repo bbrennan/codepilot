@@ -58,3 +58,31 @@ def test_unfixed_task_fails_and_report(cfg, tmp_path):
     a = tmp_path / "a.json"
     a.write_text(json.dumps(report))
     assert "shared-cart-state" in bench.compare(a, a)
+
+
+def test_compaction_eval_scores_facts(cfg, tmp_path):
+    class Summariser:
+        def __init__(self):
+            self.prompts = []
+
+        def stream(self, *a, **k):
+            raise AssertionError("compaction must not call the main model")
+
+        def complete(self, model, system, prompt, max_tokens=4000):
+            self.prompts.append(prompt)
+            # Keeps some facts, drops others, so scoring is exercised both ways.
+            return ("## Goal\nFix EUR rounding (CP-4821) without changing the public API.\n"
+                    "## Decisions and findings\nbilling/currency.py:88 used round() (banker's rounding); fix uses "
+                    "ROUND_HALF_UP. Failing test test_eur_rounding (10.01 vs 10.00), trace trc_9f2a71.")
+
+    summ = Summariser()
+    report = bench.compaction_eval(cfg, model="fake-summariser", out=tmp_path, llm_factory=lambda c: summ,
+                                   progress=lambda *_: None)
+    debug = next(r for r in report["runs"] if r["fixture"] == "debug-rounding")
+    found = {f["fact"]: f["found"] for f in debug["facts"]}
+    assert found["Ticket CP-4821"] and found["Bug location billing/currency.py:88"]
+    assert found["Proposal #3 applied"] and found["Proposal #4 rejected"]  # from exact working state
+    assert not found["Add test_jpy_rounding"]                               # dropped by this summariser
+    assert 0 < report["recall"] < 1 and report["by_kind"]["identifier"]["total"] >= 5
+    assert any("Conversation to fold in" in p for p in summ.prompts)
+    assert (next(tmp_path.glob("compaction-*")) / "report.md").read_text().startswith("# Compaction fidelity")

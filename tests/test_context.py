@@ -147,7 +147,8 @@ def test_handoff_and_compact_endpoints(cfg, store, repo):
     sess = client.post("/api/sessions", json={"repo": str(repo)}, headers=H).json()
     client.post(f"/api/sessions/{sess['id']}/chat", json={"message": "hi"}, headers=H)
     ctx = client.get(f"/api/sessions/{sess['id']}").json()["context"]
-    assert ctx["budget"] == 200_000 - 16_000 and ctx["tokens"] > 0
+    model = cfg.models["main"]
+    assert ctx["budget"] == cfg.context_window(model) - min(cfg.max_tokens, 20_000) and ctx["tokens"] > 0
     new = client.post(f"/api/sessions/{sess['id']}/handoff", headers=H).json()
     assert new["id"] != sess["id"] and new["repo"] == str(repo.resolve()) and new["has_summary"]
     out = client.post(f"/api/sessions/{new['id']}/compact", json={"focus": ""}, headers=H).text

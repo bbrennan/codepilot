@@ -24,7 +24,7 @@ from starlette.websockets import WebSocket
 from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 
-from . import checks, github, mentions, modes, skills, traces
+from . import checks, github, mentions, models, modes, skills, traces
 from .agent import Agent, history_events
 from .config import TIERS, Config
 from .store import Store
@@ -150,7 +150,9 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             return JSONResponse({"ok": True})
         if request.method == "PATCH":
             data = await request.json()
-            fields = {k: data[k] for k in ("title", "tier", "auto_approve", "repo", "mode") if k in data}
+            fields = {k: data[k] for k in ("title", "tier", "auto_approve", "repo", "mode", "model") if k in data}
+            if "model" in fields:
+                fields["model"] = str(fields["model"] or "").strip()[:200]
             if "mode" in fields:
                 root_ = Path(sess.repo).expanduser().resolve() if sess.repo else None
                 known = {m.name for m in modes.all_modes(root_, cfg.home)} | set(modes.ALIASES)
@@ -194,6 +196,12 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         return stream(sid, agent.chat(sid, text, tier))
 
     gh_status: dict = {}
+
+    async def models_view(request: Request) -> Response:
+        """Models this account can use (probed/listed, cached 12h) and each tier's effective model."""
+        refresh = request.query_params.get("refresh") == "1"
+        data = await run_in_threadpool(models.discover, cfg, refresh)
+        return JSONResponse(data)
 
     async def github_view(request: Request) -> Response:
         if not cfg.github:
@@ -447,6 +455,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         Route("/api/config", config_view),
         Route("/api/browse", browse),
         Route("/api/github", github_view),
+        Route("/api/models", models_view),
         WebSocketRoute("/api/terminal", terminal_ws),
         Route("/api/sessions", sessions, methods=["GET", "POST"]),
         Route("/api/sessions/{sid}", session, methods=["GET", "PATCH", "DELETE"]),

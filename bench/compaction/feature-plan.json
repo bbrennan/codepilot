@@ -1,0 +1,244 @@
+{
+ "id": "feature-plan",
+ "title": "Planning a CSV export feature",
+ "messages": [
+  {
+   "role": "user",
+   "content": [
+    {
+     "text": "Plan a CSV export for reports. Hard requirements: no new dependencies (so no pandas), exports up to 50k rows must finish within 2 seconds, and it must respect the existing reports:read scope."
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "text": "Looking at the reports routes."
+    },
+    {
+     "toolUse": {
+      "toolUseId": "t101",
+      "name": "read_file",
+      "input": {
+       "path": "api/routes/reports.py"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "toolResult": {
+      "toolUseId": "t101",
+      "content": [
+       {
+        "text": "    1  from fastapi import APIRouter, Depends\n    2  from ..auth import require_scope\n    3  router = APIRouter()\n    4  \n    5  @router.get('/reports/{report_id}')\n    6  def get_report(report_id: int, user=Depends(require_scope('reports:read'))):\n    7      ...\n    8  # route helper 0\n    9  # route helper 1\n   10  # route helper 2\n   11  # route helper 3\n   12  # route helper 4\n   13  # route helper 5\n   14  # route helper 6\n   15  # route helper 7\n   16  # route helper 8\n   17  # route helper 9\n   18  # route helper 10\n   19  # route helper 11\n   20  # route helper 12\n   21  # route helper 13\n   22  # route helper 14\n   23  # route helper 15\n   24  # route helper 16\n   25  # route helper 17\n   26  # route helper 18\n   27  # route helper 19\n   28  # route helper 20\n   29  # route helper 21\n   30  # route helper 22\n   31  # route helper 23\n   32  # route helper 24\n   33  # route helper 25\n   34  # route helper 26\n   35  # route helper 27\n   36  # route helper 28\n   37  # route helper 29\n   38  # route helper 30\n   39  # route helper 31\n   40  # route helper 32\n   41  # route helper 33\n   42  # route helper 34\n   43  # route helper 35\n   44  # route helper 36\n   45  # route helper 37\n   46  # route helper 38\n   47  # route helper 39\n   48  # route helper 40\n   49  # route helper 41\n   50  # route helper 42\n   51  # route helper 43\n   52  # route helper 44\n   53  # route helper 45\n   54  # route helper 46\n   55  # route helper 47\n   56  # route helper 48\n   57  # route helper 49"
+       }
+      ],
+      "status": "success"
+     }
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "text": "Searching for existing serialisers."
+    },
+    {
+     "toolUse": {
+      "toolUseId": "t102",
+      "name": "search_code",
+      "input": {
+       "pattern": "def serialize_report"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "toolResult": {
+      "toolUseId": "t102",
+      "content": [
+       {
+        "text": "reports/serialize.py:14: def serialize_report(report, fields=None):"
+       }
+      ],
+      "status": "success"
+     }
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "text": "Plan: add GET /reports/{report_id}/export.csv in api/routes/reports.py guarded by require_scope('reports:read'); implement reports/export.py using csv.DictWriter over serialize_report output, streaming rows with a generator (StreamingResponse) so memory stays flat above 100k rows; tests in tests/test_export.py including a 50k-row timing test. I rejected pandas because of the no-new-dependencies rule."
+    },
+    {
+     "toolUse": {
+      "toolUseId": "t103",
+      "name": "update_plan",
+      "input": {
+       "items": [
+        {
+         "text": "Endpoint GET /reports/{report_id}/export.csv",
+         "status": "todo"
+        },
+        {
+         "text": "reports/export.py with csv.DictWriter, streaming",
+         "status": "todo"
+        },
+        {
+         "text": "tests/test_export.py incl. 50k-row timing",
+         "status": "todo"
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "toolResult": {
+      "toolUseId": "t103",
+      "content": [
+       {
+        "text": "Plan updated."
+       }
+      ],
+      "status": "success"
+     }
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "text": "Open question: timestamps in the CSV: UTC or the account's timezone? This changes the column format."
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "text": "Product team hasn't decided the timezone yet; assume UTC with an ISO-8601 'Z' suffix for now and leave a TODO. Also column order must match the on-screen table: id, name, owner, created_at, status."
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "text": "Understood: UTC ISO-8601 with Z for now, TODO pending product decision, and column order id, name, owner, created_at, status."
+    }
+   ]
+  }
+ ],
+ "facts": [
+  {
+   "kind": "instruction",
+   "fact": "No new dependencies / no pandas",
+   "any": [
+    "no new dependencies",
+    "no new dependency",
+    "pandas"
+   ]
+  },
+  {
+   "kind": "instruction",
+   "fact": "50k rows within 2 seconds",
+   "all": [
+    "50k",
+    "2"
+   ]
+  },
+  {
+   "kind": "instruction",
+   "fact": "Respect reports:read scope",
+   "any": [
+    "reports:read"
+   ]
+  },
+  {
+   "kind": "identifier",
+   "fact": "Endpoint path /reports/{report_id}/export.csv",
+   "any": [
+    "export.csv"
+   ]
+  },
+  {
+   "kind": "identifier",
+   "fact": "New module reports/export.py",
+   "any": [
+    "reports/export.py"
+   ]
+  },
+  {
+   "kind": "identifier",
+   "fact": "Tests in tests/test_export.py",
+   "any": [
+    "test_export.py"
+   ]
+  },
+  {
+   "kind": "identifier",
+   "fact": "Reuses serialize_report",
+   "any": [
+    "serialize_report"
+   ]
+  },
+  {
+   "kind": "decision",
+   "fact": "csv.DictWriter",
+   "any": [
+    "DictWriter"
+   ]
+  },
+  {
+   "kind": "decision",
+   "fact": "Streaming generator / StreamingResponse",
+   "any": [
+    "stream"
+   ]
+  },
+  {
+   "kind": "decision",
+   "fact": "Timestamps UTC ISO-8601 with Z",
+   "all": [
+    "UTC"
+   ]
+  },
+  {
+   "kind": "instruction",
+   "fact": "Column order id, name, owner, created_at, status",
+   "all": [
+    "owner",
+    "created_at",
+    "status"
+   ]
+  },
+  {
+   "kind": "next_step",
+   "fact": "Timezone undecided by product; leave TODO",
+   "any": [
+    "TODO",
+    "undecided",
+    "pending",
+    "open question"
+   ]
+  }
+ ]
+}

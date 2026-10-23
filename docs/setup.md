@@ -75,6 +75,12 @@ any time; sessions are kept per machine, not per provider.
 You need: an AWS account with Bedrock, permission to call Claude models, and AWS credentials on your
 machine.
 
+> **Two Bedrock APIs, handled automatically.** Claude **5.x** models (Opus 5.5, Sonnet 5.5, Haiku 5.5, ...) are
+> served by the Bedrock **Messages API** (`bedrock-mantle`) with IDs like `anthropic.claude-opus-5-5`. Older
+> models use **Converse** with inference-profile IDs like `us.anthropic.claude-sonnet-4-5-…`. codepilot sends
+> each model to the right API based on its ID, so tiers can mix both. Older listings (and older codepilot
+> versions) only showed 4.5 models because the 5.x models aren't Converse inference profiles.
+
 **Step 1: model access.** In the AWS console, open **Amazon Bedrock → Model catalog** in your region and
 make sure the Anthropic Claude models you want are available. The first time an account uses Anthropic
 models, Bedrock may ask for Anthropic's one-time use-case form. In company accounts the cloud team has
@@ -97,6 +103,12 @@ your cloud team):
       ]
     },
     {
+      "Sid": "InvokeClaude5ViaMessagesApi",
+      "Effect": "Allow",
+      "Action": ["bedrock-mantle:CreateInference"],
+      "Resource": "*"
+    },
+    {
       "Sid": "DiscoverModels",
       "Effect": "Allow",
       "Action": ["bedrock:ListInferenceProfiles", "bedrock:GetInferenceProfile", "bedrock:ListFoundationModels"],
@@ -106,7 +118,9 @@ your cloud team):
 }
 ```
 
-- codepilot calls the Converse streaming API, which is authorised by `bedrock:InvokeModelWithResponseStream`.
+- Claude 5.x models go through the Messages API, authorised by `bedrock-mantle:CreateInference`. Scope the
+  resource to the model ARNs your organisation allows, if it restricts them.
+- Older models go through the Converse streaming API, authorised by `bedrock:InvokeModelWithResponseStream`.
 - Cross-region inference profiles (IDs starting `us.`, `eu.`, `apac.` or `global.`) route to several
   regions, so the foundation-model resource must allow every region in the profile, hence the `*`.
 - Optional, only if you set `CODEPILOT_LOG_GROUPS`: `logs:FilterLogEvents` on those log groups.
@@ -131,17 +145,26 @@ Other credential sources also work: `aws configure` access keys (avoid long-live
 `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_SESSION_TOKEN` environment variables, or an instance or
 container role.
 
-**Step 4: model IDs.** Set the three tiers to inference-profile IDs your account can use:
+**Step 4: models.** The defaults are the Claude 5.5 models:
 
 ```bash
-CODEPILOT_MODEL_FAST=us.anthropic.claude-haiku-4-5-20251001-v1:0
-CODEPILOT_MODEL_MAIN=us.anthropic.claude-sonnet-4-5-20250929-v1:0
-CODEPILOT_MODEL_HARD=us.anthropic.claude-opus-4-5-20251101-v1:0
+CODEPILOT_MODEL_FAST=anthropic.claude-haiku-5-5
+CODEPILOT_MODEL_MAIN=anthropic.claude-sonnet-5-5
+CODEPILOT_MODEL_HARD=anthropic.claude-opus-5-5
 ```
 
-Not sure which IDs you have? Run `make doctor`. If a model call fails, it lists every Anthropic inference
-profile visible to your account in that region. Newer Claude generations may be available; use them if
-they are.
+Not every model is enabled for every account. Find out what yours can use:
+
+```bash
+uv run codepilot models --refresh
+```
+
+It probes each candidate with a tiny request (a few tokens each), including the Claude 5.x IDs and every
+Converse inference profile in your region. It prints which are enabled and why others aren't (for example
+"pending onboarding"), and the result is cached for 12 hours. If a tier's model isn't enabled, codepilot
+automatically uses the best enabled model in the same family (Haiku 5.5 pending → Haiku 4.5) and says so.
+The UI's model dropdown lists every enabled model, so you can pick any of them per session. You can also
+set any enabled ID, from either API, for a tier above.
 
 **Network notes**
 - **Corporate TLS inspection:** `CODEPILOT_SYSTEM_CERTS=1` (default) verifies AWS certificates against your

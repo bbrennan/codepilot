@@ -197,8 +197,11 @@ Start a fresh session when you switch to an unrelated task. It's cheaper, and fo
 
 ## Model tiers and cost
 
-Each provider has three tiers: **fast**, **main** (default) and **hard**. Pick one per session in the chat
-header. The `explore` sub-agent and memory summaries always use **fast**. Rough guide: **main** for nearly
+Each provider has three tiers: **fast**, **main** (default) and **hard**. The model dropdown in the chat
+header lists the tiers, **every model your account can use** (found automatically and cached for 12 hours),
+models that aren't enabled yet (greyed out, with the reason on hover), and **Refresh model list**. Pick a
+tier, or pin a specific model for the session. If a tier's model isn't enabled for your account, it shows
+"(fallback)" and uses the best enabled model in the same family. The `explore` sub-agent and memory summaries always use **fast**. Rough guide: **main** for nearly
 everything, **hard** for gnarly bugs and big designs, **fast** for quick questions.
 
 Token use per model shows in **Memory → Token usage** and in the status bar. Costs are per token on your

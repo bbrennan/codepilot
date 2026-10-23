@@ -181,6 +181,7 @@ Click **Open folder…** (or say "review ~/code/my-service" in chat) and go. See
 |---|---|
 | `make install` | Install or update dependencies (`uv sync --all-extras`) |
 | `make doctor` | Check your setup |
+| `uv run codepilot models --refresh` | List the models your account can use |
 | `make serve` | Start the UI |
 | `make chat` | Terminal chat instead of the browser |
 | `make test` | codepilot's own tests (no cloud access needed) |

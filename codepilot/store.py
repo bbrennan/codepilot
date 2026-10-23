@@ -72,12 +72,13 @@ class Session:
     updated: float
     mode: str = "act"
     context_state: dict | None = None
+    model: str = ""  # explicit model chosen in the UI; empty = use the tier's model
 
     def public(self) -> dict:
         return {
             "id": self.id, "repo": self.repo, "title": self.title, "tier": self.tier,
             "auto_approve": self.auto_approve, "has_summary": bool(self.summary),
-            "mode": {"act": "build"}.get(self.mode, self.mode),
+            "mode": {"act": "build"}.get(self.mode, self.mode), "model": self.model,
             "pending": self.pending is not None, "created": self.created, "updated": self.updated,
         }
 
@@ -130,7 +131,8 @@ class Store:
 
     def _migrate(self) -> None:
         """Add columns introduced after a database was created."""
-        wanted = {"sessions": [("mode", "TEXT NOT NULL DEFAULT 'act'"), ("context_state", "TEXT")],
+        wanted = {"sessions": [("mode", "TEXT NOT NULL DEFAULT 'act'"), ("context_state", "TEXT"),
+                               ("model", "TEXT NOT NULL DEFAULT ''")],
                   "proposals": [("before_text", "TEXT"), ("after_text", "TEXT"), ("check_text", "TEXT")]}
         with self._lock, self._db:
             for table, cols in wanted.items():
@@ -165,7 +167,7 @@ class Store:
         return [self._session(r) for r in rows]
 
     def update_session(self, sid: str, **fields: Any) -> None:
-        allowed = {"title", "tier", "auto_approve", "summary", "pending", "repo", "mode", "context_state"}
+        allowed = {"title", "tier", "auto_approve", "summary", "pending", "repo", "mode", "context_state", "model"}
         if not fields or not set(fields) <= allowed:
             raise ValueError(f"bad session fields: {set(fields) - allowed}")
         if "pending" in fields:
@@ -191,6 +193,7 @@ class Store:
             pending=_decode(json.loads(row["pending"])) if row["pending"] else None,
             created=row["created"], updated=row["updated"], mode=row["mode"] or "act",
             context_state=json.loads(row["context_state"]) if row["context_state"] else None,
+            model=row["model"] or "",
         )
 
     # -- messages -------------------------------------------------------------------------------
@@ -233,12 +236,13 @@ class Store:
 
     # -- proposals ------------------------------------------------------------------------------
 
-    def add_proposal(self, sid: str, path: str, old_text: str, new_text: str, reason: str) -> Proposal:
+    def add_proposal(self, sid: str, path: str, old_text: str, new_text: str, reason: str,
+                     pid: int | None = None) -> Proposal:
         with self._lock, self._db:
             cur = self._db.execute(
-                "INSERT INTO proposals (session_id, path, old_text, new_text, reason, created)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
-                (sid, path, old_text, new_text, reason, time.time()),
+                "INSERT INTO proposals (id, session_id, path, old_text, new_text, reason, created)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (pid, sid, path, old_text, new_text, reason, time.time()),
             )
         return self.get_proposal(cur.lastrowid)
 

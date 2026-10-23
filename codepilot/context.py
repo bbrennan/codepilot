@@ -54,10 +54,11 @@ def _is_user_turn(m: dict) -> bool:
 
 
 class ContextManager:
-    def __init__(self, cfg: Config, store: Store, llm: Any):
+    def __init__(self, cfg: Config, store: Store, llm: Any, fast_model: Any = None):
         self.cfg = cfg
         self.store = store
         self.llm = llm
+        self.fast_model = fast_model or (lambda: cfg.models["fast"])
 
     # -- budget ------------------------------------------------------------------------------------
 
@@ -177,7 +178,7 @@ class ContextManager:
                   f"Conversation to fold in:\n{render_transcript([m for _, m in old])}\n\n"
                   "Write the updated summary.")
         try:
-            text = self.llm.complete(self.cfg.models["fast"], prompts.SUMMARIZE, prompt, max_tokens=3000)
+            text = self.llm.complete(self.fast_model(), prompts.SUMMARIZE, prompt, max_tokens=3000)
         except BedrockError as exc:
             text = f"{sess.summary}\n\n(Automatic summary unavailable: {exc})".strip()
         summary = (text.strip() + ("\n\n" + state if state else "")).strip()

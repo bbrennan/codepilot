@@ -17,10 +17,12 @@ PROVIDERS = ("bedrock", "anthropic", "openai", "ollama")
 
 # Fallbacks only; set CODEPILOT_MODEL_* in .env for your account.
 DEFAULT_MODELS = {
+    # Claude 5.x on Bedrock is served by the Messages API (bedrock-mantle) with anthropic.* IDs. Older
+    # inference-profile IDs (us./eu./global.anthropic...) still work and go through the Converse API.
     "bedrock": {
-        "fast": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
-        "main": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-        "hard": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+        "fast": "anthropic.claude-haiku-5-5",
+        "main": "anthropic.claude-sonnet-5-5",
+        "hard": "anthropic.claude-opus-5-5",
     },
     "anthropic": {"fast": "claude-haiku-5-5", "main": "claude-sonnet-5-5", "hard": "claude-opus-5-5"},
     "openai": {"fast": "", "main": "", "hard": ""},  # set CODEPILOT_OPENAI_MODEL; `codepilot doctor` lists yours
@@ -94,6 +96,8 @@ class Config:
     region: str
     profile: str | None
     endpoint_url: str | None
+    bedrock_api: str  # auto | converse | messages
+    bedrock_messages_url: str | None
     ca_bundle: str | None
     system_certs: bool
     prompt_cache: bool
@@ -150,11 +154,14 @@ class Config:
             region=_env("CODEPILOT_REGION", "AWS_REGION", "AWS_DEFAULT_REGION", default="us-east-1"),
             profile=_env("CODEPILOT_AWS_PROFILE", "AWS_PROFILE"),
             endpoint_url=_env("CODEPILOT_BEDROCK_ENDPOINT_URL"),
+            bedrock_api=_env("CODEPILOT_BEDROCK_API", default="auto").lower(),
+            bedrock_messages_url=_env("CODEPILOT_BEDROCK_MESSAGES_URL"),
             ca_bundle=_env("CODEPILOT_CA_BUNDLE", "AWS_CA_BUNDLE"),
             system_certs=_flag("CODEPILOT_SYSTEM_CERTS", True),
             prompt_cache=_flag("CODEPILOT_PROMPT_CACHE", True),
             thinking=_env("CODEPILOT_THINKING", default="off").strip().lower(),
-            effort=_env("CODEPILOT_EFFORT", default="high" if provider == "anthropic" else "").strip().lower(),
+            effort=_env("CODEPILOT_EFFORT",
+                        default="high" if provider in ("anthropic", "bedrock") else "").strip().lower(),
             anthropic_base_url=_env("CODEPILOT_ANTHROPIC_BASE_URL"),
             openai_base_url=_env("CODEPILOT_OPENAI_BASE_URL"),
             ollama_url=_env("CODEPILOT_OLLAMA_URL", "OLLAMA_HOST", default="http://localhost:11434").rstrip("/"),
@@ -196,3 +203,11 @@ class Config:
             return 1_000_000  # Claude 4.6+ and 5.x: 1M on the Anthropic API and on Bedrock
         # Claude 4.5 and older (Opus/Sonnet/Haiku 4.5): 200k.
         return 200_000
+
+    def bedrock_uses_messages(self, model: str) -> bool:
+        """Which Bedrock API serves this model: the Messages API (Claude 5.x, anthropic.* IDs) or Converse."""
+        if self.bedrock_api in ("messages", "mantle"):
+            return True
+        if self.bedrock_api == "converse":
+            return False
+        return model.startswith("anthropic.")

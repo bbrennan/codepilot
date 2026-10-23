@@ -344,3 +344,75 @@ def validate(task_ids: list[str] | None = None, progress: Callable[[str], None] 
         progress(f"  {'ok  ' if good else 'BAD '} {task.id}: unfixed={'fail' if not before else 'PASS?!'}, "
                  f"solution={'pass' if after else 'FAIL'}" + ("" if after else f"\n{out}"))
     return ok
+
+
+# -- compaction fidelity -------------------------------------------------------------------------
+
+COMPACTION_DIR = TASKS_DIR.parent / "compaction"
+
+
+def fact_found(fact: dict, text: str) -> bool:
+    t = " ".join(text.lower().split())
+    if "all" in fact:
+        return all(x.lower() in t for x in fact["all"])
+    return any(x.lower() in t for x in fact["any"])
+
+
+def compaction_eval(cfg: Config, repeat: int = 1, model: str | None = None, out: Path | None = None,
+                    llm_factory: Callable[[Config], Any] = make_llm, progress: Callable[[str], None] = print) -> dict:
+    """Compact realistic sessions with planted facts, using the real summariser, and score what survives."""
+    from . import models as model_discovery
+
+    summarizer = model or model_discovery.resolve_tiers(cfg, model_discovery.cached(cfg))["fast"]["model"]
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    out_dir = (out or Path("bench/results")) / f"compaction-{stamp}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    progress(f"compaction eval: summariser {cfg.provider}:{summarizer}, {repeat} run(s) per fixture -> {out_dir}")
+    runs = []
+    for path in sorted(COMPACTION_DIR.glob("*.json")):
+        fx = json.loads(path.read_text())
+        for r in range(repeat):
+            with tempfile.TemporaryDirectory(prefix="cpcompact-") as tmp:
+                c = replace(cfg, home=Path(tmp), models={**cfg.models, "fast": summarizer})
+                store = Store(c.home)
+                sess = store.create_session("", "main")
+                for m in fx["messages"]:
+                    store.add_message(sess.id, m["role"], m["content"])
+                for i, p in enumerate(fx.get("proposals", [])):
+                    prop = store.add_proposal(sess.id, p["path"], "", "", "", pid=fx.get("proposal_ids_start", 1) + i)
+                    store.set_proposal_status(prop.id, p["status"])
+                agent = Agent(c, store, llm=llm_factory(c))
+                for _ in agent.ctxm.compact_now(sess.id):
+                    pass
+                summary = store.get_session(sess.id).summary
+            facts = [{**f, "found": fact_found(f, summary)} for f in fx["facts"]]
+            original = sum(len(json.dumps(m["content"])) for m in fx["messages"])
+            runs.append({"fixture": fx["id"], "title": fx["title"], "run": r, "summary": summary, "facts": facts,
+                         "recall": sum(f["found"] for f in facts) / len(facts),
+                         "summary_chars": len(summary), "original_chars": original})
+            missing = [f["fact"] for f in facts if not f["found"]]
+            kept = sum(f["found"] for f in facts)
+            progress(f"  {fx['id']}{f' #{r}' if repeat > 1 else ''}: {kept}/{len(facts)} facts kept"
+                     f"{'; missing: ' + '; '.join(missing) if missing else ''}")
+    by_kind: dict[str, list[int]] = {}
+    for run in runs:
+        for f in run["facts"]:
+            k = by_kind.setdefault(f["kind"], [0, 0])
+            k[0] += f["found"]
+            k[1] += 1
+    total = sum(v[1] for v in by_kind.values())
+    report = {"summarizer": summarizer, "provider": cfg.provider, "runs": runs,
+              "recall": sum(v[0] for v in by_kind.values()) / total if total else 0.0,
+              "by_kind": {k: {"kept": v[0], "total": v[1]} for k, v in by_kind.items()}}
+    (out_dir / "results.json").write_text(json.dumps(report, indent=2))
+    lines = [f"# Compaction fidelity: {report['recall']:.0%} of key facts kept", "",
+             f"Summariser: `{cfg.provider}:{summarizer}`", "", "| Kind | Kept |", "|---|---|"]
+    lines += [f"| {k} | {v['kept']}/{v['total']} |" for k, v in sorted(report["by_kind"].items())]
+    for run in runs:
+        lines += ["", f"## {run['title']}{' #' + str(run['run']) if repeat > 1 else ''}: {run['recall']:.0%}",
+                  f"{run['original_chars']:,} chars compacted to {run['summary_chars']:,}", ""]
+        lines += [f"- {'✓' if f['found'] else '✗ **missing**'} ({f['kind']}) {f['fact']}" for f in run["facts"]]
+        lines += ["", "<details><summary>Summary</summary>", "", "```", run["summary"], "```", "</details>"]
+    (out_dir / "report.md").write_text("\n".join(lines) + "\n")
+    progress(f"compaction eval: {report['recall']:.0%} of facts kept. Report: {out_dir / 'report.md'}")
+    return report

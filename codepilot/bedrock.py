@@ -234,3 +234,30 @@ def _use_system_certs() -> None:
     except ImportError:  # pragma: no cover - truststore is a declared dependency
         log.warning("truststore not installed; using default CA bundle")
     _certs_done = True
+
+
+class BedrockRouter:
+    """Sends each model to the Bedrock API that serves it: Messages API for Claude 5.x (anthropic.* IDs),
+    Converse for inference-profile IDs (us./eu./global.anthropic...). Tiers can mix the two."""
+
+    def __init__(self, cfg: Config, converse: Any = None, messages: Any = None):
+        self.cfg = cfg
+        self._converse = converse
+        self._messages = messages
+
+    def pick(self, model: str) -> Any:
+        if self.cfg.bedrock_uses_messages(model):
+            if self._messages is None:
+                from .anthropic_api import AnthropicAPI
+
+                self._messages = AnthropicAPI(self.cfg, bedrock=True)
+            return self._messages
+        if self._converse is None:
+            self._converse = Bedrock(self.cfg)
+        return self._converse
+
+    def stream(self, model: str, *args: Any, **kwargs: Any) -> Iterator[dict]:
+        return self.pick(model).stream(model, *args, **kwargs)
+
+    def complete(self, model: str, *args: Any, **kwargs: Any) -> str:
+        return self.pick(model).complete(model, *args, **kwargs)

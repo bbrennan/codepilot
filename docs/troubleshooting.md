@@ -24,6 +24,9 @@ Start with `make doctor`. It tests each piece and prints the fix for most proble
 | `ValidationException` mentioning caching | Handled automatically (caching turns off for that model). To force it off: `CODEPILOT_PROMPT_CACHE=0` |
 | `ThrottlingException` after retries | You hit your account's tokens-per-minute quota. Wait, use a smaller tier, lower `--jobs` in bench, or request a quota increase |
 | `TLS verification failed` / `CERTIFICATE_VERIFY_FAILED` | Keep `CODEPILOT_SYSTEM_CERTS=1`, or set `CODEPILOT_CA_BUNDLE` to your corporate CA file |
+| Only Claude 4.5 models show up, though Claude 5.x is enabled | Update codepilot (`git pull && make install`). Claude 5.x on Bedrock uses the Messages API with `anthropic.claude-…` IDs, which older versions didn't use; run `uv run codepilot models --refresh` |
+| A model shows as "Not enabled" (e.g. pending onboarding) | Your account doesn't have access yet; codepilot falls back to the best enabled model in the tier's family. Once access is granted, use **Refresh model list** in the dropdown |
+| `denied the request ... bedrock-mantle:CreateInference` | Add that IAM permission (see [setup.md](setup.md#amazon-bedrock)) |
 | Works in the AWS CLI but not in codepilot | Check `AWS_PROFILE`/`AWS_REGION` in `.env` match what you use with the CLI; `make doctor` prints both |
 
 ## Anthropic API

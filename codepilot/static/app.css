@@ -402,6 +402,7 @@ a.loc:hover { text-decoration: underline; }
 .status.reverted { color: var(--muted); }
 .composer-box.readonly { border-color: color-mix(in srgb, var(--warn) 55%, var(--line-2)); }
 .mode-select { font-weight: 600; color: var(--fg); max-width: 120px; }
+#tier { max-width: 230px; }
 .mode-select.readonly { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
 
 /* ---------- open-folder dialog ---------- */

@@ -1,0 +1,401 @@
+{
+ "id": "debug-rounding",
+ "title": "Debugging a rounding bug",
+ "messages": [
+  {
+   "role": "user",
+   "content": [
+    {
+     "text": "Checkout totals are a cent off for EUR orders (ticket CP-4821). Constraint: do NOT change the public API of billing.invoice; we can't bump the package version this sprint. Use `pytest -k` for narrow test runs."
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "text": "I'll reproduce it first."
+    },
+    {
+     "toolUse": {
+      "toolUseId": "t1",
+      "name": "run_tests",
+      "input": {
+       "args": "-k test_eur_rounding"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "toolResult": {
+      "toolUseId": "t1",
+      "content": [
+       {
+        "text": "$ python -m pytest -q -k test_eur_rounding\nexit code 1 in 0.8s\nF\nFAILED tests/test_invoice.py::test_eur_rounding - AssertionError: Decimal('10.01') != Decimal('10.00')\n1 failed, 40 deselected"
+       }
+      ],
+      "status": "success"
+     }
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "text": "Reproduced: test_eur_rounding expects 10.00 but gets 10.01. Reading the invoice code."
+    },
+    {
+     "toolUse": {
+      "toolUseId": "t2",
+      "name": "read_file",
+      "input": {
+       "path": "billing/invoice.py"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "toolResult": {
+      "toolUseId": "t2",
+      "content": [
+       {
+        "text": "    1  from decimal import Decimal\n    2  from .currency import to_minor_units, MINOR_UNITS\n    3  \n    4  def line_total(price, qty, currency='USD'):\n    5      units = to_minor_units(price * qty, currency)\n    6      return Decimal(units) / (10 ** MINOR_UNITS[currency])\n    7  # filler line 0: formatting helpers and docs\n    8  # filler line 1: formatting helpers and docs\n    9  # filler line 2: formatting helpers and docs\n   10  # filler line 3: formatting helpers and docs\n   11  # filler line 4: formatting helpers and docs\n   12  # filler line 5: formatting helpers and docs\n   13  # filler line 6: formatting helpers and docs\n   14  # filler line 7: formatting helpers and docs\n   15  # filler line 8: formatting helpers and docs\n   16  # filler line 9: formatting helpers and docs\n   17  # filler line 10: formatting helpers and docs\n   18  # filler line 11: formatting helpers and docs\n   19  # filler line 12: formatting helpers and docs\n   20  # filler line 13: formatting helpers and docs\n   21  # filler line 14: formatting helpers and docs\n   22  # filler line 15: formatting helpers and docs\n   23  # filler line 16: formatting helpers and docs\n   24  # filler line 17: formatting helpers and docs\n   25  # filler line 18: formatting helpers and docs\n   26  # filler line 19: formatting helpers and docs\n   27  # filler line 20: formatting helpers and docs\n   28  # filler line 21: formatting helpers and docs\n   29  # filler line 22: formatting helpers and docs\n   30  # filler line 23: formatting helpers and docs\n   31  # filler line 24: formatting helpers and docs\n   32  # filler line 25: formatting helpers and docs\n   33  # filler line 26: formatting helpers and docs\n   34  # filler line 27: formatting helpers and docs\n   35  # filler line 28: formatting helpers and docs\n   36  # filler line 29: formatting helpers and docs\n   37  # filler line 30: formatting helpers and docs\n   38  # filler line 31: formatting helpers and docs\n   39  # filler line 32: formatting helpers and docs\n   40  # filler line 33: formatting helpers and docs\n   41  # filler line 34: formatting helpers and docs\n   42  # filler line 35: formatting helpers and docs\n   43  # filler line 36: formatting helpers and docs\n   44  # filler line 37: formatting helpers and docs\n   45  # filler line 38: formatting helpers and docs\n   46  # filler line 39: formatting helpers and docs\n   47  # filler line 40: formatting helpers and docs\n   48  # filler line 41: formatting helpers and docs\n   49  # filler line 42: formatting helpers and docs\n   50  # filler line 43: formatting helpers and docs\n   51  # filler line 44: formatting helpers and docs\n   52  # filler line 45: formatting helpers and docs\n   53  # filler line 46: formatting helpers and docs\n   54  # filler line 47: formatting helpers and docs\n   55  # filler line 48: formatting helpers and docs\n   56  # filler line 49: formatting helpers and docs\n   57  # filler line 50: formatting helpers and docs\n   58  # filler line 51: formatting helpers and docs\n   59  # filler line 52: formatting helpers and docs\n   60  # filler line 53: formatting helpers and docs\n   61  # filler line 54: formatting helpers and docs\n   62  # filler line 55: formatting helpers and docs\n   63  # filler line 56: formatting helpers and docs\n   64  # filler line 57: formatting helpers and docs\n   65  # filler line 58: formatting helpers and docs\n   66  # filler line 59: formatting helpers and docs"
+       }
+      ],
+      "status": "success"
+     }
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "text": "line_total delegates rounding to to_minor_units. Reading it."
+    },
+    {
+     "toolUse": {
+      "toolUseId": "t3",
+      "name": "read_file",
+      "input": {
+       "path": "billing/currency.py"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "toolResult": {
+      "toolUseId": "t3",
+      "content": [
+       {
+        "text": "    1  # currency helpers line 0\n    2  # currency helpers line 1\n    3  # currency helpers line 2\n    4  # currency helpers line 3\n    5  # currency helpers line 4\n    6  # currency helpers line 5\n    7  # currency helpers line 6\n    8  # currency helpers line 7\n    9  # currency helpers line 8\n   10  # currency helpers line 9\n   11  # currency helpers line 10\n   12  # currency helpers line 11\n   13  # currency helpers line 12\n   14  # currency helpers line 13\n   15  # currency helpers line 14\n   16  # currency helpers line 15\n   17  # currency helpers line 16\n   18  # currency helpers line 17\n   19  # currency helpers line 18\n   20  # currency helpers line 19\n   21  # currency helpers line 20\n   22  # currency helpers line 21\n   23  # currency helpers line 22\n   24  # currency helpers line 23\n   25  # currency helpers line 24\n   26  # currency helpers line 25\n   27  # currency helpers line 26\n   28  # currency helpers line 27\n   29  # currency helpers line 28\n   30  # currency helpers line 29\n   31  # currency helpers line 30\n   32  # currency helpers line 31\n   33  # currency helpers line 32\n   34  # currency helpers line 33\n   35  # currency helpers line 34\n   36  # currency helpers line 35\n   37  # currency helpers line 36\n   38  # currency helpers line 37\n   39  # currency helpers line 38\n   40  # currency helpers line 39\n   41  # currency helpers line 40\n   42  # currency helpers line 41\n   43  # currency helpers line 42\n   44  # currency helpers line 43\n   45  # currency helpers line 44\n   46  # currency helpers line 45\n   47  # currency helpers line 46\n   48  # currency helpers line 47\n   49  # currency helpers line 48\n   50  # currency helpers line 49\n   51  # currency helpers line 50\n   52  # currency helpers line 51\n   53  # currency helpers line 52\n   54  # currency helpers line 53\n   55  # currency helpers line 54\n   56  # currency helpers line 55\n   57  # currency helpers line 56\n   58  # currency helpers line 57\n   59  # currency helpers line 58\n   60  # currency helpers line 59\n   61  # currency helpers line 60\n   62  # currency helpers line 61\n   63  # currency helpers line 62\n   64  # currency helpers line 63\n   65  # currency helpers line 64\n   66  # currency helpers line 65\n   67  # currency helpers line 66\n   68  # currency helpers line 67\n   69  # currency helpers line 68\n   70  # currency helpers line 69\n   71  # currency helpers line 70\n   72  # currency helpers line 71\n   73  # currency helpers line 72\n   74  # currency helpers line 73\n   75  # currency helpers line 74\n   76  # currency helpers line 75\n   77  # currency helpers line 76\n   78  # currency helpers line 77\n   79  # currency helpers line 78\n   80  # currency helpers line 79\n   81  # currency helpers line 80\n   82  # currency helpers line 81\n   83  # currency helpers line 82\n   84  # currency helpers line 83\n   85  # currency helpers line 84\n   86  def to_minor_units(amount, currency):\n   87      digits = MINOR_UNITS[currency]\n   88      return int(round(float(amount) * 10 ** digits))  # line 88\n   89  MINOR_UNITS = {'USD': 2, 'EUR': 2, 'GBP': 2, 'JPY': 0}"
+       }
+      ],
+      "status": "success"
+     }
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "text": "Checking the production trace for the failing order."
+    },
+    {
+     "toolUse": {
+      "toolUseId": "t4",
+      "name": "search_traces",
+      "input": {
+       "query": "order 55120"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "toolResult": {
+      "toolUseId": "t4",
+      "content": [
+       {
+        "text": "traces/checkout.jsonl:812: {\"traceId\": \"trc_9f2a71\", \"name\": \"tool.compute_total\", \"attributes\": {\"order\": 55120, \"currency\": \"EUR\", \"amount\": \"10.005\", \"total\": \"10.01\"}}"
+       }
+      ],
+      "status": "success"
+     }
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "text": "Root cause: billing/currency.py:88 converts to float and uses Python's round(), which does banker's rounding (round half to even) on a binary float, so 10.005 EUR becomes 1001 minor units. The trace trc_9f2a71 shows exactly this. Fix: use Decimal(str(amount)).quantize(..., rounding=ROUND_HALF_UP) inside to_minor_units, which keeps the public API unchanged."
+    },
+    {
+     "toolUse": {
+      "toolUseId": "t5",
+      "name": "propose_edit",
+      "input": {
+       "path": "billing/currency.py",
+       "old_text": "    return int(round(float(amount) * 10 ** digits))",
+       "new_text": "    q = Decimal(str(amount)).scaleb(digits).quantize(Decimal(1), rounding=ROUND_HALF_UP)\n    return int(q)",
+       "reason": "half-up rounding with Decimal"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "toolResult": {
+      "toolUseId": "t5",
+      "content": [
+       {
+        "text": "Proposed change #3 to billing/currency.py (pending the user's approval; not yet applied)."
+       }
+      ],
+      "status": "success"
+     }
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "text": "I also suggest proposal #4: refactor currency helpers into a Money class."
+    },
+    {
+     "toolUse": {
+      "toolUseId": "t6",
+      "name": "propose_edit",
+      "input": {
+       "path": "billing/money.py",
+       "old_text": "",
+       "new_text": "class Money: ...",
+       "reason": "refactor"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "toolResult": {
+      "toolUseId": "t6",
+      "content": [
+       {
+        "text": "Proposed change #4 to billing/money.py (pending the user's approval; not yet applied)."
+       }
+      ],
+      "status": "success"
+     }
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "text": "Proposed #3 (the fix) and #4 (optional refactor)."
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "text": "Applied #3. Rejected #4: keep the diff minimal this sprint. Run the whole suite."
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "text": "Running the full suite."
+    },
+    {
+     "toolUse": {
+      "toolUseId": "t7",
+      "name": "run_tests",
+      "input": {
+       "args": ""
+      }
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "toolResult": {
+      "toolUseId": "t7",
+      "content": [
+       {
+        "text": "$ python -m pytest -q\nexit code 0 in 3.1s\n41 passed in 2.98s"
+       }
+      ],
+      "status": "success"
+     }
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "text": "All 41 tests pass. Remaining risk: JPY has zero decimal places in MINOR_UNITS, so quantize at 10**0 needs a regression test. Next step: add test_jpy_rounding to tests/test_invoice.py."
+    }
+   ]
+  }
+ ],
+ "proposals": [
+  {
+   "path": "billing/currency.py",
+   "status": "applied"
+  },
+  {
+   "path": "billing/money.py",
+   "status": "rejected"
+  }
+ ],
+ "proposal_ids_start": 3,
+ "facts": [
+  {
+   "kind": "instruction",
+   "fact": "Don't change billing.invoice's public API",
+   "any": [
+    "public api"
+   ]
+  },
+  {
+   "kind": "instruction",
+   "fact": "Keep the diff minimal",
+   "any": [
+    "minimal"
+   ]
+  },
+  {
+   "kind": "instruction",
+   "fact": "Use pytest -k for narrow runs",
+   "any": [
+    "pytest -k",
+    "-k "
+   ]
+  },
+  {
+   "kind": "identifier",
+   "fact": "Ticket CP-4821",
+   "any": [
+    "CP-4821"
+   ]
+  },
+  {
+   "kind": "identifier",
+   "fact": "Bug location billing/currency.py:88",
+   "any": [
+    "currency.py:88"
+   ]
+  },
+  {
+   "kind": "identifier",
+   "fact": "Failing test test_eur_rounding",
+   "any": [
+    "test_eur_rounding"
+   ]
+  },
+  {
+   "kind": "identifier",
+   "fact": "Wrong value 10.01 vs 10.00",
+   "all": [
+    "10.01",
+    "10.00"
+   ]
+  },
+  {
+   "kind": "identifier",
+   "fact": "Trace id trc_9f2a71",
+   "any": [
+    "trc_9f2a71"
+   ]
+  },
+  {
+   "kind": "decision",
+   "fact": "Root cause: float + round() (banker's / half-even)",
+   "any": [
+    "banker",
+    "half to even",
+    "half-even"
+   ]
+  },
+  {
+   "kind": "decision",
+   "fact": "Fix uses Decimal with ROUND_HALF_UP",
+   "any": [
+    "ROUND_HALF_UP",
+    "half-up",
+    "half up"
+   ]
+  },
+  {
+   "kind": "status",
+   "fact": "Proposal #3 applied",
+   "all": [
+    "#3",
+    "appl"
+   ]
+  },
+  {
+   "kind": "status",
+   "fact": "Proposal #4 rejected",
+   "all": [
+    "#4",
+    "reject"
+   ]
+  },
+  {
+   "kind": "status",
+   "fact": "41 tests pass",
+   "any": [
+    "41"
+   ]
+  },
+  {
+   "kind": "next_step",
+   "fact": "JPY zero-decimal regression test next",
+   "all": [
+    "JPY"
+   ]
+  },
+  {
+   "kind": "next_step",
+   "fact": "Add test_jpy_rounding",
+   "any": [
+    "test_jpy_rounding"
+   ]
+  }
+ ]
+}

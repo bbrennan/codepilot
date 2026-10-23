@@ -163,8 +163,8 @@ async function init() {
   const c = state.cfg;
   $("#sbProvider").innerHTML = `${icon("server")}${c.provider === "bedrock" ? `bedrock · ${esc(c.region)}${c.profile ? " · " + esc(c.profile) : ""}` : `${esc(c.provider)} · ${esc(shortModel(c.models.main) || "no model set")}`}`;
   $("#sbProvider").classList.add(c.provider === "ollama" ? "warn" : "ok");
-  $("#tier").innerHTML = c.tiers.map((t) => `<option value="${t}">${t} · ${esc(shortModel(c.models[t]))}</option>`).join("");
-  $("#tier").value = c.default_tier;
+  renderModelSelect();
+  loadModels(false);
   if (c.eval_cmd) $("#cmdInput").value = c.eval_cmd;
   renderQuick();
   api("/api/github").then((g) => {
@@ -208,7 +208,7 @@ $("#sessionList").addEventListener("click", async (e) => {
   const row = e.target.closest(".session"); if (row) openSession(row.dataset.id);
 });
 async function newSession(repo) {
-  const s = await api("/api/sessions", { method: "POST", body: { repo: repo ?? state.workspace ?? "", tier: $("#tier").value, auto_approve: $("#autoApprove").checked } });
+  const s = await api("/api/sessions", { method: "POST", body: { repo: repo ?? state.workspace ?? "", tier: selectedTier(), auto_approve: $("#autoApprove").checked } });
   await openSession(s.id); $("#input").focus();
   return s;
 }
@@ -222,7 +222,7 @@ async function openSession(sid) {
   const data = await api(`/api/sessions/${sid}`);
   state.session = data.session;
   $("#chatTitle").textContent = data.session.title || "New session";
-  $("#tier").value = data.session.tier; $("#autoApprove").checked = data.session.auto_approve;
+  syncModelSelect(); $("#autoApprove").checked = data.session.auto_approve;
   state.mode = data.session.mode || "build";
   $("#transcript").innerHTML = ""; state.toolEls.clear(); endText();
   state.proposals = new Map(data.proposals.map((p) => [p.id, p]));
@@ -854,7 +854,7 @@ async function send() {
   $("#input").value = ""; autosize(); hideMentions();
   render({ type: "user", text }); scrollEnd(true);
   if (!state.session?.title) $("#chatTitle").textContent = text.split("\n")[0].slice(0, 80);
-  streamTo(state.sid, `/api/sessions/${state.sid}/chat`, { message: text, tier: $("#tier").value });
+  streamTo(state.sid, `/api/sessions/${state.sid}/chat`, { message: text, tier: selectedTier() });
 }
 $("#sendBtn").onclick = send;
 $("#stopBtn").onclick = () => state.sid && api(`/api/sessions/${state.sid}/cancel`, { method: "POST" });
@@ -879,7 +879,47 @@ $("#modeSelect").addEventListener("change", async () => {
   const mode = $("#modeSelect").value; setMode(mode);
   if (state.sid) await api(`/api/sessions/${state.sid}`, { method: "PATCH", body: { mode } }).catch((err) => toast(err.message, true));
 });
-$("#tier").addEventListener("change", () => state.sid && api(`/api/sessions/${state.sid}`, { method: "PATCH", body: { tier: $("#tier").value } }));
+// ---- model picker: tiers, every model this account can use, and the ones not enabled yet
+const winLabel = (w) => (w >= 1_000_000 ? `${w / 1_000_000}M` : `${Math.round(w / 1000)}k`);
+function selectedTier() { const v = $("#tier").value || ""; return v.startsWith("tier:") ? v.slice(5) : (state.session?.tier || state.cfg.default_tier); }
+function renderModelSelect() {
+  const c = state.cfg, d = state.modelsData, tiers = d?.tiers || {};
+  const tierOpts = c.tiers.map((t) => {
+    const r = tiers[t], m = r ? r.model : c.models[t];
+    const tip = r?.fallback ? `Configured ${r.configured} isn't enabled for this account (${r.reason || ""}); using ${m}` : m;
+    return `<option value="tier:${t}" title="${esc(tip)}">${t} · ${esc(shortModel(m) || "not set")}${r?.fallback ? " (fallback)" : ""}</option>`;
+  }).join("");
+  const avail = (d?.models || []).filter((m) => m.available), off = (d?.models || []).filter((m) => !m.available);
+  const name = (m) => `${m.label}${m.api === "Converse" ? " · " + m.id.split(".")[0] : ""} · ${winLabel(m.window)}`;
+  $("#tier").innerHTML = `<optgroup label="Tiers">${tierOpts}</optgroup>`
+    + (avail.length ? `<optgroup label="Models on your account">${avail.map((m) => `<option value="model:${esc(m.id)}" title="${esc(m.id + " · " + m.api)}">${esc(name(m))}</option>`).join("")}</optgroup>` : "")
+    + (off.length ? `<optgroup label="Not enabled for this account">${off.map((m) => `<option disabled title="${esc(m.reason)}">${esc(name(m))}</option>`).join("")}</optgroup>` : "")
+    + `<option value="refresh">${d ? "↻ Refresh model list" : "Find models on my account…"}</option>`;
+  syncModelSelect();
+}
+function syncModelSelect() {
+  const s = state.session, tier = s?.tier || state.cfg.default_tier;
+  $("#tier").value = s?.model ? "model:" + s.model : "tier:" + tier;
+  if (!$("#tier").value) $("#tier").value = "tier:" + tier;
+}
+async function loadModels(refresh) {
+  if (refresh) toast("Checking which models your account can use…");
+  const d = await api(`/api/models${refresh ? "?refresh=1" : ""}`).catch((err) => { if (refresh) toast(err.message, true); return null; });
+  if (d) {
+    state.modelsData = d;
+    const fb = Object.entries(d.tiers || {}).filter(([, t]) => t.fallback);
+    if (fb.length && refresh !== null) toast(`${fb.map(([k, t]) => `${k}: ${shortModel(t.configured)} not enabled, using ${shortModel(t.model)}`).join("; ")}`);
+  }
+  renderModelSelect();
+}
+$("#tier").addEventListener("change", async () => {
+  const v = $("#tier").value;
+  if (v === "refresh") { syncModelSelect(); await loadModels(true); return; }
+  if (!state.sid) return;
+  const body = v.startsWith("model:") ? { model: v.slice(6) } : { tier: v.slice(5), model: "" };
+  const d = await api(`/api/sessions/${state.sid}`, { method: "PATCH", body }).catch((err) => { toast(err.message, true); return null; });
+  if (d) { state.session = d.session; setContext(d.context); }
+});
 $("#autoApprove").addEventListener("change", () => state.sid && api(`/api/sessions/${state.sid}`, { method: "PATCH", body: { auto_approve: $("#autoApprove").checked } }));
 
 // ---------------------------------------------------------------- composer: @ mentions, drag & drop

@@ -42,6 +42,34 @@ Useful comparisons:
 - **Variance:** `--repeat 3` runs each task three times. Model runs are not deterministic, so for small
   differences use repeats before concluding anything.
 
+## Is compaction losing important information?
+
+Two complementary checks, for when you change the summary prompt, the summariser model or the thresholds:
+
+**1. Fidelity eval: what survives a summary?**
+
+```bash
+uv run codepilot bench compaction [--model <summariser id>] [--repeat 3]
+```
+
+It replays realistic sessions (`bench/compaction/*.json`: a debugging session and a feature-planning session)
+containing planted key facts: your instructions and constraints, identifiers (file:line references, test
+names, error values, ticket and trace ids), root causes and decisions, proposal outcomes, and next steps. It
+runs the real `/compact` with your configured summariser, and reports which facts are kept, overall and by
+kind. The report includes each summary so you can read it. It exits non-zero below 90%. Add a fixture by
+writing a session and its facts (`"any"` or `"all"` substrings) in the same JSON shape.
+
+**2. Stress test: does compaction hurt real work?**
+
+```bash
+uv run codepilot bench run --label normal
+uv run codepilot bench run --context-tokens 30000 --label tight-window
+uv run codepilot bench compare bench/results/*-normal/results.json bench/results/*-tight-window/results.json
+```
+
+A tiny pretend window forces pruning and summarising mid-task. If the pass rate holds, compaction isn't
+losing what matters.
+
 ## Options (`codepilot bench run`)
 
 | Option | Default | Meaning |
@@ -56,6 +84,8 @@ Useful comparisons:
 | `--label NAME` | none | Name shown in reports and `compare` |
 | `--prices FILE` | none | Per-token prices for cost estimates (copy `bench/prices.example.toml`) |
 | `--keep` | off | Keep each task's working folder for inspection |
+| `--context-tokens N` | per model | Pretend the context window is this small, to force compaction |
+| `--prune-at`, `--compact-at` | from `.env` | Override the compaction thresholds for this run |
 | `--out DIR` | `bench/results` | Where results go |
 
 ## How a task runs

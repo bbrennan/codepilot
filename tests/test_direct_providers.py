@@ -168,3 +168,54 @@ def test_provider_config(monkeypatch):
     monkeypatch.setenv("CODEPILOT_OPENAI_MODEL_FAST", "my-small")
     cfg = Config.from_env()
     assert cfg.models == {"fast": "my-small", "main": "my-model", "hard": "my-model"} and cfg.effort == ""
+
+
+def test_bedrock_router_picks_api_per_model(cfg):
+    from codepilot.bedrock import BedrockRouter
+
+    conv, msgs = object(), object()
+    router = BedrockRouter(replace(cfg, provider="bedrock", bedrock_api="auto"), converse=conv, messages=msgs)
+    assert router.pick("anthropic.claude-opus-5-5") is msgs
+    assert router.pick("us.anthropic.claude-sonnet-4-5-20250929-v1:0") is conv
+    forced = BedrockRouter(replace(cfg, provider="bedrock", bedrock_api="converse"), converse=conv, messages=msgs)
+    assert forced.pick("anthropic.claude-opus-5-5") is conv
+
+
+def test_bedrock_messages_api_request_shape():
+    final = NS(content=[Block(type="text", text="ok")], stop_reason="end_turn",
+               usage=NS(input_tokens=1, output_tokens=1, cache_read_input_tokens=0, cache_creation_input_tokens=0))
+    fake = FakeAnthropic([], final)
+    llm = AnthropicAPI(_cfg(provider="bedrock", effort="high"), client=fake, bedrock=True)
+    tools = [{"name": "read_file", "description": "d", "inputSchema": {"json": {"type": "object"}}}]
+    msgs = [{"role": "user", "content": [{"text": "hi"}, {"text": "<turn_context>x</turn_context>"}]}]
+    list(llm.stream("anthropic.claude-opus-5-5", [{"text": "sys"}], msgs, tools))
+    req = fake.requests[0]
+    assert "fallbacks" not in req and "cache_control" not in req           # not offered on Bedrock
+    assert req["system"][-1]["cache_control"] == {"type": "ephemeral"}     # explicit breakpoints instead
+    assert req["messages"][-1]["content"][-1]["cache_control"] == {"type": "ephemeral"}
+    assert req["betas"] == ["thinking-binding-controls-2026-08-01"] and req["output_config"] == {"effort": "high"}
+
+
+def test_unsupported_option_is_dropped_and_retried():
+    import anthropic
+    import httpx2
+
+    final = NS(content=[Block(type="text", text="ok")], stop_reason="end_turn",
+               usage=NS(input_tokens=1, output_tokens=1, cache_read_input_tokens=0, cache_creation_input_tokens=0))
+    calls = []
+
+    class Messages:
+        def stream(self, **req):
+            calls.append(req)
+            if len(calls) == 1:
+                resp = httpx2.Response(400, request=httpx2.Request("POST", "https://bedrock-mantle.example"))
+                raise anthropic.BadRequestError("eager_input_streaming: Extra inputs are not permitted",
+                                                response=resp, body=None)
+            return FakeAnthropicStream([], final)
+    llm = AnthropicAPI(_cfg(provider="bedrock"), client=NS(beta=NS(messages=Messages())), bedrock=True)
+    tools = [{"name": "t", "description": "d", "inputSchema": {"json": {"type": "object"}}}]
+    msgs = [{"role": "user", "content": [{"text": "x"}]}]
+    out = list(llm.stream("anthropic.claude-sonnet-5-5", [{"text": "s"}], msgs, tools))
+    assert out[-1]["content"] == [{"text": "ok"}]
+    assert calls[0]["tools"][0].get("eager_input_streaming") is True
+    assert "eager_input_streaming" not in calls[1]["tools"][0]

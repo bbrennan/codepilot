@@ -25,9 +25,11 @@ Run `make doctor` after any change.
 |---|---|---|
 | `AWS_PROFILE` / `CODEPILOT_AWS_PROFILE` | none (default chain) | AWS profile to use (e.g. your SSO profile) |
 | `AWS_REGION` / `CODEPILOT_REGION` / `AWS_DEFAULT_REGION` | `us-east-1` | Bedrock region |
-| `CODEPILOT_MODEL_FAST` | `us.anthropic.claude-haiku-4-5-20251001-v1:0` | Fast tier model / inference profile ID |
-| `CODEPILOT_MODEL_MAIN` | `us.anthropic.claude-sonnet-4-5-20250929-v1:0` | Main tier |
-| `CODEPILOT_MODEL_HARD` | `us.anthropic.claude-opus-4-5-20251101-v1:0` | Hard tier |
+| `CODEPILOT_MODEL_FAST` | `anthropic.claude-haiku-5-5` | Fast tier. `anthropic.*` IDs use the Messages API; `us./eu./global.anthropic…` profile IDs use Converse |
+| `CODEPILOT_MODEL_MAIN` | `anthropic.claude-sonnet-5-5` | Main tier |
+| `CODEPILOT_MODEL_HARD` | `anthropic.claude-opus-5-5` | Hard tier |
+| `CODEPILOT_BEDROCK_API` | `auto` | `auto` (by model ID), `messages` or `converse` |
+| `CODEPILOT_BEDROCK_MESSAGES_URL` | SDK default | Custom endpoint for the Bedrock Messages API |
 | `CODEPILOT_PROMPT_CACHE` | `1` | Bedrock prompt caching; switches itself off if a model rejects it |
 | `CODEPILOT_THINKING` | `off` | `off`, `adaptive` (Claude 4.6+), or a thinking budget such as `4000` (Claude 4.5) |
 | `CODEPILOT_BEDROCK_ENDPOINT_URL` | none | Custom bedrock-runtime endpoint (VPC/PrivateLink) |
@@ -44,7 +46,7 @@ tiers and the default repo, for compatibility with an older internal tool.
 | `CODEPILOT_ANTHROPIC_MODEL_FAST` | `claude-haiku-5-5` | Fast tier |
 | `CODEPILOT_ANTHROPIC_MODEL_MAIN` | `claude-sonnet-5-5` | Main tier |
 | `CODEPILOT_ANTHROPIC_MODEL_HARD` | `claude-opus-5-5` | Hard tier |
-| `CODEPILOT_EFFORT` | `high` | `low`, `medium`, `high`, `xhigh` or `max`; how thoroughly the model works |
+| `CODEPILOT_EFFORT` | `high` | `low`, `medium`, `high`, `xhigh` or `max`; how thoroughly the model works (also applies to Claude 5.x on Bedrock) |
 | `CODEPILOT_ANTHROPIC_BASE_URL` (or `ANTHROPIC_BASE_URL`) | API default | Gateway or proxy URL |
 
 ### OpenAI API (`CODEPILOT_PROVIDER=openai`)
@@ -116,6 +118,7 @@ tiers and the default repo, for compatibility with an older internal tool.
 |---|---|
 | `.env` | Your settings and keys (git-ignored) |
 | `~/.codepilot/codepilot.db` | Sessions, messages, proposals, token usage (SQLite) |
+| `~/.codepilot/models.json` | Which models your account can use (cached 12h; `codepilot models --refresh`) |
 | `~/.codepilot/notes/<folder>-<hash>.md` | Per-workspace notes |
 | `~/.codepilot/scratch/<session>/` | The assistant's throwaway repro scripts |
 | `~/.codepilot/skills/`, `~/.codepilot/modes/` | Your custom skills and modes |

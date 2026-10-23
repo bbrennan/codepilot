@@ -12,8 +12,8 @@ from collections.abc import Callable, Generator, Iterator
 from pathlib import Path
 from typing import Any
 
-from . import checks, mentions, modes, prompts, repomap, skills
-from .bedrock import Bedrock, BedrockError, make_client
+from . import checks, mentions, models, modes, prompts, repomap, skills
+from .bedrock import BedrockError, make_client
 from .config import Config
 from .context import CLEARED_PREFIX, ContextManager, is_overflow
 from .store import Session, Store
@@ -37,7 +37,9 @@ def make_llm(cfg: Config) -> Any:
         from .openai_api import OpenAIAPI
 
         return OpenAIAPI(cfg)
-    return Bedrock(cfg)
+    from .bedrock import BedrockRouter
+
+    return BedrockRouter(cfg)
 
 
 def is_user_turn(message: dict) -> bool:
@@ -61,7 +63,7 @@ class Agent:
         self._logs_client = None
         self._logs_factory = logs_client_factory or self._default_logs_client
         self._cancelled: set[str] = set()
-        self.ctxm = ContextManager(cfg, store, self.llm)
+        self.ctxm = ContextManager(cfg, store, self.llm, fast_model=lambda: self.tier_model("fast"))
 
     def cancel(self, session_id: str) -> None:
         """Ask a running turn to stop at the next safe point."""
@@ -139,10 +141,16 @@ class Agent:
         self.store.update_session(sess.id, context_state=state)
         return "<turn_context>\n" + "\n\n".join(lines) + "\n</turn_context>" if lines else ""
 
+    def tier_model(self, tier: str) -> str:
+        """The tier's configured model, or the best enabled fallback if discovery found it unavailable."""
+        return models.resolve_tiers(self.cfg, models.cached(self.cfg))[tier]["model"]
+
     def _model_for(self, sess: Session) -> str:
+        if sess.model:
+            return sess.model
         root = Path(sess.repo).expanduser().resolve() if sess.repo else None
         mode = modes.get(sess.mode, root, self.cfg.home)
-        return self.cfg.models[mode.tier or sess.tier]
+        return self.tier_model(mode.tier or sess.tier)
 
     def context_usage(self, session_id: str) -> dict:
         """Estimated prompt tokens against the model's budget (window minus reply reserve)."""
@@ -265,7 +273,7 @@ class Agent:
             yield {"type": "error", "message": f"Workspace path does not exist: {ctx.root}"}
             return
         mode = modes.get(sess.mode, ctx.root, self.cfg.home)
-        model = self.cfg.models[mode.tier or sess.tier]
+        model = sess.model or self.tier_model(mode.tier or sess.tier)
         system = self._session_system(sess, ctx)
         specs = [t.spec() for t in self.tools.values()]
         recovered = False
@@ -395,7 +403,7 @@ class Agent:
         tools = {n: t for n, t in self.tools.items() if t.read_only and not t.needs_approval and t.fn is not None
                  and n not in ("load_skill",)}
         specs = [t.spec() for t in tools.values()]
-        model = self.cfg.models["fast"]
+        model = self.tier_model("fast")
         system = [{"text": prompts.EXPLORE}, {"text": f"Workspace: {ctx.root}", "dynamic": True}]
         messages: list[dict] = [{"role": "user", "content": [{"text": task}]}]
         for step in range(EXPLORE_MAX_STEPS):

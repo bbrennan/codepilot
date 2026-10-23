@@ -28,6 +28,9 @@ def main(argv: list[str] | None = None) -> int:
     p_doc.add_argument("--repo", help="Target repo (default: CODEPILOT_REPO)")
     p_doc.add_argument("--skip-models", action="store_true", help="Don't call the models")
 
+    p_models = sub.add_parser("models", help="List the models this account can use (and tier fallbacks)")
+    p_models.add_argument("--refresh", action="store_true", help="Probe again instead of using the 12h cache")
+
     p_chat = sub.add_parser("chat", help="Terminal chat (no browser)")
     p_chat.add_argument("--repo", help="Target repo (default: CODEPILOT_REPO)")
     p_chat.add_argument("--tier", choices=["fast", "main", "hard"])
@@ -50,6 +53,13 @@ def main(argv: list[str] | None = None) -> int:
     bsub.add_parser("list", help="List tasks")
     b_val = bsub.add_parser("validate", help="Check tasks fail unfixed and pass with the reference solution")
     b_val.add_argument("--tasks")
+    b_cmpx = bsub.add_parser("compaction", help="Score how many key facts survive /compact (uses the summariser model)")
+    b_cmpx.add_argument("--repeat", type=int, default=1)
+    b_cmpx.add_argument("--model", help="Summariser model to evaluate (default: the fast tier's model)")
+    b_cmpx.add_argument("--out", default="bench/results")
+    b_run.add_argument("--context-tokens", type=int, help="Pretend the window is this small, to stress compaction")
+    b_run.add_argument("--compact-at", type=float, help="Override CODEPILOT_COMPACT_AT for this run")
+    b_run.add_argument("--prune-at", type=float, help="Override CODEPILOT_PRUNE_AT for this run")
     b_cmp = bsub.add_parser("compare", help="Compare two results.json files")
     b_cmp.add_argument("a")
     b_cmp.add_argument("b")
@@ -68,6 +78,8 @@ def main(argv: list[str] | None = None) -> int:
         return doctor(cfg, args, env_path)
     if args.command == "bench":
         return bench_cmd(cfg, args)
+    if args.command == "models":
+        return print_models(cfg, refresh=args.refresh)
     return chat(cfg, args)
 
 
@@ -125,7 +137,7 @@ def doctor(cfg: Config, args, env_path: Path | None) -> int:
 
 
 def _doctor_bedrock(cfg: Config, skip_models: bool) -> int:
-    from .bedrock import Bedrock, BedrockError, explain_error, make_client
+    from .bedrock import explain_error, make_client
 
     failures = 0
     print("\naws")
@@ -143,25 +155,21 @@ def _doctor_bedrock(cfg: Config, skip_models: bool) -> int:
         return failures + 1
     if skip_models:
         return failures
-    print("\nmodels (one tiny call each)")
-    llm = Bedrock(cfg)
-    for tier, model in cfg.models.items():
-        try:
-            reply = llm.complete(model, "Reply with the single word OK.", "ping", max_tokens=16)
-            _line(OK, tier, f"{model} -> {reply[:30]!r}")
-        except BedrockError as exc:
-            failures += 1
-            _line(FAIL, tier, str(exc))
-    if failures:
-        try:
-            profiles = make_client(cfg, "bedrock").list_inference_profiles(maxResults=200)
-            ids = sorted(p["inferenceProfileId"] for p in profiles.get("inferenceProfileSummaries", [])
-                         if "anthropic" in p["inferenceProfileId"])
-            print("\n  Anthropic inference profiles visible in this region (use one as CODEPILOT_MODEL_*):")
-            for pid in ids:
-                print(f"    {pid}")
-        except Exception as exc:
-            print(f"  (could not list inference profiles: {explain_error(exc, cfg)})")
+    print("\nmodels (each probed with a tiny request; cached for 12h)")
+    from . import models
+
+    data = models.discover(cfg, refresh=True)
+    enabled = [m for m in data["models"] if m["available"]]
+    for m in data["models"]:
+        _line(OK if m["available"] else WARN, m["id"], f"{m['api']}" + ("" if m["available"] else f": {m['reason']}"))
+    print("\ntiers")
+    for tier, t in data["tiers"].items():
+        if t["fallback"]:
+            _line(WARN, tier, f"{t['configured']} not enabled for this account; using {t['model']}")
+        else:
+            ok = any(m["id"] == t["model"] for m in enabled)
+            failures += 0 if ok else 1
+            _line(OK if ok else FAIL, tier, t["model"])
     return failures
 
 
@@ -293,6 +301,27 @@ def _doctor_repo(cfg: Config, root: Path) -> int:
     return failures
 
 
+# -- models ---------------------------------------------------------------------------------------
+
+
+def print_models(cfg: Config, refresh: bool = True) -> int:
+    from . import models
+
+    print(f"Checking which models this account can use ({cfg.provider}"
+          f"{', ' + cfg.region if cfg.provider == 'bedrock' else ''})…")
+    data = models.discover(cfg, refresh=refresh)
+    for m in data["models"]:
+        status = OK if m["available"] else WARN
+        window = f"{m['window'] // 1000}k" if m["window"] < 1_000_000 else f"{m['window'] // 1_000_000}M"
+        detail = f"{m['label']} · {m['api']} · {window}" + ("" if m["available"] else f" · {m['reason']}")
+        _line(status, m["id"], detail)
+    print("\ntiers")
+    for tier, t in data["tiers"].items():
+        note = f" (configured {t['configured']} is not available, using this instead)" if t["fallback"] else ""
+        _line(WARN if t["fallback"] else OK, tier, t["model"] + note)
+    return 0 if any(m["available"] for m in data["models"]) else 1
+
+
 # -- bench ----------------------------------------------------------------------------------------
 
 
@@ -311,6 +340,14 @@ def bench_cmd(cfg: Config, args) -> int:
     if args.bench_cmd == "compare":
         print(bench.compare(Path(args.a), Path(args.b)))
         return 0
+    if args.bench_cmd == "compaction":
+        report = bench.compaction_eval(cfg, repeat=args.repeat, model=args.model, out=Path(args.out))
+        return 0 if report["recall"] >= 0.9 else 1
+    from dataclasses import replace
+
+    overrides = {k: v for k, v in (("context_tokens", args.context_tokens), ("compact_at", args.compact_at),
+                                   ("prune_at", args.prune_at)) if v is not None}
+    cfg = replace(cfg, **overrides)
     prices = tomllib.loads(Path(args.prices).read_text()) if args.prices else None
     report = bench.run(cfg, ids, tier=args.tier, mode=args.mode, repeat=args.repeat, jobs=args.jobs,
                        max_steps=args.max_steps, timeout=args.timeout, out=Path(args.out), keep=args.keep,

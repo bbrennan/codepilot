@@ -14,6 +14,9 @@ from .bedrock import BedrockError
 from .config import Config
 
 THINKING_BINDING_BETA = "thinking-binding-controls-2026-08-01"
+# Optional request features an endpoint might not support yet; dropped and retried if a 400 names them.
+COMPAT_KEYS = {"betas": ("beta", "block_binding", "thinking-binding"), "eager": ("eager_input_streaming",),
+               "cache": ("cache_control",), "effort": ("effort", "output_config")}
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 
@@ -30,9 +33,15 @@ def _supports_fallbacks(model: str) -> bool:
 
 
 class AnthropicAPI:
-    def __init__(self, cfg: Config, client: Any = None):
+    """Claude via the Messages API: the Anthropic API, or Claude in Amazon Bedrock (`bedrock=True`, the
+    bedrock-mantle endpoint, signed with your AWS credentials) where the Claude 5.x models live."""
+
+    def __init__(self, cfg: Config, client: Any = None, bedrock: bool = False):
         self.cfg = cfg
         self._client = client
+        self.bedrock = bedrock
+        self._disabled: set[str] = set()
+        self.label = "Bedrock (Messages API)" if bedrock else "Anthropic API"
 
     @property
     def client(self) -> Any:
@@ -46,9 +55,15 @@ class AnthropicAPI:
 
                 _use_system_certs()
             kwargs: dict[str, Any] = {"max_retries": 4, "timeout": 900}
-            if self.cfg.anthropic_base_url:
-                kwargs["base_url"] = self.cfg.anthropic_base_url
-            self._client = anthropic.Anthropic(**kwargs)
+            if self.bedrock:
+                kwargs.update(aws_region=self.cfg.region, aws_profile=self.cfg.profile)
+                if self.cfg.bedrock_messages_url:
+                    kwargs["base_url"] = self.cfg.bedrock_messages_url
+                self._client = anthropic.AnthropicBedrockMantle(**kwargs)
+            else:
+                if self.cfg.anthropic_base_url:
+                    kwargs["base_url"] = self.cfg.anthropic_base_url
+                self._client = anthropic.Anthropic(**kwargs)
         return self._client
 
     def _request(self, model: str, system: list[dict], messages: list[dict], tools: list[dict] | None,
@@ -58,23 +73,32 @@ class AnthropicAPI:
             "max_tokens": max_tokens or self.cfg.max_tokens,
             "system": [{"type": "text", "text": b["text"]} for b in system],
             "messages": to_anthropic(messages),
-            "cache_control": {"type": "ephemeral"},  # cache the conversation so far; each tool step re-reads it
         }
+        if "cache" not in self._disabled:
+            if self.bedrock:
+                _add_cache_breakpoints(req)  # explicit breakpoints: the portable form of prompt caching
+            else:
+                req["cache_control"] = {"type": "ephemeral"}  # caches the conversation so far
         if tools:
             req["tools"] = [{"name": t["name"], "description": t["description"],
-                             "input_schema": t["inputSchema"]["json"], "eager_input_streaming": True} for t in tools]
+                             "input_schema": t["inputSchema"]["json"]} for t in tools]
+            if "eager" not in self._disabled:
+                for t in req["tools"]:
+                    t["eager_input_streaming"] = True
         betas: list[str] = []
         if _supports_adaptive(model):
-            # Keep earlier reasoning valid when codepilot rebuilds history at a boundary (memory compaction,
-            # new workspace): mismatched thinking blocks are dropped instead of failing the request.
-            req["thinking"] = {"type": "adaptive", "block_binding": {"prefix_mismatch_behavior": "drop_block"}}
-            betas.append(THINKING_BINDING_BETA)
-            if self.cfg.effort:
+            req["thinking"] = {"type": "adaptive"}
+            if "betas" not in self._disabled:
+                # Keep earlier reasoning valid when codepilot rebuilds history at a boundary (memory compaction,
+                # new workspace): mismatched thinking blocks are dropped instead of failing the request.
+                req["thinking"]["block_binding"] = {"prefix_mismatch_behavior": "drop_block"}
+                betas.append(THINKING_BINDING_BETA)
+            if self.cfg.effort and "effort" not in self._disabled:
                 req["output_config"] = {"effort": self.cfg.effort}
         elif self.cfg.thinking not in ("", "off", "0", "false", "none", "adaptive"):
             req["thinking"] = {"type": "enabled", "budget_tokens": int(self.cfg.thinking)}
-        if _supports_fallbacks(model):
-            req["fallbacks"] = "default"
+        if _supports_fallbacks(model) and not self.bedrock and "betas" not in self._disabled:
+            req["fallbacks"] = "default"  # not offered on Bedrock
             betas.append(FALLBACK_BETA)
         if betas:
             req["betas"] = betas
@@ -82,6 +106,21 @@ class AnthropicAPI:
 
     def stream(self, model: str, system: list[dict], messages: list[dict], tools: list[dict] | None = None,
                max_tokens: int | None = None) -> Iterator[dict]:
+        import anthropic
+
+        for _attempt in range(len(COMPAT_KEYS) + 1):
+            try:
+                yield from self._stream_once(model, system, messages, tools, max_tokens)
+                return
+            except anthropic.BadRequestError as exc:
+                msg = str(exc.message).lower()
+                hit = [k for k, words in COMPAT_KEYS.items()
+                       if k not in self._disabled and any(w in msg for w in words)]
+                if not hit:
+                    raise BedrockError(f"{self.label} rejected the request: {exc.message}") from exc
+                self._disabled.update(hit)  # this endpoint doesn't take that option: retry without it
+
+    def _stream_once(self, model, system, messages, tools, max_tokens) -> Iterator[dict]:
         import anthropic
 
         try:
@@ -97,21 +136,32 @@ class AnthropicAPI:
                 final = s.get_final_message()
         except ValueError as exc:  # tool input JSON the SDK couldn't parse at all
             raise BedrockError(f"The model produced unparseable tool input; please retry. ({exc})") from exc
+        except anthropic.BadRequestError:
+            raise  # handled by stream(): may retry without an unsupported option
         except anthropic.AuthenticationError as exc:
-            raise BedrockError("Anthropic API key missing or invalid. Set ANTHROPIC_API_KEY in .env.") from exc
+            hint = (f"AWS credentials rejected. Run: aws sso login --profile {self.cfg.profile or '<profile>'}"
+                    if self.bedrock else "Anthropic API key missing or invalid. Set ANTHROPIC_API_KEY in .env.")
+            raise BedrockError(hint) from exc
         except anthropic.PermissionDeniedError as exc:
-            raise BedrockError(f"Anthropic API denied the request: {exc.message}") from exc
+            hint = (" Your IAM role needs bedrock-mantle:CreateInference on this model." if self.bedrock else "")
+            raise BedrockError(f"{self.label} denied the request: {exc.message}.{hint}") from exc
         except anthropic.NotFoundError as exc:
-            raise BedrockError(f"Model {model!r} not found for this key. Check CODEPILOT_ANTHROPIC_MODEL_*.") from exc
+            where = "CODEPILOT_MODEL_* (Bedrock IDs look like anthropic.claude-opus-5-5)" if self.bedrock \
+                else "CODEPILOT_ANTHROPIC_MODEL_*"
+            raise BedrockError(f"Model {model!r} not found. Check {where}.") from exc
         except anthropic.RateLimitError as exc:
-            raise BedrockError(f"Anthropic rate limit hit after retries: {exc.message}") from exc
-        except anthropic.BadRequestError as exc:
-            raise BedrockError(f"Anthropic API rejected the request: {exc.message}") from exc
+            raise BedrockError(f"{self.label} rate limit hit after retries: {exc.message}") from exc
         except anthropic.APIStatusError as exc:
-            raise BedrockError(f"Anthropic API error {exc.status_code}: {exc.message}") from exc
+            raise BedrockError(f"{self.label} error {exc.status_code}: {exc.message}") from exc
         except anthropic.APIConnectionError as exc:
-            raise BedrockError("Couldn't reach the Anthropic API (network, proxy or TLS). Behind a corporate proxy, "
+            raise BedrockError(f"Couldn't reach the {self.label} (network, proxy or TLS). Behind a corporate proxy, "
                                "keep CODEPILOT_SYSTEM_CERTS=1 or set HTTPS_PROXY.") from exc
+        except Exception as exc:  # e.g. AWS credential/SSO errors raised while signing the request
+            if not self.bedrock:
+                raise
+            from .bedrock import explain_error
+
+            raise BedrockError(explain_error(exc, self.cfg)) from exc
 
         content = from_anthropic([b.model_dump(exclude_none=True) for b in final.content])
         stop = final.stop_reason
@@ -134,6 +184,17 @@ class AnthropicAPI:
 
     def list_models(self) -> list[str]:
         return [m.id for m in self.client.models.list(limit=100)]
+
+
+def _add_cache_breakpoints(req: dict) -> None:
+    """Cache breakpoints on the system prompt and on the latest message (at most 4 are allowed)."""
+    if req["system"]:
+        req["system"][-1]["cache_control"] = {"type": "ephemeral"}
+    if req["messages"]:
+        for block in reversed(req["messages"][-1]["content"]):
+            if block.get("type") in ("text", "tool_result", "tool_use"):
+                block["cache_control"] = {"type": "ephemeral"}
+                break
 
 
 def from_anthropic(blocks: list[dict]) -> list[dict]:
