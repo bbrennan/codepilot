@@ -74,6 +74,8 @@ assistant's replies in them are scripted so the demo is reproducible.</sub>
 - **Images:** paste or drop screenshots, link an image, or point at a file; the assistant can open images itself.
 - **Trusted web tools, no MCP:** current library docs (Context7), web pages (asks per site), optional web
   search.
+- **Slash commands:** `/plan`, `/debug …`, `/model opus`, `/spec …`, `/init`, `/undo`, `/export`, `/bug` and
+  more, run instantly in the app.
 - **Chat that keeps up with you:** type while it works (messages queue for its next step), edit or retry
   any message, ↑ for earlier prompts, and desktop notifications when it's done.
 - **Spec-driven development:** for bigger work, requirements (EARS acceptance criteria), then design, then

@@ -98,8 +98,30 @@ Write as you would to a colleague. Be specific about the goal and what "done" lo
 Referenced files (or line ranges) are attached to your message automatically, so the assistant doesn't
 have to go looking. Paths in its answers (`src/app.py:42`) are links that open the file at that line.
 
-**Use a skill:** type `/` to pick one, for example `/diagnose-bug the checkout total is wrong`. See
-[skills-and-modes.md](skills-and-modes.md).
+**Commands:** type `/` for a menu of commands and skills. Commands act in the app straight away, with no
+model call:
+
+| Command | What it does |
+|---|---|
+| `/help` | List commands and skills |
+| `/new` | New session on this folder |
+| `/plan`, `/build`, `/debug`, `/review`, `/ask`, `/bughunt`, `/spec` (and custom modes) | Switch mode; text after it is sent, e.g. `/debug the total is wrong` |
+| `/mode <mode>` | Switch mode by name |
+| `/model auto` · `fast` · `main` · `hard` · `<name>` | Switch the model for this session, e.g. `/model opus` |
+| `/spec <what to build>` | Start a spec from a description |
+| `/init` | Draft steering docs (`product.md`, `tech.md`, `structure.md`) from the repo |
+| `/compact [focus]` | Summarise the conversation to free context |
+| `/retry` · `/undo` | Send your last message again · undo the last applied change |
+| `/remember <fact>` | Add a line to this folder's notes |
+| `/export` | Download the conversation as Markdown |
+| `/terminal` · `/usage` · `/steering` | New terminal · context and tokens · steering docs |
+| `/report` (or `/bug`) · `/restart` | Report a problem · restart the server |
+
+Commands with no arguments run as soon as you pick them from the menu. A message that only starts with a
+path (`/Users/me/app.py fails`) is sent as normal.
+
+**Use a skill:** pick one from the same `/` menu, for example `/diagnose-bug the checkout total is wrong`.
+See [skills-and-modes.md](skills-and-modes.md).
 
 **Images:** paste a screenshot (⌘V, or Ctrl+V on a Mac too), drop image files on the message box, or click
 the 🖼 button. Thumbnails appear above the box; ✕ removes one. Images are shrunk in the browser before
@@ -414,7 +436,7 @@ issue (a short summary you review before submitting). Details: [troubleshooting]
 | ↑ / ↓ (message box) | Earlier / later prompts |
 | Alt+W | Close editor tab |
 | Enter / Shift+Enter | Send / new line |
-| `@` / `/` / `#` | Reference a file / use a skill / attach a steering doc |
+| `@` / `/` / `#` | Reference a file / run a command or skill / attach a steering doc |
 | Esc | Close popups |
 
 ## Tips for good results

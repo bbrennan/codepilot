@@ -1233,6 +1233,7 @@ async function unqueue(el, edit) {
 async function send() {
   const text = $("#input").value.trim();
   const pics = state.attachments.slice();
+  if (!pics.length && runSlashCommand(text)) return;
   if (!text && !pics.length) return;
   if (state.sid && state.streams.has(state.sid)) {
     if (pics.length) return toast("Images go with your next message: send them when codepilot finishes (or press Stop).", true);
@@ -1440,6 +1441,8 @@ function acceptMention(i) {
     const caret = mention.start + f.length + 2; input.setSelectionRange(caret, caret); hideMentions(); autosize(); return;
   }
   if (mention.kind === "skill") {
+    const cmd = slashCommands().find((c) => c.name === f && !c.server);
+    if (cmd && (!cmd.args || cmd.args.startsWith("[")) && !input.value.slice(pos).trim()) { input.value = "/" + f; hideMentions(); send(); return; } // run it
     input.value = "/" + f + " " + input.value.slice(pos);
     input.setSelectionRange(f.length + 2, f.length + 2); hideMentions(); autosize(); return;
   }
@@ -1458,8 +1461,11 @@ input.addEventListener("input", () => {
   if (m) { mention.kind = "file"; mention.start = pos - m[2].length - 1; fetchMentions(m[2]); } else hideMentions();
 });
 function showSkillMenu(q) {
-  const builtins = [{ name: "compact", description: "Summarise the conversation so far to free context. Add a focus, e.g. /compact the API changes" }];
-  const skills = [...builtins, ...(state.wsInfo?.skills || [])].filter((s) => s.name.includes(q.toLowerCase()));
+  const cmds = slashCommands().map((c) => ({ name: c.name, description: (c.args ? c.args + " · " : "") + c.desc, cmd: true }));
+  const taken = new Set(cmds.map((c) => c.name));
+  const ql = q.toLowerCase(), rank = (n) => (n === ql ? 0 : n.startsWith(ql) ? 1 : 2); // exact, then prefix, then contains
+  const skills = [...cmds, ...(state.wsInfo?.skills || []).filter((sk) => !taken.has(sk.name))].filter((s) => s.name.includes(ql))
+    .map((s, i) => ({ s, i })).sort((a, b) => rank(a.s.name) - rank(b.s.name) || a.i - b.i).map((x) => x.s);
   if (mention.kind !== "skill" || !mention.open) mention.idx = 0;
   mention.kind = "skill"; mention.start = 0;
   mention.idx = Math.min(mention.idx, Math.max(0, skills.length - 1));
@@ -1467,7 +1473,112 @@ function showSkillMenu(q) {
   const pop = $("#mentionPop");
   if (!skills.length) { hideMentions(); return; }
   mention.open = true; pop.hidden = false;
-  pop.innerHTML = skills.map((s, i) => `<div class="opt ${i === mention.idx ? "on" : ""}" data-i="${i}">${icon("sparkle")}<span>/${esc(s.name)}</span><span class="desc">${esc(s.description)}</span></div>`).join("");
+  pop.innerHTML = skills.map((s, i) => `<div class="opt ${i === mention.idx ? "on" : ""}" data-i="${i}">${icon(s.cmd ? "terminal" : "sparkle")}<span>/${esc(s.name)}</span><span class="desc">${esc(s.description)}</span></div>`).join("");
+}
+
+// ---------------------------------------------------------------- slash commands (run in the app; no model call)
+// /compact runs on the server; skills (/skill-name) go to the model. Everything else here acts directly.
+function slashCommands() {
+  const modes = (state.wsInfo?.modes || DEFAULT_MODES).map((m) => ({ name: m.name, args: "[message]", desc: `Switch to ${m.label} mode${m.description ? ": " + m.description.replace(/\.$/, "") : ""}; any text after it is sent`, run: (a) => modeCommand(m.name, a) }));
+  return [
+    { name: "help", desc: "List commands and skills", run: commandHelp },
+    { name: "new", desc: "Start a new session on this folder", run: () => newSession() },
+    { name: "compact", args: "[focus]", desc: "Summarise the conversation to free context", server: true },
+    { name: "model", args: "auto | fast | main | hard | <model>", desc: "Switch the model for this session", run: modelCommand },
+    { name: "mode", args: "<mode>", desc: "Switch mode", run: (a) => modeCommand(a.trim().toLowerCase(), "") },
+    ...modes,
+    { name: "spec", args: "<what to build>", desc: "Start a spec: requirements, design, tasks, then build", run: specCommand },
+    { name: "init", desc: "Draft steering docs (product, tech, structure) from this repo", run: initCommand },
+    { name: "retry", desc: "Send your last message again", run: () => { const el = lastTurnBubble(); el ? retryFrom(el) : toast("Nothing to retry yet.", true); } },
+    { name: "undo", desc: "Undo the last change you applied", run: undoCommand },
+    { name: "remember", args: "<fact>", desc: "Save a note codepilot reads in every session on this folder", run: rememberCommand },
+    { name: "export", desc: "Download this conversation as Markdown", run: exportCommand },
+    { name: "terminal", desc: "Open a new terminal", run: () => newTerminal() },
+    { name: "usage", desc: "Context, token usage and memory", run: () => setView("memory") },
+    { name: "steering", desc: "Open the steering docs", run: () => setView("steering") },
+    { name: "report", desc: "Report a problem", run: openReport },
+    { name: "bug", desc: "Report a problem", run: openReport },
+    { name: "restart", desc: "Restart the codepilot server (loads updated code)", run: restartServer },
+  ];
+}
+function runSlashCommand(text) {
+  const m = text.match(/^\/([\w-]+)(?:\s+([\s\S]*))?$/); if (!m) return false;
+  const cmd = slashCommands().find((c) => c.name === m[1].toLowerCase());
+  if (!cmd || cmd.server) return false; // a skill, /compact, or just a path like /Users/...: send it
+  $("#input").value = ""; autosize(); hideMentions(); resetHistory(); rememberPrompt(text);
+  Promise.resolve(cmd.run((m[2] || "").trim())).catch((err) => toast(err.message, true));
+  return true;
+}
+function commandHelp() {
+  const rows = slashCommands().map((c) => `<div><span class="mono">/${esc(c.name)}${c.args ? " " + esc(c.args) : ""}</span><span class="muted">${esc(c.desc)}</span></div>`).join("");
+  const skills = (state.wsInfo?.skills || []).map((sk) => `<div><span class="mono">/${esc(sk.name)}</span><span class="muted">${esc(sk.description.slice(0, 120))}</span></div>`).join("");
+  add(`<div class="card cmd-help"><div class="hd">${icon("terminal")}<strong>Commands</strong><span class="muted">type / to pick one</span></div><div class="cmd-grid">${rows}</div>${skills ? `<div class="hd">${icon("sparkle")}<strong>Skills</strong></div><div class="cmd-grid">${skills}</div>` : ""}</div>`);
+  scrollEnd(true);
+}
+function modeCommand(name, rest) {
+  const modes = state.wsInfo?.modes || DEFAULT_MODES;
+  if (!modes.some((m) => m.name === name)) return toast(`No mode called ${name}. Try: ${modes.map((m) => m.name).join(", ")}`, true);
+  $("#modeSelect").value = name; $("#modeSelect").dispatchEvent(new Event("change"));
+  toast(`${modes.find((m) => m.name === name).label} mode`);
+  if (rest) { setInput(rest); send(); }
+}
+function modelCommand(arg) {
+  const a = arg.trim().toLowerCase();
+  if (!a) { $("#tier").focus(); return toast("Usage: /model auto | fast | main | hard | <model name>"); }
+  let value = ["auto", "fast", "main", "hard"].includes(a) ? "tier:" + a : null;
+  if (!value) {
+    const hit = (state.modelsData?.models || []).find((m) => m.available && (m.id.toLowerCase().includes(a) || m.label.toLowerCase().includes(a)));
+    if (!hit) return toast(`No available model matches “${arg}”.`, true);
+    value = "model:" + hit.id;
+  }
+  $("#tier").value = value; $("#tier").dispatchEvent(new Event("change"));
+  toast(`Model: ${$("#tier").selectedOptions[0]?.textContent || value}`);
+}
+async function specCommand(arg) {
+  if (!arg) return newSpec("feature");
+  if (!needFolder()) return;
+  const kind = /\b(bug|broken|fails?|failing|error|crash|regression|wrong)\b/i.test(arg) ? "bugfix" : "feature";
+  try {
+    const sp = await api(`/api/sessions/${state.sid}/specs`, { method: "POST", body: { description: arg, kind } });
+    setMode("spec"); await loadSpecs(true); openSpec(sp.name); setInput(arg); send();
+  } catch (err) { toast(err.message, true); }
+}
+async function initCommand() {
+  if (!needFolder()) return;
+  const d = await api(`/api/sessions/${state.sid}/steering`).catch(() => null);
+  if (!d?.foundation_prompt) return toast("Open a folder first.", true);
+  setInput(d.foundation_prompt); send();
+}
+async function undoCommand() {
+  const last = [...state.proposals.values()].filter((p) => p.status === "applied").sort((a, b) => b.id - a.id)[0];
+  if (!last) return toast("No applied change to undo.", true);
+  try {
+    const p = await api(`/api/proposals/${last.id}/revert`, { method: "POST" }); state.proposals.set(p.id, p);
+    refreshProposalViews(p.id); loadGit(); reloadOpenFiles([p]); toast(`Undid #${p.id}; ${p.path} restored`);
+  } catch (err) { toast(err.message, true); }
+}
+async function rememberCommand(fact) {
+  if (!fact) return toast("Usage: /remember <fact>, e.g. /remember tests need make db-up first", true);
+  if (!needFolder()) return;
+  const n = await api(`/api/sessions/${state.sid}/notes`);
+  const notes = (n.notes || "").replace(/\s*$/, "") + `\n- ${fact}\n`;
+  await api(`/api/sessions/${state.sid}/notes`, { method: "PUT", body: { notes: notes.replace(/^\n/, "") } });
+  toast("Saved to this folder's notes");
+}
+async function exportCommand() {
+  if (!state.sid) return toast("Nothing to export yet.", true);
+  const d = await api(`/api/sessions/${state.sid}`);
+  const out = [`# ${d.session.title || "codepilot session"}`, "", `_Folder: ${tilde(d.session.repo || "")} · exported ${new Date().toLocaleString()}_`, ""];
+  for (const ev of d.events) {
+    if (ev.type === "user") out.push(`**You:** ${ev.text}`, "");
+    else if (ev.type === "assistant") out.push(`**codepilot:** ${ev.text}`, "");
+    else if (ev.type === "tool_call") out.push(`> \`${ev.name}\` ${argSummary(ev.name, ev.input)}`, "");
+    else if (ev.type === "proposal_ref") { const p = d.proposals.find((x) => x.id === ev.id); if (p) out.push(`> change #${p.id} to \`${p.path}\`: ${p.status}`, ""); }
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([out.join("\n")], { type: "text/markdown" }));
+  a.download = `${(d.session.title || "session").replace(/[^\w-]+/g, "-").slice(0, 50)}.md`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 // #name: attach a steering doc to this message (any doc; "manual" ones load only this way)
 async function showSteeringMenu(q) {
