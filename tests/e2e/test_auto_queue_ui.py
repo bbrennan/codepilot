@@ -118,3 +118,16 @@ def test_up_arrow_still_recalls_prompts_after_edits(page, server, session):
     page.click("#input")
     page.keyboard.press("ArrowUp")
     assert page.input_value("#input") == "one"
+
+
+def test_sending_while_a_new_session_opens_uses_that_session(page, server, session):
+    open_app(page)
+    page.route("**/api/sessions", lambda route: (page.wait_for_timeout(400), route.continue_())[1]
+               if route.request.method == "POST" else route.continue_())
+    page.click("#newChatBtn")  # creating takes a moment...
+    send(page, "hello from the new session")  # ...and the message is sent before it's open
+    page.locator(".msg.user", has_text="hello from the new session").wait_for()
+    wait_idle(page)
+    assert len(server.store.list_sessions()) == 2  # the fixture's session plus exactly one new one
+    newest = server.store.list_sessions()[0]
+    assert server.store.live_messages(newest.id)[0]["content"][0]["text"] == "hello from the new session"

@@ -247,9 +247,14 @@ $("#sessionList").addEventListener("click", async (e) => {
   const row = e.target.closest(".session"); if (row) openSession(row.dataset.id);
 });
 async function newSession(repo) {
-  const s = await api("/api/sessions", { method: "POST", body: { repo: repo ?? state.workspace ?? "", tier: selectedTier(), auto_approve: $("#autoApprove").checked } });
-  await openSession(s.id); $("#input").focus();
-  return s;
+  // One at a time: a message sent while a new session is still opening goes to that session, not a second one.
+  if (state.creatingSession) return state.creatingSession;
+  state.creatingSession = (async () => {
+    const s = await api("/api/sessions", { method: "POST", body: { repo: repo ?? state.workspace ?? "", tier: selectedTier(), auto_approve: $("#autoApprove").checked } });
+    await openSession(s.id); $("#input").focus();
+    return s;
+  })().finally(() => { state.creatingSession = null; });
+  return state.creatingSession;
 }
 window.newSession = newSession;
 $("#newSessionBtn").onclick = () => newSession();
@@ -409,6 +414,7 @@ function renderEditor() {
   else if (tab.kind === "diff") renderDiffTab(tab);
   else if (tab.kind === "gitdiff") renderGitDiffTab(tab);
   else if (tab.kind === "review") renderReviewTab(tab);
+  else if (tab.kind === "image") renderImageTab(tab);
   else if (tab.kind === "spec") renderSpecTab(tab);
   $$("#tree .row[data-file]").forEach((r) => r.classList.toggle("on", "file:" + r.dataset.file === state.active));
 }
@@ -440,6 +446,10 @@ async function openFile(path, line) {
   const id = "file:" + path;
   const existing = state.tabs.find((t) => t.id === id);
   if (existing && existing.content != null) { existing.flash = line || null; if (line) existing.sel = null; state.active = id; renderEditor(); return; }
+  if (/\.(png|jpe?g|gif|webp|svg|ico|bmp|avif)$/i.test(path)) { // images: show the image, not its bytes
+    openTab({ id, kind: "image", path, title: base(path), tip: path });
+    return;
+  }
   try {
     const d = await api(`/api/sessions/${state.sid}/files?path=${encodeURIComponent(path)}`);
     if (d.entries) { state.expanded.add(path); setView("explorer"); renderTree(); return; }
@@ -455,6 +465,7 @@ function highlight(text, path) {
 }
 function renderFileTab(tab) {
   if (tab.editing) return renderEditTab(tab);
+  if (isMarkdown(tab.path) && tab.view !== "source") return renderDocTab(tab);
   const lines = tab.content.split("\n");
   if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
   const sel = tab.sel;
@@ -464,6 +475,7 @@ function renderFileTab(tab) {
       <span class="spacer"></span><span class="muted">${selLabel ? selLabel.replace("lines", "L").replace("line", "L") : lines.length + " lines"}</span>
       <button class="btn" id="fAdd" title="Reference in chat">${icon("at")}${sel ? "Add lines" : "Add to chat"}</button>
       <button class="btn" id="fAsk">${icon("sparkle")}Ask</button>
+      ${isMarkdown(tab.path) ? viewSwitch("source") : ""}
       ${tab.readonly ? `<span class="muted" title="Edit it in its own tool's folder">read-only</span>` : `<button class="btn" id="fEdit" title="Edit this file">${icon("edit")}Edit</button>`}
       <button class="btn ghost" id="fCopy" title="Copy path (right-click a file for more)">${icon("copy")}</button>
       <button class="btn ghost" id="fReload" title="Reload from disk">${icon("refresh")}</button></div>
@@ -488,9 +500,112 @@ function renderFileTab(tab) {
   $("#fAsk").onclick = () => { setInput(`Explain @${ref()} — what it does, how it fits in, and any bugs you see.`); };
   $("#fReload").onclick = async () => { tab.content = null; const id = tab.id; await openFile(tab.path); state.active = id; };
   $("#fEdit") && ($("#fEdit").onclick = () => editFile(tab.id));
+  bindViewSwitch(tab);
   if (tab.global || tab.readonly) { $("#fAdd").remove(); $("#fAsk").remove(); } // outside the workspace: @ can't reach it
   if (tab.global) $("#fReload").onclick = () => openGlobalSteering(tab.global, true);
 }
+
+// ---------------------------------------------------------------- Markdown documents (preview)
+// marked renders GitHub-flavoured Markdown; DOMPurify removes scripts, event handlers, styles and forms, so a
+// document can never run code in this page (which holds the terminal token). Mermaid loads only when needed.
+const isMarkdown = (p) => /\.(md|markdown|mdx|mdown)$/i.test(p || "");
+const docParser = window.marked ? new marked.Marked({ gfm: true, breaks: false }) : null;
+const slugify = (t) => t.toLowerCase().trim().replace(/[^\w\- ]+/g, "").replace(/\s+/g, "-");
+function resolveDocPath(baseDir, href) {
+  let ref = decodeURIComponent(href.split("#")[0].split("?")[0]);
+  const parts = ref.startsWith("/") ? [] : (baseDir ? baseDir.split("/") : []);
+  for (const seg of ref.replace(/^\//, "").split("/")) {
+    if (seg === "..") parts.pop(); else if (seg && seg !== ".") parts.push(seg);
+  }
+  return parts.join("/");
+}
+function renderDoc(src, baseDir) {
+  const text = String(src ?? "");
+  const fm = text.match(/^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/);
+  const body = fm ? text.slice(fm[0].length) : text;
+  if (!docParser || !window.DOMPurify) return md(body); // vendor scripts missing: basic rendering
+  const html = DOMPurify.sanitize(docParser.parse(body), { FORBID_TAGS: ["style", "form", "button", "textarea", "select"], FORBID_ATTR: ["style"] });
+  const wrap = document.createElement("div");
+  wrap.innerHTML = html;
+  const seen = new Map();
+  wrap.querySelectorAll("h1,h2,h3,h4,h5,h6").forEach((h) => {
+    const id = slugify(h.textContent) || "section", n = seen.get(id) || 0; seen.set(id, n + 1);
+    h.id = "doc-" + (n ? `${id}-${n}` : id);
+  });
+  wrap.querySelectorAll("a[href]").forEach((a) => {
+    const href = a.getAttribute("href");
+    if (/^(https?:|mailto:)/i.test(href)) { a.target = "_blank"; a.rel = "noopener noreferrer"; a.title = href; return; }
+    if (href.startsWith("#")) { a.dataset.anchor = "doc-" + slugify(decodeURIComponent(href.slice(1))); a.setAttribute("href", "#"); return; }
+    a.dataset.docPath = resolveDocPath(baseDir, href); a.setAttribute("href", "#"); a.title = a.dataset.docPath;
+  });
+  wrap.querySelectorAll("img[src]").forEach((img) => {
+    const src = img.getAttribute("src"); img.loading = "lazy";
+    if (!/^(https?:|data:image\/)/i.test(src) && state.sid) img.setAttribute("src", `/api/sessions/${state.sid}/raw?path=${encodeURIComponent(resolveDocPath(baseDir, src))}`);
+  });
+  wrap.querySelectorAll("pre > code").forEach((code) => {
+    const lang = (code.className.match(/language-([\w+-]+)/) || [])[1];
+    if (lang === "mermaid") { const div = document.createElement("div"); div.className = "mermaid-block"; div.dataset.src = code.textContent; code.parentElement.replaceWith(div); return; }
+    if (window.hljs && lang && hljs.getLanguage(lang)) { try { code.innerHTML = hljs.highlight(code.textContent, { language: lang, ignoreIllegals: true }).value; } catch { /* plain */ } }
+  });
+  if (fm) wrap.insertAdjacentHTML("afterbegin", `<div class="front-matter"><span>front matter</span><pre>${esc(fm[1])}</pre></div>`);
+  return wrap.innerHTML;
+}
+let mermaidReady = null;
+function loadScript(src) { return new Promise((res, rej) => { const el = document.createElement("script"); el.src = src; el.onload = res; el.onerror = () => rej(new Error(`couldn't load ${src}`)); document.head.appendChild(el); }); }
+async function renderMermaid(root) {
+  const blocks = root ? [...root.querySelectorAll(".mermaid-block:not([data-done])")] : [];
+  if (!blocks.length) return;
+  try {
+    mermaidReady ||= loadScript("/static/vendor/mermaid.min.js");
+    await mermaidReady;
+    const dark = (document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")) === "dark";
+    mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: dark ? "dark" : "default" });
+  } catch (err) { blocks.forEach((b) => { b.innerHTML = `<pre>${esc(b.dataset.src)}</pre>`; }); return; }
+  for (const b of blocks) {
+    b.dataset.done = "1";
+    try { const { svg } = await mermaid.render("mmd-" + Math.random().toString(36).slice(2), b.dataset.src); b.innerHTML = svg; }
+    catch (err) { b.innerHTML = `<div class="mermaid-error">Diagram error: ${esc(String(err.message || err).split("\n")[0])}</div><pre>${esc(b.dataset.src)}</pre>`; }
+  }
+}
+function viewSwitch(current) {
+  return `<span class="seg" role="group" aria-label="View"><button class="${current === "preview" ? "on" : ""}" data-view-mode="preview">Preview</button><button class="${current === "source" ? "on" : ""}" data-view-mode="source">Source</button></span>`;
+}
+function bindViewSwitch(tab) {
+  $$("#editor [data-view-mode]").forEach((b) => (b.onclick = () => { tab.view = b.dataset.viewMode; renderEditor(); }));
+}
+function renderDocTab(tab) {
+  const parts = tab.path.split("/");
+  $("#editor").innerHTML = `<div class="ed-bar"><span class="crumbs">${parts.slice(0, -1).map(esc).join(" › ")}${parts.length > 1 ? " › " : ""}<b>${esc(parts.at(-1))}</b></span>
+      <span class="spacer"></span>${viewSwitch("preview")}
+      ${tab.readonly ? `<span class="muted">read-only</span>` : `<button class="btn" id="fEdit" title="Edit this file">${icon("edit")}Edit</button>`}
+      ${tab.global || tab.readonly ? "" : `<button class="btn" id="fAdd" title="Reference in chat">${icon("at")}Add to chat</button>`}
+      <button class="btn ghost" id="fReload" title="Reload from disk">${icon("refresh")}</button></div>
+    <div class="ed-scroll doc-scroll" id="edScroll"><article class="md-doc" id="docBody">${renderDoc(tab.content, dirOf(tab.path))}</article></div>`;
+  bindViewSwitch(tab);
+  $("#fEdit") && ($("#fEdit").onclick = () => editFile(tab.id));
+  $("#fAdd") && ($("#fAdd").onclick = () => insertRef(tab.path));
+  $("#fReload").onclick = async () => { if (tab.global) return openGlobalSteering(tab.global, true); tab.content = null; const id = tab.id; await openFile(tab.path); state.active = id; };
+  if (tab.scroll) $("#edScroll").scrollTop = tab.scroll;
+  $("#edScroll").onscroll = (e) => { tab.scroll = e.target.scrollTop; };
+  renderMermaid($("#docBody"));
+}
+function renderImageTab(tab) {
+  const url = `/api/sessions/${state.sid}/raw?path=${encodeURIComponent(tab.path)}`;
+  $("#editor").innerHTML = `<div class="ed-bar"><span class="crumbs"><b>${esc(tab.path)}</b></span><span class="spacer"></span><span class="muted" id="imgSize"></span>
+      <button class="btn" id="fAdd" title="Attach to your next message">${icon("at")}Add to chat</button></div>
+    <div class="ed-scroll img-view"><img src="${esc(url)}" alt="${esc(tab.path)}" id="imgView"></div>`;
+  $("#imgView").onload = (e) => { $("#imgSize").textContent = `${e.target.naturalWidth} × ${e.target.naturalHeight}`; };
+  $("#imgView").onerror = () => { $("#imgSize").textContent = "can't be shown"; };
+  $("#fAdd").onclick = () => insertRef(tab.path);
+}
+// links inside rendered documents (preview, spec tab)
+$("#editor").addEventListener("click", (e) => {
+  const a = e.target.closest("a[data-doc-path], a[data-anchor]"); if (!a) return;
+  e.preventDefault();
+  if (a.dataset.anchor) { document.getElementById(a.dataset.anchor)?.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
+  const [path, hash] = [a.dataset.docPath, (a.getAttribute("data-hash") || "")];
+  if (state.workspace) openFile(path).then(() => hash && document.getElementById(hash)?.scrollIntoView());
+});
 
 // edit mode: a plain-text editor with Save (⌘S), dirty tracking and a check for changes made on disk
 function editFile(id) {
@@ -509,9 +624,13 @@ function renderEditTab(tab) {
   const mod = isMac ? "⌘" : "Ctrl+";
   $("#editor").innerHTML = `<div class="ed-bar"><span class="crumbs">${parts.slice(0, -1).map(esc).join(" › ")}${parts.length > 1 ? " › " : ""}<b>${esc(parts.at(-1))}</b></span>
       <span class="spacer"></span><span class="muted" id="edState">${tab.dirty ? "Unsaved changes" : "Editing"}</span>
+      ${isMarkdown(tab.path) ? `<button class="btn" id="fEditPreview" title="See the draft rendered">${icon(tab.editPreview ? "edit" : "eye")}${tab.editPreview ? "Back to editing" : "Preview"}</button>` : ""}
       <button class="btn primary" id="fSave" title="Save (${mod}S)">${icon("check")}Save</button>
       <button class="btn" id="fDone" title="Back to the highlighted view">Done</button></div>
-    <textarea class="code-edit" id="codeEdit" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" aria-label="Edit ${esc(tab.path)}"></textarea>`;
+    ${tab.editPreview ? `<div class="ed-scroll doc-scroll"><article class="md-doc" id="docBody">${renderDoc(tab.draft ?? tab.content, dirOf(tab.path))}</article></div>` : `<textarea class="code-edit" id="codeEdit" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" aria-label="Edit ${esc(tab.path)}"></textarea>`}`;
+  $("#fEditPreview") && ($("#fEditPreview").onclick = () => { tab.editPreview = !tab.editPreview; renderEditor(); });
+  $("#fSave").onclick = () => saveFile(tab);
+  if (tab.editPreview) { renderMermaid($("#docBody")); $("#fDone").onclick = () => { tab.editPreview = false; renderEditor(); }; return; }
   const ta = $("#codeEdit");
   ta.value = tab.draft ?? tab.content;
   const caret = Math.min(tab.caret ?? 0, ta.value.length);
@@ -1239,6 +1358,7 @@ async function send() {
     if (pics.length) return toast("Images go with your next message: send them when codepilot finishes (or press Stop).", true);
     if (await queueMessage(text)) return;
   }
+  if (state.creatingSession) await state.creatingSession.catch(() => null); // "New session" still opening
   if (!state.sid) { try { await newSession(state.workspace); } catch (err) { toast(err.message, true); return; } }
   $("#input").value = ""; autosize(); hideMentions(); resetHistory(); askNotifyPermission(); clearAttachments();
   if (text) { rememberPrompt(text); (state.prompts ||= []).push(text); }
@@ -1851,10 +1971,11 @@ async function renderSpecTab(tab) {
     body = `<div class="sp-doc-bar">${rel ? `<span class="mono muted">${esc(rel)}</span>` : ""}<span class="spacer"></span>
         ${rel ? `<button class="btn sm" id="spEdit">${icon("edit")}Edit</button>` : ""}
         ${isCurrent && rel ? `<button class="btn sm primary" id="spApprove">${icon("check")}Approve ${esc(phaseLabel(spec, view).toLowerCase())} &amp; continue</button>` : ""}</div>
-      <div class="sp-doc md">${content != null ? md(content) : `<div class="empty-state">${state.streams.has(state.sid) ? '<span class="spinner"></span> codepilot is drafting this…' : `Not written yet.<br><button class="btn sm" id="spWrite">${icon("sparkle")}Ask codepilot to write it</button>`}</div>`}</div>
+      <div class="sp-doc md-doc" id="docBody">${content != null ? renderDoc(content, dirOf(rel)) : `<div class="empty-state">${state.streams.has(state.sid) ? '<span class="spinner"></span> codepilot is drafting this…' : `Not written yet.<br><button class="btn sm" id="spWrite">${icon("sparkle")}Ask codepilot to write it</button>`}</div>`}</div>
       ${rel ? `<div class="rv-ask"><textarea class="field" id="spAsk" rows="2" placeholder="Ask for changes to the ${esc(phaseLabel(spec, view).toLowerCase())}…"></textarea><button class="btn" id="spAskBtn">${icon("send")}Send</button></div>` : ""}`;
   }
   $("#editor").innerHTML = `<div class="spec-tab">${head}<div class="sp-body">${body}</div></div>`;
+  renderMermaid($("#docBody"));
   $$(".sp-step[data-sp-view]").forEach((b) => (b.onclick = () => { tab.view = b.dataset.spView; renderSpecTab(tab); }));
   const on = (id, fn) => $(id) && ($(id).onclick = fn);
   on("#spEdit", async () => { const rel = spec.docs[view]; await openFile(rel); editFile("file:" + rel); });

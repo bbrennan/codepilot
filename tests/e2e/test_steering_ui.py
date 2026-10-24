@@ -40,8 +40,8 @@ def test_view_lists_docs_from_every_source(page, server, session):
     assert set(steering_rows(page)) >= {"style", "api", "security", "CLAUDE"}
     assert page.locator("#steeringView .row.steer:has-text('api') .incl").text_content() == "agent/**"
 
-    page.locator("#steeringView .row.steer", has_text="CLAUDE").click()  # another tool's file opens read-only
-    page.locator("#editor code", has_text="Claude rules").wait_for()
+    page.locator("#steeringView .row.steer", has_text="CLAUDE").click()  # a workspace file: opens like any other
+    page.locator("#docBody", has_text="Claude rules").wait_for()  # Markdown opens rendered
 
 
 def test_create_a_workspace_doc_edit_save_and_the_model_follows_it(page, server, session):

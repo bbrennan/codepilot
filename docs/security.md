@@ -79,6 +79,13 @@ go through proposals. The server still checks every path:
   that changed on disk since you opened it, unless you confirm.
 - Like every write, these requests need the CSRF header that other websites can't send.
 
+## Markdown previews
+
+Documents are rendered with marked and sanitised with DOMPurify, which removes scripts, event handlers,
+`javascript:` links, styles and forms. Images referenced from a document are served from the workspace only,
+images only, with `Content-Security-Policy: sandbox` and `nosniff`, so even an SVG with script can't run in
+codepilot's page. Mermaid runs in its strict security mode.
+
 ## Problem reports
 
 **Help → Report a problem** builds its report locally, and it goes nowhere unless you send it.

@@ -599,3 +599,32 @@ details.card.prop:has(.status.outdated), details.card.prop:has(.status.supersede
 .cmd-help .cmd-grid { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; padding: 8px 10px; font-size: 12px; }
 .cmd-help .cmd-grid > div { display: contents; }
 .cmd-help .cmd-grid .mono { color: var(--accent); white-space: nowrap; }
+/* Markdown documents */
+.doc-scroll { display: flex; justify-content: center; }
+.md-doc { max-width: 860px; width: 100%; padding: 20px 32px 60px; font-size: 14px; line-height: 1.65; color: var(--fg); }
+.md-doc h1, .md-doc h2 { border-bottom: 1px solid var(--line); padding-bottom: .3em; }
+.md-doc h1 { font-size: 1.8em; margin: .4em 0 .6em; } .md-doc h2 { font-size: 1.4em; margin: 1.4em 0 .6em; }
+.md-doc h3 { font-size: 1.15em; margin: 1.3em 0 .5em; } .md-doc h4, .md-doc h5, .md-doc h6 { font-size: 1em; margin: 1.2em 0 .4em; }
+.md-doc p, .md-doc ul, .md-doc ol, .md-doc table, .md-doc blockquote, .md-doc pre { margin: 0 0 1em; }
+.md-doc ul, .md-doc ol { padding-left: 1.6em; } .md-doc li { margin: .2em 0; }
+.md-doc li > input[type=checkbox] { margin-right: .4em; }
+.md-doc a { color: var(--accent); cursor: pointer; } .md-doc a:hover { text-decoration: underline; }
+.md-doc code { font: .9em var(--mono); background: var(--bg-3); padding: .1em .35em; border-radius: 4px; }
+.md-doc pre { background: var(--bg-3); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; overflow: auto; }
+.md-doc pre code { background: none; padding: 0; font-size: 12.5px; line-height: 1.5; }
+.md-doc blockquote { border-left: 3px solid var(--line-2); padding: 0 1em; color: var(--fg-2); }
+.md-doc table { border-collapse: collapse; display: block; overflow: auto; }
+.md-doc th, .md-doc td { border: 1px solid var(--line-2); padding: 6px 12px; text-align: left; vertical-align: top; }
+.md-doc th { background: var(--bg-3); font-weight: 600; } .md-doc tr:nth-child(2n) td { background: color-mix(in srgb, var(--bg-3) 40%, transparent); }
+.md-doc img { max-width: 100%; border-radius: 4px; }
+.md-doc hr { border: 0; border-top: 1px solid var(--line); margin: 1.6em 0; }
+.md-doc .front-matter { border: 1px dashed var(--line-2); border-radius: 8px; padding: 6px 10px; margin-bottom: 1.2em; font-size: 12px; color: var(--muted); }
+.md-doc .front-matter pre { margin: 4px 0 0; padding: 0; border: 0; background: none; font: 12px var(--mono); color: var(--fg-2); }
+.mermaid-block { margin: 0 0 1em; text-align: center; overflow: auto; } .mermaid-block svg { max-width: 100%; height: auto; }
+.mermaid-error { color: var(--err); font-size: 12px; margin-bottom: 4px; }
+.seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 6px; overflow: hidden; flex: none; }
+.seg button { border: 0; background: transparent; color: var(--muted); font-size: 12px; padding: 3px 10px; cursor: pointer; }
+.seg button.on { background: var(--bg-4); color: var(--fg); }
+.img-view { display: flex; align-items: center; justify-content: center; padding: 20px; background: repeating-conic-gradient(var(--bg-3) 0% 25%, var(--bg-2) 0% 50%) 50% / 20px 20px; }
+.img-view img { max-width: 100%; max-height: 100%; object-fit: contain; box-shadow: var(--shadow); }
+.md-doc li:has(> input[type=checkbox]) { list-style: none; margin-left: -1.3em; }

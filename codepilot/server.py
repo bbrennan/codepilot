@@ -775,6 +775,27 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         path.write_text(str(data.get("content") or ""))
         return JSONResponse({"name": name, "mtime": str(path.stat().st_mtime_ns)})
 
+    RAW_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
+                 ".webp": "image/webp", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".bmp": "image/bmp",
+                 ".avif": "image/avif"}
+
+    def raw_file(request: Request) -> Response:  # blocking I/O: runs in a worker thread
+        """An image from the workspace, for Markdown previews and the image viewer. Images only, and served
+        so it can never run script in this page's origin (an SVG can carry script)."""
+        ctx = ctx_for(request.path_params["sid"])
+        try:
+            path = ctx.resolve(request.query_params.get("path", ""))
+        except ToolError as exc:
+            return err(str(exc), 404)
+        media = RAW_TYPES.get(path.suffix.lower())
+        if media is None or not path.is_file():
+            return err("Only image files can be previewed", 415)
+        if path.stat().st_size > 20_000_000:
+            return err("Image too large to preview", 413)
+        return Response(path.read_bytes(), media_type=media, headers={
+            "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+            "X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"})
+
     def git_view(request: Request) -> Response:  # blocking I/O: runs in a worker thread
         ctx = ctx_for(request.path_params["sid"])
 
@@ -875,6 +896,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         Route("/api/sessions/{sid}/find", needs_workspace(find)),
         Route("/api/sessions/{sid}/git", needs_workspace(git_view)),
         Route("/api/sessions/{sid}/fs", needs_workspace(fs), methods=["POST"]),
+        Route("/api/sessions/{sid}/raw", needs_workspace(raw_file)),
         Route("/api/sessions/{sid}/specs", needs_workspace(spec_list)),
         Route("/api/sessions/{sid}/specs", needs_workspace(spec_create), methods=["POST"]),
         Route("/api/sessions/{sid}/specs/{name}/{action}", needs_workspace(spec_action), methods=["POST"]),

@@ -65,6 +65,12 @@ When a folder opens, codepilot reads:
 
 ## Files and folders
 
+**Markdown files open rendered**, like on GitHub: headings, tables, task lists, links, images, highlighted
+code and **Mermaid diagrams**. **Preview | Source** in the file's toolbar switches views. Links to other
+files in the repo open them, and `#section` links scroll within the document. While editing a Markdown file,
+**Preview** shows your unsaved draft. Image files open as images. Raw HTML in a document is cleaned before
+display: scripts, event handlers, styles and forms are removed, so a document can't run code in codepilot.
+
 You can manage files yourself, as in any IDE. Use the title-bar **File** menu, the **New File** and
 **New Folder** buttons at the top of the Explorer, or right-click in the Explorer:
 
