@@ -3,6 +3,11 @@
 
 // ---------------------------------------------------------------- utilities
 const $ = (s, el = document) => el.querySelector(s);
+// Page errors, kept for problem reports (Help → Report a problem).
+const pageErrors = [];
+const notePageError = (msg) => { pageErrors.push(`${new Date().toISOString().slice(11, 19)} ${String(msg).slice(0, 500)}`); if (pageErrors.length > 50) pageErrors.shift(); };
+window.addEventListener("error", (e) => notePageError(`${e.message} (${(e.filename || "").split("/").pop()}:${e.lineno})`));
+window.addEventListener("unhandledrejection", (e) => notePageError(`unhandled: ${e.reason?.message || e.reason}`));
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const H = { "Content-Type": "application/json", "X-Codepilot": "1" };
@@ -27,6 +32,7 @@ const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = se
 const ICONS = {
   compass: '<circle cx="12" cy="12" r="10"/><path d="m16.24 7.76-1.8 5.4a2 2 0 0 1-1.28 1.28l-5.4 1.8 1.8-5.4a2 2 0 0 1 1.28-1.28z"/>',
   image: '<rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21"/>',
+  help: '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>',
   filePlus: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6"/><path d="M12 18v-6"/>',
   folderPlus: '<path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
   logo: '<path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="m9.5 10-2 2 2 2"/><path d="m14.5 10 2 2-2 2"/>',
@@ -1848,6 +1854,49 @@ function openSteering(doc) {
   if (doc.source === "codepilot") return openGlobalSteering(doc.name);
   openTab({ id: "steer:" + doc.path, kind: "file", path: doc.label, title: base(doc.label), tip: doc.path, content: doc.content || "", readonly: true });
 }
+
+// ---------------------------------------------------------------- help & problem reports
+$("#helpBtn").onclick = (e) => menuBelow(e.currentTarget, [
+  { label: "Report a problem…", icon: "alert", run: openReport },
+  { label: "Documentation", icon: "file", run: () => window.open("https://github.com/bbrennan/codepilot/tree/main/docs", "_blank", "noopener") },
+  { label: "Restart the server", icon: "refresh", run: restartServer },
+]);
+function reportClient() {
+  return {
+    browser: (navigator.userAgent.match(/(Edg|Chrome|Firefox|Version)\/[\d.]+/)?.[0] || navigator.userAgent).replace("Version/", "Safari ").replace("Edg/", "Edge ").replace("/", " ") + (/Mac/.test(navigator.platform) ? " (macOS)" : /Win/.test(navigator.platform) ? " (Windows)" : ""),
+    viewport: `${innerWidth}×${innerHeight}`, errors: pageErrors.slice(),
+    activity: $$("#activity .act").slice(-40).map((a) => a.innerText.replace(/\s+/g, " ").slice(0, 300)),
+    ui: { view: $(".view.on")?.dataset.view, tabs: state.tabs.map((t) => t.kind), active: state.active?.split(":")[0],
+      panel: $(".panel-tabs .on")?.dataset.ptab, busy: state.streams.has(state.sid), approval: !!state.approval,
+      pendingChanges: [...state.proposals.values()].filter((p) => p.status === "pending").length },
+  };
+}
+async function buildReport() {
+  return api("/api/report", { method: "POST", body: { sid: state.sid, title: $("#rpTitle").value, description: $("#rpDesc").value,
+    include_transcript: $("#rpTranscript").checked, client: reportClient() } });
+}
+const refreshReportPreview = debounce(async () => { const r = await buildReport().catch((e) => ({ issue_body: e.message })); $("#rpPreview").textContent = r.issue_body; }, 300);
+function openReport() {
+  $("#reportDialog").hidden = false; $("#rpHint").textContent = ""; $("#rpTitle").focus(); refreshReportPreview();
+}
+const closeReport = () => { $("#reportDialog").hidden = true; };
+$("#rpClose").onclick = closeReport;
+$("#reportDialog").addEventListener("mousedown", (e) => { if (e.target.id === "reportDialog") closeReport(); });
+$("#reportDialog").addEventListener("keydown", (e) => { if (e.key === "Escape") closeReport(); });
+["#rpTitle", "#rpDesc"].forEach((id) => $(id).addEventListener("input", refreshReportPreview));
+$("#rpDownload").onclick = async () => {
+  const r = await buildReport().catch((e) => { toast(e.message, true); return null; }); if (!r) return;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(r.report, null, 1)], { type: "application/json" }));
+  a.download = r.filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  $("#rpHint").textContent = `Saved ${r.filename} to your downloads.`;
+};
+$("#rpIssue").onclick = async () => {
+  if (!$("#rpTitle").value.trim()) { $("#rpTitle").focus(); return toast("Give the issue a short title first.", true); }
+  const r = await buildReport().catch((e) => { toast(e.message, true); return null; }); if (!r) return;
+  window.open(r.issue_url, "_blank", "noopener");
+  $("#rpHint").textContent = "Opened GitHub: review the issue there, then press Submit.";
+};
 
 // ---------------------------------------------------------------- copy paths & context menu
 const absPath = (rel) => (rel === "." ? state.workspace : state.workspace + "/" + rel);

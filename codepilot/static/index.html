@@ -27,6 +27,7 @@
     <button class="icon-btn" id="togglePanel" title="Toggle panel (⌘J)" data-icon="panel"></button>
     <button class="icon-btn" id="toggleChat" title="Toggle chat (⌘L)" data-icon="chat"></button>
     <button class="icon-btn" id="themeBtn" title="Toggle theme" data-icon="theme"></button>
+    <button class="icon-btn" id="helpBtn" title="Help and problem reports" data-icon="help"></button>
   </header>
 
   <!-- Activity bar -->
@@ -218,6 +219,20 @@
     <div class="fd-path"><button class="icon-btn sm" id="fdUp" title="Up one level" data-icon="up"></button><input id="fdInput" spellcheck="false" title="Type or paste a path and press Enter"></div>
     <div class="fd-body"><div class="fd-places" id="fdPlaces"></div><div class="fd-list" id="fdList"></div></div>
     <div class="fd-foot"><span class="hint" id="fdHint"></span><span class="spacer"></span><button class="btn" id="fdCancel">Cancel</button><button class="btn primary" id="fdOpen">Open</button></div>
+  </div>
+</div>
+<!-- Report a problem -->
+<div class="palette" id="reportDialog" hidden>
+  <div class="palette-box report-box">
+    <div class="fd-head"><b>Report a problem</b><span class="spacer"></span><button class="icon-btn sm" id="rpClose" title="Close" data-icon="x"></button></div>
+    <div class="rp-body">
+      <label class="rp-label">Title<input class="field" id="rpTitle" placeholder="Short summary, e.g. “Applied changes reappear after restart”" spellcheck="true"></label>
+      <label class="rp-label">What happened?<textarea class="field" id="rpDesc" rows="4" placeholder="What you did, what you expected, and what happened instead."></textarea></label>
+      <label class="rp-check"><input type="checkbox" id="rpTranscript" checked><span>Include this session's conversation in the downloaded report (it's never put in the GitHub issue)</span></label>
+      <div class="hint rp-note"><b>Download report</b> saves the full diagnostics to your machine (secrets, keys and your home path are removed). <b>Open GitHub issue</b> opens a pre-filled issue on github.com, a public site, containing only the text below; nothing is posted until you press Submit there.</div>
+      <pre class="rp-preview" id="rpPreview">…</pre>
+    </div>
+    <div class="fd-foot"><span class="hint" id="rpHint"></span><span class="spacer"></span><button class="btn" id="rpDownload">Download report</button><button class="btn primary" id="rpIssue">Open GitHub issue</button></div>
   </div>
 </div>
 <div class="ctx-menu" id="ctxMenu" hidden></div>

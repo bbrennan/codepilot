@@ -393,6 +393,12 @@ uv run codepilot chat --repo ~/code/my-service [--tier hard]
 The same agent in the terminal. Approvals are y/N prompts; use `/apply N` and `/reject N` for proposals,
 and Ctrl-D to quit. `--session <id>` resumes a session.
 
+## Help and problem reports
+
+The **?** in the title bar has **Report a problem…**, **Documentation** and **Restart the server**.
+A report can be downloaded as a file (full diagnostics, secrets removed) or opened as a pre-filled GitHub
+issue (a short summary you review before submitting). Details: [troubleshooting](troubleshooting.md#getting-more-detail).
+
 ## Keyboard shortcuts
 
 | Keys (⌘ = Ctrl on Linux) | Action |

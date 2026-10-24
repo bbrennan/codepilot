@@ -88,6 +88,18 @@ Start with `make doctor`. It tests each piece and prints the fix for most proble
 
 ## Getting more detail
 
+The quickest way to report a problem is **Help (?) → Report a problem…** in the app's title bar:
+- **Download report** saves a JSON file with what's needed to debug. It includes the code version, OS,
+  settings (no keys), the session's state and (if ticked) its conversation, recent warnings and errors
+  from the server and the page, and the server log. API keys, tokens, passwords, emails and your home path
+  are removed.
+- **Open GitHub issue** opens github.com/bbrennan/codepilot's new-issue page pre-filled with a short
+  summary: your description, versions, the provider and mode, and error messages. It never includes the
+  conversation or code, because the repository is public. Nothing is posted until you press Submit there,
+  so review it first. Attach the downloaded report only if it contains nothing private.
+
+Other sources:
+
 - `make serve` logs to the terminal it runs in; a background server (`codepilot start`) logs to
   `~/.codepilot/server.log` (`codepilot logs -f`). `CODEPILOT_VERBOSE=1` adds every HTTP request.
 - **Activity** (bottom panel) shows every model and tool call with inputs and outputs.

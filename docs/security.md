@@ -79,6 +79,15 @@ go through proposals. The server still checks every path:
   that changed on disk since you opened it, unless you confirm.
 - Like every write, these requests need the CSRF header that other websites can't send.
 
+## Problem reports
+
+**Help → Report a problem** builds its report locally, and it goes nowhere unless you send it.
+- Every value passes through redaction: AWS keys, API keys and tokens, `password=`/`secret=` values, URLs
+  with credentials, emails, JWTs, the actual values of key environment variables, the terminal token, and
+  your home path.
+- The GitHub button only opens a pre-filled public issue page with a short summary: no conversation, code
+  or file contents. You submit it, or not, on GitHub.
+
 ## Web tools and images
 
 - `library_docs` sends a library name and a question to Context7. `web_search` (only with `BRAVE_API_KEY`)

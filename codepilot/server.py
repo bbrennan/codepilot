@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import collections
 import contextlib
 import inspect
 import json
@@ -31,7 +32,7 @@ from starlette.websockets import WebSocket
 from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 
-from . import checks, github, images, mentions, models, modes, skills, specs, steering, traces, version
+from . import checks, diagnostics, github, images, mentions, models, modes, skills, specs, steering, traces, version
 from .agent import Agent, history_events
 from .config import TIER_CHOICES, TIERS, Config
 from .store import Store
@@ -66,6 +67,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
     from .terminal import TerminalManager
 
     terminals = TerminalManager()
+    diagnostics.problems()  # start keeping recent warnings and errors for problem reports
 
     def err(message: str, status: int = 400) -> JSONResponse:
         return JSONResponse({"error": message}, status_code=status)
@@ -173,6 +175,60 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             if name:
                 term.name = name
         return JSONResponse(term.info())
+
+    async def report_view(request: Request) -> Response:
+        """A diagnostics report (to download) and a short redacted summary for a GitHub issue."""
+        data = await request.json()
+        report = await run_in_threadpool(build_report, data)
+        title = str(data.get("title") or "").strip() or "Problem report"
+        body = diagnostics.issue_markdown(report, str(data.get("description") or ""), title)
+        return JSONResponse({"report": report, "issue_title": title, "issue_body": body,
+                             "issue_url": diagnostics.issue_url(title, body),
+                             "filename": time.strftime("codepilot-report-%Y%m%d-%H%M%S.json")})
+
+    def build_report(data: dict) -> dict:
+        sid = str(data.get("sid") or "")
+        report: dict = {
+            "created": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "environment": diagnostics.environment(version.STARTED, version.fingerprint() != version.STARTED),
+            "settings": diagnostics.safe_settings(cfg),
+            "models": {"tiers": models.resolve_tiers(cfg, models.cached(cfg)),
+                       "on_account": [m["id"] for m in (models.cached(cfg) or {}).get("models", []) if m["available"]]},
+            "terminals": len(terminals.list()),
+            "server_problems": list(diagnostics.problems().records),
+            "server_log": diagnostics.log_tail(cfg.home / "server.log"),
+            "client": data.get("client") or {},
+        }
+        try:
+            sess = store.get_session(sid) if sid else None
+        except KeyError:
+            sess = None
+        if sess is not None:
+            props = store.list_proposals(sid)
+            usage = agent.context_usage(sid)
+            state = sess.context_state or {}
+            report["session"] = {
+                "id": sid, "mode": sess.mode, "tier": sess.tier, "model": sess.model, "has_folder": bool(sess.repo),
+                "auto_approve": sess.auto_approve, "auto_apply": bool(state.get("auto_apply")),
+                "messages": len(store.messages(sid)), "archived": len(store.messages(sid, include_archived=True))
+                - len(store.messages(sid)), "pending_approval": bool(sess.pending), "spec": state.get("spec"),
+                "allow_rules": state.get("allow", []), "route": state.get("route"), "last_turn": state.get("last_turn"),
+                "proposals": dict(collections.Counter(p.status for p in props)),
+                "proposal_list": [{"id": p.id, "path": p.path, "status": p.status} for p in props],
+                "context": {**{k: usage.get(k) for k in ("tokens", "budget", "window")},
+                            "percent": round(100 * (usage.get("tokens") or 0) / max(1, usage.get("budget") or 1))},
+            }
+            if data.get("include_transcript"):
+                events = history_events(store, sid)
+                for ev in events:
+                    for key in ("text", "output"):
+                        if isinstance(ev.get(key), str) and len(ev[key]) > 2000:
+                            ev[key] = ev[key][:2000] + " [...]"
+                report["events"] = events
+        secrets_ = tuple(os.environ.get(k, "") for k in (
+            "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_ACCESS_KEY_ID",
+            "BRAVE_API_KEY", "CODEPILOT_BRAVE_API_KEY", "CONTEXT7_API_KEY", "GH_TOKEN", "GITHUB_TOKEN")) + (term_token,)
+        return diagnostics.redact_obj(report, secrets_)
 
     async def restart_view(request: Request) -> Response:
         """Restart this server in place (same process, same arguments) to load updated code."""
@@ -792,6 +848,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         Mount("/static", app=StaticFiles(directory=STATIC), name="static"),
         Route("/api/config", config_view),
         Route("/api/restart", restart_view, methods=["POST"]),
+        Route("/api/report", report_view, methods=["POST"]),
         Route("/api/images/{name}", image_view),
         Route("/api/browse", browse),
         Route("/api/github", github_view),
