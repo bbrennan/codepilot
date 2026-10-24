@@ -110,8 +110,8 @@ class Agent:
             self.store.replace_content(last[0], last[1]["content"] + blocks)
         else:
             self.store.add_message(session_id, "user", blocks)
-        for q in items:
-            yield {"type": "user", "text": q["text"], "queued_id": q["id"], "mid": last[0] if last else None}
+        for q in items:  # part of a running turn, so no mid: it can't be edited or retried on its own
+            yield {"type": "user", "text": q["text"], "queued_id": q["id"]}
 
     # -- rewind: edit an earlier message, or retry the last one ---------------------------------
 
@@ -163,7 +163,10 @@ class Agent:
         sess = self.store.get_session(session_id)
         self._cancelled.discard(session_id)
         if sess.pending:
-            yield {"type": "error", "message": "A tool call is waiting for approval. Approve or deny it first."}
+            # Like Claude Code: writing instead of approving declines the waiting call(s), and your message goes
+            # to the model with that decision.
+            yield {"type": "notice", "message": "Declined the waiting command; your message goes to codepilot instead."}
+            yield from self.resume(session_id, approve=False, feedback=text)
             return
         if tier and tier != sess.tier:
             self.store.update_session(session_id, tier=tier)
@@ -437,7 +440,7 @@ class Agent:
                                   title=f"{(old.title or 'Session')[:60]} (continued)")
         return new.id
 
-    def resume(self, session_id: str, approve: bool, remember: bool = False) -> Iterator[dict]:
+    def resume(self, session_id: str, approve: bool, remember: bool = False, feedback: str = "") -> Iterator[dict]:
         sess = self.store.get_session(session_id)
         self._cancelled.discard(session_id)
         pending = sess.pending
@@ -453,13 +456,15 @@ class Agent:
                 yield {"type": "tool_running", "id": tu["toolUseId"], "name": tu["name"]}
                 output, is_error, took = yield from self._exec(ctx, tu)
             else:
-                output, is_error, took = "The user declined this tool call.", True, 0.0
+                output, is_error, took = ("The user declined this tool call" + (" and wrote the message below instead."
+                                                                             if feedback else "."), True, 0.0)
             yield from self._drain(ctx)
             yield self._result_event(tu, output, is_error, took)
             output = yield from self._after_result(session_id, tu, output, is_error)
             results.append(_tool_result(tu["toolUseId"], output, is_error))
         self.store.update_session(session_id, pending=None)
-        self.store.add_message(session_id, "user", _order_results(pending["order"], results))
+        content = _order_results(pending["order"], results) + ([{"text": feedback}] if feedback else [])
+        self.store.add_message(session_id, "user", content)
         yield from self._loop(session_id)
         yield from self._drain_queue_turns(session_id)
 

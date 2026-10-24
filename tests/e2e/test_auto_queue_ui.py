@@ -131,3 +131,36 @@ def test_sending_while_a_new_session_opens_uses_that_session(page, server, sessi
     assert len(server.store.list_sessions()) == 2  # the fixture's session plus exactly one new one
     newest = server.store.list_sessions()[0]
     assert server.store.live_messages(newest.id)[0]["content"][0]["text"] == "hello from the new session"
+
+
+def test_queued_mid_turn_messages_have_no_broken_edit_buttons(page, server, session):
+    open_app(page)
+    send(page, "run python please")  # stops for approval
+    page.locator("#reviewBar .rb-approval").wait_for()
+    page.click("#rbApprove")
+    wait_idle(page)
+    assert page.locator(".msg.user .sent-while").count() == 0
+    # every bubble that offers Edit must be one the server can rewind to
+    mids = page.eval_on_selector_all(".msg.user[data-mid]", "els => els.map(e => +e.dataset.mid)")
+    starts = [mid for mid, m in server.store.messages(session.id) if m["role"] == "user" and "text" in m["content"][0]]
+    assert set(mids) <= set(starts)
+
+
+def test_typing_while_an_approval_waits_declines_it_and_sends(page, server, session):
+    open_app(page)
+    send(page, "run ls")
+    page.locator("#reviewBar .rb-approval").wait_for()
+    wait_idle(page)
+    send(page, "never mind, explain the code instead")
+    page.locator(".wait-row.denied", has_text="you wrote a message instead").wait_for()
+    assert page.locator("#reviewBar").is_hidden()
+    wait_idle(page)
+    assert "never mind, explain the code instead" in str(model_calls(server)[-1]["messages"][-1])
+    assert server.store.get_session(session.id).pending is None
+
+
+def test_old_servers_without_versions_get_a_warning(page, server, session):
+    page.route("**/api/config", lambda route: route.fulfill(
+        json={k: v for k, v in route.fetch().json().items() if k not in ("version", "stale")}))
+    open_app(page, wait_tree=False)
+    page.locator("#staleBanner", has_text="older than this page").wait_for()

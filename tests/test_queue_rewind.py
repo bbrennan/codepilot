@@ -41,6 +41,7 @@ def test_message_queued_mid_turn_is_read_at_the_next_step(cfg, store, repo):
     assert QUEUED_PREFIX + "actually look at tests too" in last_user_text(second)
     user = [e for e in events if e["type"] == "user"]
     assert len(user) == 1 and user[0]["queued_id"]  # the UI swaps its "queued" bubble for this
+    assert "mid" not in user[0]  # part of a running turn: not editable on its own (rewinding to it would fail)
     assert agent.queued(sess.id) == []
     replay = [e for e in history_events(store, sess.id) if e["type"] == "user"]
     assert replay[1] == {"type": "user", "text": "actually look at tests too", "queued": True}

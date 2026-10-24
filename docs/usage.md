@@ -150,10 +150,14 @@ with **Show all (N lines · size)** and **Copy**, so scrolling back through the 
 
 **While it works:** keep typing. Enter **queues** your message (it shows as *Queued*). codepilot reads it
 at its next step, between tool calls, or right after it finishes. **Edit** or **Remove** a queued message
-until then; **Stop** puts queued messages back in the box.
+until then; **Stop** puts queued messages back in the box. If codepilot is waiting for you to approve a
+command, writing a message instead declines the command, and your message goes to codepilot with that
+decision.
 
 **Edit or retry:** hover over one of your messages for ✎ **Edit** and ↻ **Retry**. Both rewind the
-conversation to that message: everything after it is removed, then the (edited) message is sent again.
+conversation to that message: everything after it is removed, then the (edited) message is sent again. A
+message that was queued and read in the middle of a turn is part of that turn, so it has no Edit or Retry
+of its own: edit the message that started the turn instead.
 File changes you already applied stay; undo them in **Changes** if needed. Messages summarised by
 compaction can't be edited. An error in the chat has a **Retry** button too.
 

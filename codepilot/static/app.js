@@ -200,6 +200,10 @@ async function init() {
 }
 // The server keeps running the code it started with; after an update (git pull), offer to restart it.
 function showStaleBanner(c) {
+  if (c && !("version" in c) && !$("#staleBanner")) { // a server from before version tracking: can't restart itself
+    document.body.insertAdjacentHTML("afterbegin", `<div class="stale-banner" id="staleBanner">${icon("refresh")}<span>The codepilot server running now is older than this page, so newer features (like queued messages) won't work. Stop it and run <span class="mono">make start</span> again (or press Ctrl+C where <span class="mono">make serve</span> runs, then start it).</span></div>`);
+    return;
+  }
   if (!c?.stale || $("#staleBanner")) return;
   document.body.insertAdjacentHTML("afterbegin", `<div class="stale-banner" id="staleBanner">${icon("refresh")}<span>codepilot was updated, but the running server still has the old code.</span><button class="btn sm primary" id="staleRestart">Restart now</button><span class="muted">(or run <span class="mono">codepilot restart</span>)</span></div>`);
   $("#staleRestart").onclick = restartServer;
@@ -1360,6 +1364,11 @@ async function send() {
   }
   if (state.creatingSession) await state.creatingSession.catch(() => null); // "New session" still opening
   if (!state.sid) { try { await newSession(state.workspace); } catch (err) { toast(err.message, true); return; } }
+  if (state.approval) { // writing instead of approving declines the waiting command (the server does the same)
+    const row = $("#transcript .wait-row.waiting");
+    if (row) { row.classList.remove("waiting"); row.classList.add("denied"); row.innerHTML = `${icon("x")}<span>Declined (you wrote a message instead): ${state.approval.tools.map((t) => `<code>${esc(t.command)}</code>`).join(", ")}</span>`; }
+    state.approval = null; renderReviewBar();
+  }
   $("#input").value = ""; autosize(); hideMentions(); resetHistory(); askNotifyPermission(); clearAttachments();
   if (text) { rememberPrompt(text); (state.prompts ||= []).push(text); }
   render({ type: "user", text: text || (pics.length > 1 ? "(see the attached images)" : "(see the attached image)") }); scrollEnd(true);

@@ -40,8 +40,6 @@ def test_approval_pause_and_resume(cfg, store, repo):
     assert types(events)[-1] == "approval_needed"
     assert events[-1]["tools"][0]["command"] == f"{cfg.test_cmd} -k add"
     assert store.get_session(sess.id).pending is not None
-    # Chatting while blocked is refused.
-    assert types(list(agent.chat(sess.id, "hello"))) == ["error"]
 
     events = list(agent.resume(sess.id, approve=True))
     result = next(e for e in events if e["type"] == "tool_result")
@@ -263,3 +261,17 @@ def test_reopening_current_workspace_needs_no_approval(cfg, store, repo):
     events = list(agent.chat(sess.id, "look at this repo"))
     assert "approval_needed" not in types(events)
     assert not next(e for e in events if e["type"] == "tool_result")["is_error"]
+
+
+def test_a_message_while_an_approval_waits_declines_it_and_carries_the_message(cfg, store, repo):
+    llm = FakeLLM([[tool_use("t1", "run_command", command="rm -rf build")], [{"text": "ok, I won't"}]])
+    agent = Agent(cfg, store, llm=llm)
+    sess = store.create_session(str(repo), "main")
+    assert types(list(agent.chat(sess.id, "clean up")))[-1] == "approval_needed"
+    events = list(agent.chat(sess.id, "don't delete anything, just list it"))
+    assert events[0]["type"] == "notice" and "Declined" in events[0]["message"]
+    result = next(e for e in events if e["type"] == "tool_result")
+    assert result["is_error"] and "declined" in result["output"]
+    sent = llm.calls[-1]["messages"][-1]["content"]
+    assert sent[-1] == {"text": "don't delete anything, just list it"} and "toolResult" in sent[0]
+    assert store.get_session(sess.id).pending is None and types(events)[-1] == "done"
