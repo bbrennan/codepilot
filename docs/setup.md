@@ -351,6 +351,7 @@ again while the server is up just opens the window.
 | `codepilot status` | Is it running, where, since when |
 | `codepilot logs [-f]` | The server log (`~/.codepilot/server.log`) |
 | `codepilot stop` | Stop it (its terminals end too) |
+| `codepilot restart` | Stop and start it, e.g. after `git pull` |
 | `codepilot app` | macOS: install **Codepilot.app** in `~/Applications` |
 
 **Codepilot.app** is a small launcher for `codepilot start`. Open it from Finder, Spotlight or Launchpad,
@@ -379,7 +380,7 @@ rather not use it, you don't need it:
 git pull
 make install
 make test            # optional: codepilot's own tests, no cloud access needed
-make stop && make start   # if it runs in the background: restart on the new code
+make restart         # if it runs in the background: load the new code (make start also does this now)
 make app             # macOS, if you use Codepilot.app: refresh the launcher
 ```
 

@@ -7,7 +7,7 @@ else
 export UV_NATIVE_TLS ?= true
 endif
 
-.PHONY: install serve start stop app doctor chat test e2e e2e-setup demo ollama bench bench-validate
+.PHONY: install serve start stop restart app doctor chat test e2e e2e-setup demo ollama bench bench-validate
 
 install:  ## Create .venv with all providers + unit-test tools (browser-test tools install only with make e2e)
 	uv sync --extra anthropic --extra openai --extra dev
@@ -20,6 +20,9 @@ start:  ## Run the web UI in the background (no terminal needed) and open it
 
 stop:  ## Stop the background server
 	uv run codepilot stop
+
+restart:  ## Restart the background server (after git pull / make install) and open it
+	uv run codepilot restart
 
 app:  ## macOS: install ~/Applications/Codepilot.app (double-click to start and open)
 	uv run codepilot app

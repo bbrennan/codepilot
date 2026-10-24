@@ -8,11 +8,13 @@ import contextlib
 import inspect
 import json
 import logging
+import os
 import re
 import secrets
 import shlex
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import traceback
@@ -29,7 +31,7 @@ from starlette.websockets import WebSocket
 from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 
-from . import checks, github, images, mentions, models, modes, skills, specs, steering, traces
+from . import checks, github, images, mentions, models, modes, skills, specs, steering, traces, version
 from .agent import Agent, history_events
 from .config import TIER_CHOICES, TIERS, Config
 from .store import Store
@@ -172,6 +174,18 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                 term.name = name
         return JSONResponse(term.info())
 
+    async def restart_view(request: Request) -> Response:
+        """Restart this server in place (same process, same arguments) to load updated code."""
+        def go() -> None:
+            time.sleep(0.4)  # let the response reach the browser
+            terminals.close_all()
+            log.warning("restarting to load updated code")
+            os.environ["PYTHONUNBUFFERED"] = "1"  # keep the background log unbuffered, as `-u` did
+            os.execv(sys.executable, [sys.executable, "-m", "codepilot", *sys.argv[1:]])
+
+        threading.Thread(target=go, daemon=True).start()
+        return JSONResponse({"ok": True, "restarting": True}, status_code=202)
+
     async def image_view(request: Request) -> Response:
         path = images.cached(cfg.home, request.path_params["name"])
         if path is None:
@@ -187,6 +201,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             "profile": cfg.profile if cfg.provider == "bedrock" else None,
             "log_groups": cfg.log_groups, "auto_approve_default": cfg.auto_approve_tests, "terminal": cfg.terminal,
             "home": str(Path.home()),
+            "version": version.STARTED, "stale": version.fingerprint() != version.STARTED,
         })
 
     async def sessions(request: Request) -> Response:
@@ -776,6 +791,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         Route("/", index),
         Mount("/static", app=StaticFiles(directory=STATIC), name="static"),
         Route("/api/config", config_view),
+        Route("/api/restart", restart_view, methods=["POST"]),
         Route("/api/images/{name}", image_view),
         Route("/api/browse", browse),
         Route("/api/github", github_view),

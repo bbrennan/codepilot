@@ -93,3 +93,50 @@ def test_per_request_library_logs_are_quiet(monkeypatch, cfg):
     cli.main(["status"])
     for name in ("httpx", "botocore", "anthropic"):
         assert logging.getLogger(name).level == logging.WARNING
+
+
+def test_start_restarts_a_server_running_older_code(cfg, monkeypatch, capsys):
+    from codepilot import version
+
+    monkeypatch.setenv("TERM", "xterm")
+    monkeypatch.setenv("CODEPILOT_PROVIDER", "ollama")
+    monkeypatch.setenv("CODEPILOT_HOME", str(cfg.home))
+    cfg = replace(cfg, provider="ollama", port=free_port())
+    try:
+        assert service.start(cfg, None, open_ui=False) == 0
+        first = service.running(cfg)["pid"]
+        assert service.start(cfg, None, open_ui=False) == 0  # same code: just reopens
+        assert service.running(cfg)["pid"] == first
+        monkeypatch.setattr(version, "fingerprint", lambda: "after-git-pull")  # the code on disk changed
+        assert service.start(cfg, None, open_ui=False) == 0
+        assert "restarting it" in capsys.readouterr().out
+        info = service.running(cfg)
+        assert info["pid"] != first and service.is_up(info["url"])
+        assert info["version"] == version.STARTED  # the new server records the code it actually loaded
+    finally:
+        service.stop(cfg)
+
+
+def test_server_restarts_itself_in_place(cfg, monkeypatch):
+    import json
+    import time
+    import urllib.request
+
+    monkeypatch.setenv("TERM", "xterm")
+    monkeypatch.setenv("CODEPILOT_PROVIDER", "ollama")
+    monkeypatch.setenv("CODEPILOT_HOME", str(cfg.home))
+    cfg = replace(cfg, provider="ollama", port=free_port())
+    try:
+        assert service.start(cfg, None, open_ui=False) == 0
+        info = service.running(cfg)
+        config = json.loads(urllib.request.urlopen(info["url"] + "/api/config").read())
+        assert config["stale"] is False and config["version"]
+        req = urllib.request.Request(info["url"] + "/api/restart", method="POST", headers={"X-Codepilot": "1"})
+        assert urllib.request.urlopen(req).status == 202
+        time.sleep(1.0)
+        deadline = time.time() + 20
+        while not service.is_up(info["url"]) and time.time() < deadline:
+            time.sleep(0.2)
+        assert service.is_up(info["url"]) and service.running(cfg)["pid"] == info["pid"]  # same process, new code
+    finally:
+        service.stop(cfg)

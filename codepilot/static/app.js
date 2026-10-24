@@ -170,6 +170,7 @@ async function init() {
   hydrateIcons();
   state.cfg = await api("/api/config");
   const c = state.cfg;
+  showStaleBanner(c);
   $("#sbProvider").innerHTML = `${icon("server")}${c.provider === "bedrock" ? `bedrock · ${esc(c.region)}${c.profile ? " · " + esc(c.profile) : ""}` : `${esc(c.provider)} · ${esc(shortModel(c.models.main) || "no model set")}`}`;
   $("#sbProvider").classList.add(c.provider === "ollama" ? "warn" : "ok");
   renderModelSelect();
@@ -191,6 +192,26 @@ async function init() {
   const ptab = store("cp-ptab");
   if (!ide.classList.contains("no-panel") && ptab && (ptab !== "terminal" || terms.list.length)) showPanelTab(ptab);
 }
+// The server keeps running the code it started with; after an update (git pull), offer to restart it.
+function showStaleBanner(c) {
+  if (!c?.stale || $("#staleBanner")) return;
+  document.body.insertAdjacentHTML("afterbegin", `<div class="stale-banner" id="staleBanner">${icon("refresh")}<span>codepilot was updated, but the running server still has the old code.</span><button class="btn sm primary" id="staleRestart">Restart now</button><span class="muted">(or run <span class="mono">codepilot restart</span>)</span></div>`);
+  $("#staleRestart").onclick = restartServer;
+}
+async function restartServer() {
+  if (state.streams.size && !confirm("codepilot is working. Restart anyway? The current turn stops.")) return;
+  const btn = $("#staleRestart"); if (btn) { btn.disabled = true; btn.textContent = "Restarting…"; }
+  await api("/api/restart", { method: "POST" }).catch(() => null);
+  for (let i = 0; i < 60; i++) { // wait for the new server, then load the new page code
+    await new Promise((r) => setTimeout(r, 500));
+    const c = await fetch("/api/config", { cache: "no-store" }).then((r) => r.json()).catch(() => null);
+    if (c && !c.stale) { location.reload(); return; }
+  }
+  toast("The server didn't come back. Run codepilot restart in a terminal.", true);
+}
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) fetch("/api/config", { cache: "no-store" }).then((r) => r.json()).then(showStaleBanner).catch(() => {});
+});
 const shortModel = (m) => String(m).replace(/^(us|eu|apac|global)\.anthropic\./, "").replace(/-\d{8}-v\d+:\d+$/, "");
 
 // ---------------------------------------------------------------- sessions

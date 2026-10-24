@@ -30,6 +30,8 @@ def main(argv: list[str] | None = None) -> int:
     p_start.add_argument("--no-browser", action="store_true")
     p_start.add_argument("--browser-tab", action="store_true", help="Open a normal browser tab, not an app window")
     sub.add_parser("stop", help="Stop the background server")
+    p_restart = sub.add_parser("restart", help="Restart the background server (e.g. after git pull) and open it")
+    p_restart.add_argument("--no-browser", action="store_true")
     sub.add_parser("status", help="Is the background server running?")
     p_logs = sub.add_parser("logs", help="Show the background server's log")
     p_logs.add_argument("-n", "--lines", type=int, default=60)
@@ -95,11 +97,13 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.command == "serve":
         return serve(cfg, args, env_path)
-    if args.command in ("start", "stop", "status", "logs", "app"):
+    if args.command in ("start", "stop", "restart", "status", "logs", "app"):
         from . import service
 
         if args.command == "start":
             return service.start(cfg, env_path, args.port, not args.no_browser, not args.browser_tab)
+        if args.command == "restart":
+            return service.restart(cfg, env_path, None, not args.no_browser)
         if args.command == "logs":
             return service.logs(cfg, args.lines, args.follow)
         if args.command == "app":
@@ -128,10 +132,24 @@ def serve(cfg: Config, args, env_path: Path | None) -> int:
     url = f"http://{'127.0.0.1' if host in ('0.0.0.0', '') else host}:{port}"
     print(f"codepilot: provider={cfg.provider} env={env_path or '(environment only)'}")
     print(f"codepilot: open {url}")
+    _note_version_in_pid_file(cfg)
     if not args.no_browser:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     uvicorn.run(create_app(cfg), host=host, port=port, log_level="warning")
     return 0
+
+
+def _note_version_in_pid_file(cfg: Config) -> None:
+    """A background server that restarted itself in place (same pid) records the code it now runs."""
+    from .version import STARTED
+
+    pid_file = cfg.home / "server.pid"
+    try:
+        info = json.loads(pid_file.read_text())
+        if info.get("pid") == os.getpid() and info.get("version") != STARTED:
+            pid_file.write_text(json.dumps({**info, "version": STARTED}))
+    except (OSError, ValueError):
+        pass
 
 
 # -- doctor ---------------------------------------------------------------------------------------
@@ -146,6 +164,14 @@ def _line(status: str, label: str, detail: str = "") -> None:
 def doctor(cfg: Config, args, env_path: Path | None) -> int:
     failures = 0
     print(f"env file: {env_path or '(none found; using the process environment)'}")
+    from . import service
+    from .version import fingerprint
+
+    bg = service.running(cfg)
+    if bg and bg.get("version") != fingerprint():
+        _line(WARN, "background server", "running older code than this checkout; run `codepilot restart`")
+    elif service.server_stale(f"http://127.0.0.1:{cfg.port}"):
+        _line(WARN, "server", "the server on this port runs older code; restart it to load your update")
     print(f"provider: {cfg.provider}")
     for tier, model in cfg.models.items():
         window = cfg.context_window(model) if model else 0

@@ -63,6 +63,7 @@ Start with `make doctor`. It tests each piece and prints the fix for most proble
 |---|---|
 | "Multimodal data provided, but model does not support…" or images ignored | The model can't read images (most small local models). Use a Claude or GPT-4o-class model, or a vision model on Ollama (e.g. `qwen2.5vl`) |
 | Ctrl+V doesn't paste on a Mac | It does now: Ctrl+V and ⌘V both paste. The first time, the browser may ask to allow clipboard access |
+| A fix you pulled doesn't seem to take effect | The server keeps running the code it started with. `make restart` (or **Restart now** in the banner the app shows) loads the new code. `make start` also restarts a background server whose code changed |
 | Not sure your Anthropic/OpenAI key setup works | `uv run codepilot smoke` runs a real end-to-end turn and reports each check |
 | `address already in use` | Another codepilot is running, or something else uses the port: `codepilot status`; `codepilot stop` for a background one; otherwise `CODEPILOT_PORT=8766 make serve`, or stop the other one (`pkill -f "codepilot serve"`) |
 | Page loads but nothing works | Hard-reload the browser (an old cached UI); check the log (`codepilot logs`, or the terminal where `make serve` runs) |

@@ -114,11 +114,22 @@ def shell_environment(timeout: float = 8.0) -> dict[str, str]:
 
 def start(cfg: Config, env_path: Path | None, port: int | None = None, open_ui: bool = True,
           app_window: bool = True, wait: float = 30.0) -> int:
+    from .version import fingerprint
+
     url = _url(cfg, port)
     pid_file, log_file = _files(cfg)
     info = running(cfg)
+    if info and info.get("version") != fingerprint():
+        # Started before the code changed (e.g. a git pull): reopening the window would keep running the old
+        # code, so restart it.
+        print("codepilot was updated since the background server started; restarting it…")
+        stop(cfg, quiet=True)
+        info = None
     if info or is_up(url):
         print(f"codepilot is already running at {info['url'] if info else url}")
+        if not info and server_stale(url):
+            print("  Note: that server runs older code than this checkout (it wasn't started with `codepilot start`).\n"
+                  "  Stop it where it runs (Ctrl+C), then run `codepilot start` again.")
         if open_ui:
             open_window(info["url"] if info else url, app_window)
         return 0
@@ -134,7 +145,7 @@ def start(cfg: Config, env_path: Path | None, port: int | None = None, open_ui: 
         proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
                                 start_new_session=True, cwd=str(Path.home()), env=env or None)
     pid_file.write_text(json.dumps({"pid": proc.pid, "url": url, "env": str(env_path or ""),
-                                    "started": time.time()}))
+                                    "started": time.time(), "version": fingerprint()}))
     deadline = time.time() + wait
     while time.time() < deadline:
         if is_up(url):
@@ -152,9 +163,25 @@ def start(cfg: Config, env_path: Path | None, port: int | None = None, open_ui: 
     return 1
 
 
-def stop(cfg: Config) -> int:
+def server_stale(url: str) -> bool:
+    try:
+        with urllib.request.urlopen(url + "/api/config", timeout=1.5) as resp:
+            return bool(json.loads(resp.read() or b"{}").get("stale"))
+    except (OSError, ValueError):
+        return False
+
+
+def restart(cfg: Config, env_path: Path | None, port: int | None = None, open_ui: bool = True,
+            app_window: bool = True) -> int:
+    stop(cfg, quiet=True)
+    return start(cfg, env_path, port, open_ui, app_window)
+
+
+def stop(cfg: Config, quiet: bool = False) -> int:
     info = running(cfg)
     pid_file, _ = _files(cfg)
+    if not info and quiet:
+        return 0
     if not info:
         print("codepilot isn't running in the background" +
               (f" (something else answers at {_url(cfg)}; stop it where you started it)" if is_up(_url(cfg)) else ""))
@@ -176,8 +203,12 @@ def status(cfg: Config) -> int:
     info = running(cfg)
     _, log_file = _files(cfg)
     if info:
+        from .version import fingerprint
+
         up = is_up(info["url"])
         print(f"running: pid {info['pid']} at {info['url']}{'' if up else ' (not answering yet)'}")
+        if info.get("version") != fingerprint():
+            print("  out of date: the code changed since it started. Run `codepilot restart` (or `make restart`).")
         print(f"started: {time.strftime('%Y-%m-%d %H:%M', time.localtime(info['started']))}  env: {info['env'] or '-'}")
         print(f"log: {log_file}")
         return 0

@@ -585,3 +585,5 @@ details.card.prop[open] > summary { border-bottom: 1px solid var(--line); }
 .tool .img-row { margin: 6px 10px 10px; }
 .status.outdated, .status.superseded, .status.discarded, .status.reverted { color: var(--muted); border-color: var(--line-2); }
 details.card.prop:has(.status.outdated), details.card.prop:has(.status.superseded), details.card.prop:has(.status.discarded) { opacity: .65; }
+.stale-banner { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 70; display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 9px; background: var(--bg-4); border: 1px solid color-mix(in srgb, var(--warn) 60%, var(--line-2)); box-shadow: var(--shadow); font-size: 12.5px; }
+.stale-banner > svg { width: 15px; height: 15px; color: var(--warn); }

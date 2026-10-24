@@ -302,3 +302,15 @@ def test_traces_view_only_appears_for_folders_with_traces(page, server, session,
     page.click("[data-view=sessions]")
     page.locator(f".session[data-id='{session.id}']").click()  # the sample repo has a traces/ folder
     page.wait_for_function("() => !document.querySelector('#activitybar [data-view=traces]').hidden")
+
+
+def test_banner_offers_a_restart_when_the_code_changed(page, server, session, monkeypatch):
+    from codepilot import version
+
+    open_app(page)
+    assert page.locator("#staleBanner").count() == 0
+    monkeypatch.setattr(version, "fingerprint", lambda: "after-git-pull")  # files on disk changed
+    page.reload()
+    banner = page.locator("#staleBanner")
+    banner.wait_for()
+    assert "Restart now" in banner.text_content()  # (not clicked: it would restart this test process)

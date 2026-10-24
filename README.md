@@ -209,7 +209,7 @@ Click **Open folder…** (or say "review ~/code/my-service" in chat) and go. See
 | `uv run codepilot smoke` | End-to-end check of your provider: tool calls, a proposed fix, images |
 | `uv run codepilot models --refresh` | List the models your account can use |
 | `make serve` | Start the UI in this terminal |
-| `make start` / `make stop` | Run it in the background, opened in its own window / stop it |
+| `make start` / `make stop` / `make restart` | Run it in the background, opened in its own window / stop it / restart it on new code |
 | `make app` | macOS: install Codepilot.app (double-click to start) |
 | `make chat` | Terminal chat instead of the browser |
 | `make test` | codepilot's own tests (no cloud access needed) |
