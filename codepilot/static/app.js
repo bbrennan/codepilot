@@ -346,7 +346,7 @@ async function renderTree() {
     for (const e of entries) {
       const open = state.expanded.has(e.path);
       if (e.dir) {
-        rows.push(`<div class="row ${state.picked === e.path ? "picked" : ""}" style="--depth:${depth}" data-dir="${esc(e.path)}" draggable="true"><span class="caret ${open ? "open" : ""}">${icon("chevron")}</span><span class="ficon dir">${icon(open ? "folderOpen" : "folder")}</span><span class="name">${esc(e.name)}</span><button class="icon-btn sm hover-act" data-at="${esc(e.path)}" title="Reference in chat">${icon("at")}</button></div>`);
+        rows.push(`<div class="row ${state.picked === e.path ? "picked" : ""}${e.dim ? " dim" : ""}" style="--depth:${depth}" data-dir="${esc(e.path)}" draggable="true"><span class="caret ${open ? "open" : ""}">${icon("chevron")}</span><span class="ficon dir">${icon(open ? "folderOpen" : "folder")}</span><span class="name">${esc(e.name)}</span><button class="icon-btn sm hover-act" data-at="${esc(e.path)}" title="Reference in chat">${icon("at")}</button></div>`);
         if (open) await walk(e.path, depth + 1);
       } else {
         const on = state.active === "file:" + e.path ? "on" : "";

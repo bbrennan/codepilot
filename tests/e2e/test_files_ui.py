@@ -56,6 +56,18 @@ def test_new_folder_goes_in_the_selected_folder(page, server, session):
     assert (server.repo / "agent" / "helpers" / "io.py").exists()
 
 
+def test_a_new_subfolder_shows_even_with_a_build_output_name(page, server, session):
+    open_app(page)
+    for name in ("build", "dist", "my notes"):  # build/dist used to be created but hidden from the explorer
+        page.locator("#tree [data-dir='agent']").click(button="right")
+        menu(page, "New Folder…")
+        answer(page, name)
+        page.locator(f"#tree [data-dir='agent/{name}']").wait_for()
+        assert (server.repo / "agent" / name).is_dir()
+    assert "dim" in page.get_attribute("#tree [data-dir='agent/build']", "class")
+    assert "dim" not in page.get_attribute("#tree [data-dir='agent/my notes']", "class")
+
+
 def test_existing_names_are_refused(page, server, session):
     page.expected_errors.append("409 (Conflict)")
     open_app(page)

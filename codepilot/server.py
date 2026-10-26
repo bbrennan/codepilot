@@ -632,9 +632,11 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                                  "mtime": str(base.stat().st_mtime_ns)})
         entries = []
         for p in sorted(base.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
-            if p.name in SKIP_DIRS or p.name == ".DS_Store":
+            if p.name in (".git", ".DS_Store"):
                 continue
-            entries.append({"name": p.name, "path": ctx.rel(p), "dir": p.is_dir()})
+            # Build output, caches and environments are shown (you may have just made one) but dimmed.
+            entries.append({"name": p.name, "path": ctx.rel(p), "dir": p.is_dir(),
+                            **({"dim": True} if p.name in SKIP_DIRS and p.is_dir() else {})})
         return JSONResponse({"path": ctx.rel(base), "entries": entries})
 
     async def fs(request: Request) -> Response:

@@ -630,3 +630,5 @@ details.card.prop:has(.status.outdated), details.card.prop:has(.status.supersede
 .img-view { display: flex; align-items: center; justify-content: center; padding: 20px; background: repeating-conic-gradient(var(--bg-3) 0% 25%, var(--bg-2) 0% 50%) 50% / 20px 20px; }
 .img-view img { max-width: 100%; max-height: 100%; object-fit: contain; box-shadow: var(--shadow); }
 .md-doc li:has(> input[type=checkbox]) { list-style: none; margin-left: -1.3em; }
+
+#tree .row.dim .name, #tree .row.dim .ficon { opacity: .55; }
