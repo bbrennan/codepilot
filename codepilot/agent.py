@@ -539,6 +539,8 @@ class Agent:
             return f"gh {str(inp.get('args', '')).removeprefix('gh ')}"
         if tu["name"] == "web_fetch":
             return f"fetch {inp.get('url', '')}"
+        if tu["name"] == "view_image":
+            return f"view image {inp.get('source', '')}"
         if tu["name"] == "run_checks":
             names = ", ".join(c.name for c in checks.detect(root)) if root else ""
             return f"run checks ({inp.get('kind', 'all')}): {names or 'none detected'}"
@@ -690,7 +692,7 @@ class Agent:
                                               "limit). Retry with smaller input."), True, 0.0
                 elif tool is None:
                     output, is_error, took = f"Unknown tool {tu['name']!r}.", True, 0.0
-                elif tool.requires_approval(tu["input"], sess.auto_approve) and not _reopens(tu, ctx.root) \
+                elif tool.requires_approval(tu["input"], sess.auto_approve, ctx.root) and not _reopens(tu, ctx.root) \
                         and not self.allowed(session_id, tu):
                     awaiting.append(tu)
                     continue
@@ -779,7 +781,7 @@ class Agent:
                 yield {"type": "sub_tool", "parent": tu["toolUseId"], "name": c["name"],
                        "detail": arg_summary(c["input"])}
                 tool = tools.get(c["name"])
-                if tool and tool.requires_approval(c["input"], False):
+                if tool and tool.requires_approval(c["input"], False, ctx.root):
                     out, err = "This call needs the user's approval, so explore can't make it.", True
                 elif tool:
                     out, err = execute(tool, ctx, c["input"])

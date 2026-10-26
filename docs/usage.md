@@ -137,12 +137,16 @@ if it was blocked, codepilot says how to allow it.
 the 🖼 button. Thumbnails appear above the box; ✕ removes one. Images are shrunk in the browser before
 sending, and an image alone (no text) is fine. codepilot also attaches images you point at:
 - an image link (`https://…/screen.png`);
-- a local path (`~/Desktop/shot.png`);
-- an `@path/to/diagram.png` in the workspace.
+- a local path, spaces and all: paste a macOS screenshot's path as it is
+  (`~/Desktop/Screenshot 2026-10-25 at 3.14.15 PM.png`), quoted, or with `\ ` escapes;
+- a workspace image, with or without `@` (`@"shots/login page.png"`, `docs/diagram.png`).
 
-The assistant can open images itself with `view_image`, for example a screenshot a test wrote. PNG, JPEG,
-GIF and WebP up to 3.75 MB; the model must support images (Claude and GPT-4o-class models do; most small
-local models don't).
+The assistant can also open images itself with `view_image`: one in the workspace (a screenshot a test
+wrote, say), a URL, or a file elsewhere such as your Desktop, which asks you first. PNG, JPEG, GIF, WebP,
+and HEIC on a Mac. Images too big to send (Retina screenshots often are) are shrunk automatically on a Mac;
+elsewhere, paste them instead, since the browser shrinks what you paste. The model must support images
+(Claude and GPT-4o-class models do; most small local models don't). To check that yours does, run
+`uv run codepilot smoke --tier hard` (or `main`, `fast`).
 
 **Earlier prompts:** press **↑** in the message box to bring back what you sent before, like a shell's
 history: this session's prompts first, then ones from other sessions. **↓** goes forward, and past the

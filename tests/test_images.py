@@ -2,6 +2,10 @@
 
 import base64
 import json
+import os
+import struct
+import sys
+import zlib
 
 import pytest
 from fakes import FakeLLM, tool_use
@@ -14,6 +18,7 @@ from codepilot.context import _chars
 from codepilot.ollama import to_ollama_messages
 from codepilot.openai_api import to_openai
 from codepilot.server import create_app
+from codepilot.tools import build_tools
 
 H = {"X-Codepilot": "1"}
 PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9a"
@@ -21,6 +26,13 @@ PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4
 JPEG = b"\xff\xd8\xff\xe0" + b"\0" * 20
 GIF = b"GIF89a" + b"\0" * 20
 WEBP = b"RIFF\0\0\0\0WEBPVP8 " + b"\0" * 10
+
+
+def smoke_png(w, h, raw):
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw, 1)) + chunk(b"IEND", b""))
 
 
 def test_sniff_and_limits():
@@ -117,3 +129,65 @@ def test_old_images_are_pruned_first(cfg, store, repo):
     cleared, freed = agent.ctxm.prune(sess.id, protect_tokens=10, min_free_tokens=1)
     assert cleared == 1 and freed > 0
     assert store.live_messages(sess.id)[0]["content"][1] == {"text": "[image removed to free context]"}
+
+
+def test_macos_screenshot_paths_with_spaces_are_found(repo, tmp_path):
+    desk = tmp_path / "Desktop"
+    desk.mkdir()
+    # macOS names screenshots with a narrow no-break space before AM/PM, which nobody types.
+    shot = desk / "Screenshot 2026-10-25 at 3.14.15 PM.png"
+    shot.write_bytes(PNG)
+    other = desk / "Screen Shot 2.png"
+    other.write_bytes(PNG)
+    typed = f"why does this fail? {desk}/Screenshot 2026-10-25 at 3.14.15 PM.png thanks"
+    found, problems = images.from_message(typed, repo)
+    assert [src for _, src in found] == [str(shot)] and problems == []
+    for text in (f'look at "{other}"', f"look at {str(other).replace(' ', chr(92) + ' ')}",
+                 f"both are in {desk}: {other}"):
+        assert [src for _, src in images.from_message(text, repo)[0]] == [str(other)], text
+
+
+def test_workspace_images_with_and_without_at(repo):
+    (repo / "shots").mkdir()
+    (repo / "shots" / "login page.png").write_bytes(PNG)
+    (repo / "shots" / "home.png").write_bytes(PNG)
+    found, _ = images.from_message('see @"shots/login page.png" and shots/home.png', repo)
+    assert [src for _, src in found] == ["@shots/login page.png", "@shots/home.png"]
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="uses macOS's sips to shrink images")
+def test_oversized_screenshots_are_shrunk(tmp_path):
+    w = h = 1300
+    raw = b"".join(b"\x00" + os.urandom(w * 3) for _ in range(h))  # noise: doesn't compress
+    big = tmp_path / "retina.png"
+    big.write_bytes(smoke_png(w, h, raw))
+    assert big.stat().st_size > images.MAX_BYTES
+    data = images.load_path(big)
+    assert len(data) <= images.MAX_BYTES and images.sniff(data) in ("png", "jpeg")
+
+
+def test_view_image_outside_the_workspace_asks_first(cfg, store, repo, tmp_path):
+    desk = tmp_path / "Desktop"
+    desk.mkdir()
+    (desk / "Screenshot 1.04.05 PM.png").write_bytes(PNG)
+    (repo / "in.png").write_bytes(PNG)
+    tool = {t.name: t for t in build_tools(cfg)}["view_image"]
+    assert not tool.requires_approval({"source": "in.png"}, False, repo)
+    assert not tool.requires_approval({"source": "https://x.io/a.png"}, False, repo)
+    assert tool.requires_approval({"source": f"{desk}/x.png"}, False, repo)
+    llm = FakeLLM([[tool_use("t1", "view_image", source=f"{desk}/Screenshot 1.04.05 PM.png")], [{"text": "a form"}]])
+    agent = Agent(cfg, store, llm=llm)
+    sess = store.create_session(str(repo), "main")
+    events = list(agent.chat(sess.id, "what's in my screenshot?"))
+    assert events[-1]["type"] == "approval_needed" and events[-1]["tools"][0]["command"].startswith("view image ")
+    result = next(e for e in list(agent.resume(sess.id, approve=True)) if e["type"] == "tool_result")
+    assert not result["is_error"] and result["images"]
+    missing = list(Agent(cfg, store, llm=FakeLLM([[tool_use("t2", "view_image", source="nope.png")],
+                                                    [{"text": "ok"}]])).chat(sess.id, "again"))
+    err = next(e for e in missing if e["type"] == "tool_result")
+    assert err["is_error"] and "Images in that folder: in.png" in err["output"]
+
+
+def test_the_model_is_told_it_can_see_images():
+    from codepilot.prompts import STATIC
+    assert "You can see images" in STATIC and "view_image" in STATIC

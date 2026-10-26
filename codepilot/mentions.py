@@ -12,7 +12,8 @@ import subprocess
 import time
 from pathlib import Path
 
-MENTION = re.compile(r"(?<![\w@`])@([\w.\-/~]+)(?::(\d+)(?:-(\d+))?)?")
+# @path, @path:12-40, or @"a path/with spaces.png" (the composer quotes paths that have spaces)
+MENTION = re.compile(r'(?<![\w@`])@(?:"([^"\n]+)"|([\w.\-/~]+))(?::(\d+)(?:-(\d+))?)?')
 PER_FILE_CHARS = 40_000
 TOTAL_CHARS = 120_000
 ATTACH_OPEN = "<attached_files>"
@@ -32,9 +33,8 @@ def find_mentions(root: Path | None, text: str) -> list[dict]:
         return []
     found, seen = [], set()
     for m in MENTION.finditer(text):
-        rel, start, end = m.group(1), m.group(2), m.group(3)
-        if not start:
-            rel = rel.rstrip(".,;:")
+        quoted, rel, start, end = m.group(1), m.group(2), m.group(3), m.group(4)
+        rel = quoted or (rel if start else rel.rstrip(".,;:"))
         path = _resolve(root, rel)
         if path is None:
             continue

@@ -10,6 +10,10 @@ from __future__ import annotations
 
 import hashlib
 import re
+import shutil
+import subprocess
+import sys
+import tempfile
 import urllib.request
 from pathlib import Path
 
@@ -18,9 +22,17 @@ MIME = {"png": "image/png", "jpeg": "image/jpeg", "gif": "image/gif", "webp": "i
 MAX_BYTES = 3_750_000  # Bedrock's per-image limit; the strictest of the providers
 MAX_PER_MESSAGE = 8
 TOKENS_PER_IMAGE = 1600  # a typical screenshot after the provider's downscaling; used for context estimates
-EXTENSIONS = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+MAX_SIDE = 1568  # the long side Claude reads at full detail; bigger files are shrunk to this
+MAX_FILE = 60_000_000  # don't even try to read bigger files
+EXTENSIONS = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic")
+_EXT = r"\.(?:png|jpe?g|gif|webp|heic)"
 URL = re.compile(r"https?://[^\s<>\"')\]]+", re.I)
-LOCAL_PATH = re.compile(r"(?<![\w@/])((?:~|/)[^\s<>\"'`]*\.(?:png|jpe?g|gif|webp))\b", re.I)
+# A path from / or ~ to an image extension. It may contain spaces (macOS screenshots are named like
+# "Screenshot 2026-10-25 at 3.14.15 PM.png"), so the shortest run that ends in an extension is taken.
+LOCAL_PATH = re.compile(rf"(?<![\w@/])((?:~|/)[^\n<>\"'`]*?{_EXT})(?![\w])", re.I)
+QUOTED_PATH = re.compile(rf"[\"'\u201c\u2018]((?:~|/)[^\"'\n\u201c\u201d\u2018\u2019]+?{_EXT})[\"'\u201d\u2019]", re.I)
+REL_PATH = re.compile(rf"(?<![\w@/~.`\\])((?:[\w.\-]+/)*[\w.\-]+{_EXT})(?![\w/])", re.I)
+SPACES = re.compile(r"[\s\u00a0\u2007\u2009\u202f]+")
 
 
 class ImageError(ValueError):
@@ -84,26 +96,92 @@ def fetch(url: str, timeout: float = 15.0) -> bytes:
     return data
 
 
-def load_path(path: Path) -> bytes:
+def find_file(path: Path) -> Path | None:
+    """The file, or one in the same folder whose name differs only in kinds of space or in case. macOS puts a
+    narrow no-break space before AM/PM in screenshot names, which nobody (and no model) types."""
+    if path.is_file():
+        return path
+    folder = path.parent
+    if not folder.is_dir():
+        return None
+    want = SPACES.sub(" ", path.name).casefold()
     try:
-        if path.stat().st_size > MAX_BYTES:
-            raise ImageError(f"{path.name} is larger than {MAX_BYTES / 1e6:.2f} MB")
-        return path.read_bytes()
+        return next((p for p in folder.iterdir() if SPACES.sub(" ", p.name).casefold() == want and p.is_file()),
+                    None)
+    except OSError:
+        return None
+
+
+def _shrink(path: Path) -> bytes | None:
+    """A copy at most MAX_SIDE pixels on the long side, as PNG (or JPEG for photos), using macOS's built-in sips
+    or Pillow if installed. None if neither is available."""
+    with tempfile.TemporaryDirectory(prefix="codepilot-img-") as tmp:
+        for fmt in ("png", "jpeg"):
+            out = Path(tmp) / f"out.{fmt}"
+            if sys.platform == "darwin" and shutil.which("sips"):
+                proc = subprocess.run(["sips", "-Z", str(MAX_SIDE), "-s", "format", fmt, str(path), "--out", str(out)],
+                                      capture_output=True, timeout=60)
+                if proc.returncode != 0:
+                    return None
+            else:
+                try:
+                    from PIL import Image  # optional
+                except ImportError:
+                    return None
+                with Image.open(path) as im:
+                    im.thumbnail((MAX_SIDE, MAX_SIDE))
+                    (im.convert("RGB") if fmt == "jpeg" else im).save(out, format=fmt.upper())
+            data = out.read_bytes()
+            if len(data) <= MAX_BYTES:
+                return data
+    return None
+
+
+def load_path(path: Path) -> bytes:
+    """An image file's bytes, ready to send: too-large or HEIC images are shrunk and converted when possible."""
+    found = find_file(path)
+    if found is None:
+        raise ImageError(f"{path} doesn't exist")
+    try:
+        size = found.stat().st_size
+        if size > MAX_FILE:
+            raise ImageError(f"{found.name} is {size / 1e6:.0f} MB, too large to read")
+        data = found.read_bytes()
     except OSError as exc:
-        raise ImageError(f"couldn't read {path}: {exc.strerror or exc}") from None
+        raise ImageError(f"couldn't read {found}: {exc.strerror or exc}") from None
+    if sniff(data) and len(data) <= MAX_BYTES:
+        return data
+    shrunk = _shrink(found)
+    if shrunk is None:
+        what = "isn't a PNG, JPEG, GIF or WebP image" if not sniff(data) else f"is {len(data) / 1e6:.1f} MB"
+        raise ImageError(f"{found.name} {what} and couldn't be converted here; paste it into the chat instead "
+                         "(the browser shrinks it)")
+    return shrunk
+
+
+def _candidates(raw: str) -> list[str]:
+    """A matched path, then each shorter path starting after a space inside it ("in ~/Desktop: ~/Desktop/a b.png")."""
+    out = [raw]
+    for i, ch in enumerate(raw[:-1]):
+        if ch.isspace() and raw[i + 1] in "/~":
+            out.append(raw[i + 1:])
+    return out
 
 
 def from_message(text: str, root: Path | None) -> tuple[list[tuple[dict, str]], list[str]]:
-    """Images the user pointed at in a message: image links, local image paths, and @-referenced images in the
-    workspace. Returns ([(block, source)], [problems])."""
+    """Images the user pointed at in a message: image links, local image paths (spaces allowed, quoted or not),
+    workspace image paths with or without @. Returns ([(block, source)], [problems])."""
+    from . import mentions
+
     found: list[tuple[dict, str]] = []
     problems: list[str] = []
     seen: set[str] = set()
 
-    def add(source: str, loader) -> None:
-        if source in seen or len(found) >= MAX_PER_MESSAGE:
+    def add(source: str, loader, key: str = "") -> None:
+        key = key or source
+        if key in seen or len(found) >= MAX_PER_MESSAGE:
             return
-        seen.add(source)
+        seen.add(key)
         try:
             found.append((block(loader()), source))
         except ImageError as exc:
@@ -113,15 +191,20 @@ def from_message(text: str, root: Path | None) -> tuple[list[tuple[dict, str]], 
         url = url.rstrip(".,;:!?")
         if url.lower().split("?")[0].endswith(EXTENSIONS) or re.search(r"\.(png|jpe?g|gif|webp)(\?|$)", url, re.I):
             add(url, lambda u=url: fetch(u))
-    for raw in LOCAL_PATH.findall(text):
-        path = Path(raw).expanduser()
-        if path.is_file():
-            add(str(path), lambda p=path: load_path(p))
+    plain = URL.sub(" ", text).replace("\\ ", " ")  # paths dragged into a terminal escape their spaces
+    for raw in QUOTED_PATH.findall(plain) + LOCAL_PATH.findall(plain):
+        for cand in _candidates(raw):
+            path = find_file(Path(cand).expanduser())
+            if path is not None:
+                add(str(path), lambda p=path: load_path(p))
+                break
     if root is not None:
-        for rel in re.findall(r"(?<![\w@`])@([\w.\-/~]+\.(?:png|jpe?g|gif|webp))\b", text, re.I):
-            path = (root / rel).resolve()
-            if (root in path.parents) and path.is_file():
-                add("@" + rel, lambda p=path: load_path(p))
+        rels = [m["rel"] for m in mentions.find_mentions(root, plain) if is_image_name(m["rel"])]
+        rels += [r for r in REL_PATH.findall(plain) if not r.startswith(("http", "www."))]
+        for rel in rels:
+            path = find_file((root / rel).resolve())
+            if path is not None and root in path.parents:
+                add("@" + str(path.relative_to(root)), lambda p=path: load_path(p), key=str(path))
     return found, problems
 
 

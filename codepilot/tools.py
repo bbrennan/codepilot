@@ -68,12 +68,13 @@ class Tool:
     needs_approval: bool = False
     needs_workspace: bool = True
     read_only: bool = True  # read-only tools are available to the explore sub-agent
-    approval_fn: Callable[[dict], bool] | None = None  # per-call approval decision (e.g. gh read vs write)
+    # per-call approval decision from (input, workspace root), e.g. gh read vs write, or an image outside the workspace
+    approval_fn: Callable[[dict, Path | None], bool] | None = None
     auto_approvable: bool = False  # the session's "auto-run" switch skips approval (tests, checks)
 
-    def requires_approval(self, tool_input: dict, auto_run: bool) -> bool:
+    def requires_approval(self, tool_input: dict, auto_run: bool, root: Path | None = None) -> bool:
         if self.approval_fn is not None:
-            return self.approval_fn(tool_input)
+            return self.approval_fn(tool_input, root)
         if self.auto_approvable and auto_run:
             return False
         return self.needs_approval
@@ -572,14 +573,42 @@ class WithImages(str):
     images: list[dict]
 
 
+def _image_file(source: str, root: Path | None) -> Path:
+    path = Path(source).expanduser()
+    if not path.is_absolute():
+        if root is None:
+            raise ToolError("no workspace is open; give the image's full path")
+        path = root / path
+    return path.resolve()
+
+
+def image_outside_workspace(tool_input: dict, root: Path | None) -> bool:
+    """view_image asks first for a file outside the workspace (a screenshot on the Desktop, say)."""
+    source = str(tool_input.get("source", "")).strip()
+    if re.match(r"https?://", source, re.I):
+        return False
+    try:
+        path = _image_file(source, root)
+    except ToolError:
+        return False  # the call fails anyway
+    return root is None or (path != root and root not in path.parents)
+
+
 def view_image(ctx: ToolContext, source: str) -> str:
-    """Look at an image: a file in the workspace or an http(s) URL."""
-    source = source.strip()
+    """Look at an image: a file (in the workspace, or elsewhere once the user approves) or an http(s) URL."""
+    source = source.strip().strip("'\"")
     try:
         if re.match(r"https?://", source, re.I):
             data = images.fetch(source)
         else:
-            data = images.load_path(ctx.resolve(source))
+            path = _image_file(source, ctx.root)
+            found = images.find_file(path)
+            if found is None:
+                near = sorted(p.name for p in path.parent.glob("*") if images.is_image_name(p.name))[:10] \
+                    if path.parent.is_dir() else []
+                raise ToolError(f"{source!r} doesn't exist" + (f". Images in that folder: {', '.join(near)}"
+                                                              if near else ""))
+            data = images.load_path(found)
         img = images.block(data)
     except images.ImageError as exc:
         raise ToolError(str(exc)) from None
@@ -786,8 +815,10 @@ def build_tools(cfg: Config) -> list[Tool]:
              "number, e.g. '2.1'.", _obj({"task": s, "status": {"type": "string",
                                                                  "enum": ["todo", "in_progress", "done"]}},
                                          ["task", "status"]), update_task, read_only=False),
-        Tool("view_image", "Look at an image: a screenshot, diagram or chart in the workspace (path) or on the web "
-             "(http/https URL). PNG, JPEG, GIF or WebP, up to 3.75 MB.", _obj({"source": s}, ["source"]), view_image),
+        Tool("view_image", "Look at an image: a screenshot, diagram or chart, by file path (in the workspace, or "
+             "anywhere else such as ~/Desktop, which the user approves) or http/https URL. PNG, JPEG, GIF, WebP or "
+             "HEIC; large images are shrunk.", _obj({"source": s}, ["source"]), view_image,
+             approval_fn=image_outside_workspace, needs_workspace=False),
         Tool("remember", "Save a durable fact about this workspace for future sessions (how to run things, where "
              "key code lives, recurring pitfalls). One line. Never store secrets.",
              _obj({"note": s}, ["note"]), remember, read_only=False),
@@ -818,7 +849,7 @@ def build_tools(cfg: Config) -> list[Tool]:
             "need the user's approval; draft the text carefully.",
             _obj({"args": {**s, "description": "Arguments after 'gh', e.g. 'pr view 12 --json title,body,files'"}},
                  ["args"]), github_cli, needs_workspace=False,
-            approval_fn=lambda inp: github.classify(shlex.split(str(inp.get("args", "")).removeprefix("gh ")))
+            approval_fn=lambda inp, _root: github.classify(shlex.split(str(inp.get("args", "")).removeprefix("gh ")))
             == "write"))
     if cfg.log_groups:
         tools.append(Tool(

@@ -64,6 +64,7 @@ Start with `make doctor`. It tests each piece and prints the fix for most proble
 | Symptom | Fix |
 |---|---|
 | "Multimodal data provided, but model does not support…" or images ignored | The model can't read images (most small local models). Use a Claude or GPT-4o-class model, or a vision model on Ollama (e.g. `qwen2.5vl`) |
+| The model says it can't see your screenshots | Attach them (paste, drop, or 🖼) or give their path in the message; both work for files outside the workspace, and big Retina screenshots are shrunk. If it still says so, run `uv run codepilot smoke --tier <tier>`: its "reads images" line shows whether that model accepts images |
 | Ctrl+V doesn't paste on a Mac | ⌘V always works. Ctrl+V needs the browser's clipboard permission: allow it when asked. If it was blocked, codepilot shows a message: open `chrome://settings/content/clipboard` (Edge: `edge://settings/content/clipboard`) and add `http://127.0.0.1:8765` under Allowed. A work-managed browser may block this by policy; then only ⌘V works. Safari and Firefox show a small **Paste** button to click |
 | A fix you pulled doesn't seem to take effect | The server keeps running the code it started with. `make restart` (or **Restart now** in the banner the app shows) loads the new code. `make start` also restarts a background server whose code changed |
 | Not sure your Anthropic/OpenAI key setup works | `uv run codepilot smoke` runs a real end-to-end turn and reports each check |

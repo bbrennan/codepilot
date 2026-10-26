@@ -1132,7 +1132,7 @@ async function retryFrom(el) {
   rewindTo(el, state.msgText.get(el.dataset.mid) ?? $(".body", el).innerText);
 }
 function userHtml(text) {
-  return esc(text).replace(/(^|[\s(])@([\w.\-/~]+)(?::(\d+)(?:-(\d+))?)?/g, (m, pre, p, a) => `${pre}<span class="ref" data-path="${p}" ${a ? `data-line="${a}"` : ""}>@${m.slice(pre.length + 1)}</span>`);
+  return esc(text).replace(/(^|[\s(])@(?:&quot;(.+?)&quot;|([\w.\-/~]+))(?::(\d+)(?:-(\d+))?)?/g, (m, pre, q, p, a) => `${pre}<span class="ref" data-path="${q || p}" ${a ? `data-line="${a}"` : ""}>@${m.slice(pre.length + 1)}</span>`);
 }
 function argSummary(name, input) {
   if (!input) return "";
@@ -1401,7 +1401,10 @@ async function send(when = "now") {
 
 // ---------------------------------------------------------------- composer: images (paste, drop, attach)
 // Images are shrunk in the browser (long side ≤ 1568 px, the size Claude reads at full detail) before sending.
+const IMAGE_TYPES = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" };
 async function addImageFile(file) {
+  if (file && !file.type && IMAGE_TYPES[(file.name.split(".").pop() || "").toLowerCase()]) file = new File([file], file.name, { type: IMAGE_TYPES[file.name.split(".").pop().toLowerCase()] }); // some drops carry no type
+  if (/\.heic$/i.test(file?.name || "") || file?.type === "image/heic") return toast("HEIC photos can't be attached in the browser. Mention the file's path in your message instead (codepilot converts it), or export it as JPEG.", true);
   if (!file || !/^image\/(png|jpeg|gif|webp)$/.test(file.type)) return toast("Only PNG, JPEG, GIF and WebP images can be attached.", true);
   if (state.attachments.length >= 8) return toast("Up to 8 images per message.", true);
   try {
@@ -1586,13 +1589,15 @@ function resetHistory() { hist.idx = null; }
 const input = $("#input");
 function autosize() { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 220) + "px"; }
 function setInput(text) { input.value = text; autosize(); input.focus(); ide.classList.remove("no-chat"); }
+// @path, quoted when the path has spaces or other characters a bare reference can't hold.
+const refText = (path) => "@" + (/^[\w.\-/~]+$/.test(path) ? path : `"${path}"`);
 function insertRef(path) {
   ide.classList.remove("no-chat");
   const pos = input.selectionStart ?? input.value.length;
   const before = input.value.slice(0, pos), after = input.value.slice(pos);
   const pad = before && !/\s$/.test(before) ? " " : "";
-  input.value = before + pad + "@" + path + " " + after;
-  const caret = (before + pad + "@" + path + " ").length;
+  input.value = before + pad + refText(path) + " " + after;
+  const caret = (before + pad + refText(path) + " ").length;
   input.focus(); input.setSelectionRange(caret, caret); autosize();
 }
 let mention = { open: false, items: [], idx: 0, start: 0 };
@@ -1623,8 +1628,8 @@ function acceptMention(i) {
     input.value = "/" + f + " " + input.value.slice(pos);
     input.setSelectionRange(f.length + 2, f.length + 2); hideMentions(); autosize(); return;
   }
-  input.value = input.value.slice(0, mention.start) + "@" + f + " " + input.value.slice(pos);
-  const caret = mention.start + f.length + 2; input.setSelectionRange(caret, caret); hideMentions(); autosize();
+  input.value = input.value.slice(0, mention.start) + refText(f) + " " + input.value.slice(pos);
+  const caret = mention.start + refText(f).length + 1; input.setSelectionRange(caret, caret); hideMentions(); autosize();
 }
 input.addEventListener("input", () => {
   if (!hist.setting) resetHistory();
@@ -1791,7 +1796,7 @@ box.addEventListener("dragover", (e) => { e.preventDefault(); box.classList.add(
 box.addEventListener("dragleave", () => box.classList.remove("drop"));
 box.addEventListener("drop", (e) => {
   e.preventDefault(); box.classList.remove("drop");
-  const files = [...(e.dataTransfer.files || [])].filter((f) => f.type.startsWith("image/"));
+  const files = [...(e.dataTransfer.files || [])].filter((f) => f.type.startsWith("image/") || /\.(png|jpe?g|gif|webp|heic)$/i.test(f.name));
   if (files.length) { files.forEach(addImageFile); return; }
   const t = e.dataTransfer.getData("text/plain"); if (t && t.startsWith("@")) insertRef(t.slice(1).trim());
 });
