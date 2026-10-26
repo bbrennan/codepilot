@@ -631,13 +631,48 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             return JSONResponse({"path": ctx.rel(base), "content": base.read_text(errors="replace"),
                                  "mtime": str(base.stat().st_mtime_ns)})
         entries = []
+        stamp = dir_stamp(base)
         for p in sorted(base.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
             if p.name in (".git", ".DS_Store"):
                 continue
             # Build output, caches and environments are shown (you may have just made one) but dimmed.
             entries.append({"name": p.name, "path": ctx.rel(p), "dir": p.is_dir(),
                             **({"dim": True} if p.name in SKIP_DIRS and p.is_dir() else {})})
-        return JSONResponse({"path": ctx.rel(base), "entries": entries})
+        return JSONResponse({"path": ctx.rel(base), "entries": entries, "stamp": stamp})
+
+    def dir_stamp(path: Path) -> str | None:
+        """Changes when an entry is added, removed or renamed (the folder's mtime, plus its size in case a
+        file system doesn't update mtimes)."""
+        try:
+            return f"{path.stat().st_mtime_ns}:{sum(1 for _ in os.scandir(path))}"
+        except OSError:
+            return None
+
+    async def disk_stat(request: Request) -> Response:
+        """What changed on disk, for the explorer and open files to follow edits from the agent, the terminal or
+        other apps: a stamp per folder and an mtime per file (null when it's gone)."""
+        try:
+            ctx = ctx_for(request.path_params["sid"])
+        except (KeyError, ToolError):  # a session switch or a closed folder raced the check: nothing to report
+            return JSONResponse({"dirs": {}, "files": {}})
+        data = await request.json()
+        return JSONResponse(await run_in_threadpool(stat_paths, ctx, data))
+
+    def stat_paths(ctx: ToolContext, data: dict) -> dict:
+        out: dict[str, dict] = {"dirs": {}, "files": {}}
+        for rel in list(data.get("dirs") or [])[:500]:
+            try:
+                path = ctx.resolve(rel or ".", must_exist=False)
+                out["dirs"][rel] = dir_stamp(path) if path.is_dir() else None
+            except ToolError:
+                out["dirs"][rel] = None
+        for rel in list(data.get("files") or [])[:200]:
+            try:
+                path = ctx.resolve(rel, must_exist=False)
+                out["files"][rel] = str(path.stat().st_mtime_ns) if path.is_file() else None
+            except (ToolError, OSError):
+                out["files"][rel] = None
+        return out
 
     async def fs(request: Request) -> Response:
         """The user's own file operations from the explorer and editor (not the assistant's, which go through
@@ -953,6 +988,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         Route("/api/sessions/{sid}/traces", needs_workspace(trace_list)),
         Route("/api/sessions/{sid}/trace", needs_workspace(trace_view)),
         Route("/api/sessions/{sid}/files", needs_workspace(files)),
+        Route("/api/sessions/{sid}/stat", needs_workspace(disk_stat), methods=["POST"]),
         Route("/api/sessions/{sid}/find", needs_workspace(find)),
         Route("/api/sessions/{sid}/git", needs_workspace(git_view)),
         Route("/api/sessions/{sid}/fs", needs_workspace(fs), methods=["POST"]),

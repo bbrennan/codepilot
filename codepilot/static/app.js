@@ -330,9 +330,50 @@ $("#collapseTreeBtn").onclick = () => { state.expanded.clear(); renderTree(); };
 async function fetchDir(path) {
   if (state.tree.has(path)) return state.tree.get(path);
   const d = await api(`/api/sessions/${state.sid}/files?path=${encodeURIComponent(path)}`);
-  state.tree.set(path, d.entries || []);
+  state.tree.set(path, d.entries || []); disk.dirs.set(path, d.stamp);
   return d.entries || [];
 }
+
+// ---- following the disk: the explorer and open files update when the agent, the terminal or another app
+// changes something. The page asks every 2 s (while visible) and straight after each agent step, for a stamp
+// of each folder shown and the mtime of each open file; only what changed is reloaded.
+const disk = { dirs: new Map(), busy: false, sid: null, warned: new Set() };
+async function checkDisk() {
+  if (!state.sid || !state.workspace || disk.busy || document.hidden) return;
+  if (disk.sid !== state.sid) { disk.sid = state.sid; disk.dirs.clear(); disk.warned.clear(); }
+  const dirs = [...new Set([".", ...state.expanded])].filter((p) => state.tree.has(p));
+  const tabs = state.tabs.filter((t) => t.kind === "file" && !t.global && t.content != null && t.mtime);
+  if (!dirs.length && !tabs.length) return;
+  disk.busy = true;
+  try {
+    const d = await api(`/api/sessions/${state.sid}/stat`, { method: "POST", body: { dirs, files: tabs.map((t) => t.path) } });
+    let treeChanged = false;
+    for (const [p, stamp] of Object.entries(d.dirs || {})) {
+      if (stamp === disk.dirs.get(p)) continue;
+      treeChanged = true; state.tree.delete(p); disk.dirs.delete(p);
+      if (stamp === null && p !== ".") state.expanded.delete(p); // the folder itself went away
+    }
+    for (const tab of tabs) {
+      const m = d.files?.[tab.path];
+      if (m === undefined || m === tab.mtime) continue;
+      if (m === null) { tab.mtime = null; if (!disk.warned.has(tab.path)) { disk.warned.add(tab.path); toast(`${tab.path} was deleted on disk.`); } continue; }
+      if (tab.dirty) { // never overwrite unsaved edits; saving asks before replacing the newer file
+        if (!disk.warned.has(tab.path + m)) { disk.warned.add(tab.path + m); toast(`${tab.path} changed on disk. Your unsaved edits are kept; saving will ask before overwriting.`); }
+        continue;
+      }
+      const f = await api(`/api/sessions/${state.sid}/files?path=${encodeURIComponent(tab.path)}`).catch(() => null);
+      if (!f || f.content == null) continue;
+      Object.assign(tab, { content: f.content, mtime: f.mtime }, tab.editing ? { draft: f.content } : {});
+      if (state.active === tab.id) { const sc = $("#editor .ed-scroll")?.scrollTop; renderEditor(); const el = $("#editor .ed-scroll"); if (el && sc) el.scrollTop = sc; }
+    }
+    if (treeChanged) { await renderTree(); loadGitSoon(); }
+  } catch { /* the next check tries again */ }
+  finally { disk.busy = false; }
+}
+const checkDiskSoon = debounce(checkDisk, 250);
+const loadGitSoon = debounce(() => loadGit(), 500);
+setInterval(checkDisk, 2000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) checkDisk(); });
 async function renderTree() {
   const el = $("#tree");
   if (!state.sid || !state.workspace) {
@@ -1327,7 +1368,9 @@ async function streamTo(sid, url, body) {
         const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
         if (!line.trim()) continue;
         if (sid === state.sid) {
-          render(JSON.parse(line));
+          const ev = JSON.parse(line);
+          render(ev);
+          if (ev.type === "tool_result" || ev.type === "proposals_changed" || ev.type === "done") checkDiskSoon(); // the agent may have changed files
           if (typing && typing.isConnected) $("#transcript").appendChild(typing);
           $$("#transcript .msg.queued").forEach((q) => $("#transcript").appendChild(q)); // queued messages stay last
         }

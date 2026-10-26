@@ -90,6 +90,11 @@ F2 and Delete work only while the Explorer has focus (you last clicked in it), s
 chat or editor. These are your own actions: they don't go through proposals or approvals, and they can't
 reach outside the workspace folder.
 
+**The Explorer and open files follow the disk.** Whatever changes the folder (the agent, a command in the
+terminal, your other editor, git) shows up within about two seconds, and right after each agent step. An
+open file reloads in place. If you have unsaved edits in it, they're kept and you're told it changed;
+saving then asks before replacing the newer file. The ↻ button still forces a full reload.
+
 ## Talking to it
 
 Write as you would to a colleague. Be specific about the goal and what "done" looks like.

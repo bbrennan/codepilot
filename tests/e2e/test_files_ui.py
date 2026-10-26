@@ -179,3 +179,41 @@ def test_empty_explorer_space_offers_new_items(page, server, session):
     menu(page, "New Folder…")
     answer(page, "notes")
     page.locator("#tree [data-dir='notes']").wait_for()
+
+
+# -- following the disk: changes from the agent, the terminal or other apps show up by themselves -----------
+
+
+def test_explorer_shows_files_and_folders_made_outside_the_page(page, server, session):
+    open_app(page)
+    page.click("#tree [data-dir='agent']")  # expanded
+    page.locator("#tree [data-file='agent/core.py']").wait_for()
+    (server.repo / "generated").mkdir()  # like the agent or the terminal
+    (server.repo / "agent" / "helpers.py").write_text("x = 1\n")
+    page.locator("#tree [data-dir='generated']").wait_for(timeout=5000)
+    page.locator("#tree [data-file='agent/helpers.py']").wait_for(timeout=5000)
+    (server.repo / "agent" / "helpers.py").unlink()
+    page.locator("#tree [data-file='agent/helpers.py']").wait_for(state="detached", timeout=5000)
+
+
+def test_an_open_file_reloads_when_it_changes_on_disk(page, server, session):
+    open_app(page)
+    page.click("#tree [data-dir='agent']")
+    page.click("#tree [data-file='agent/core.py']")
+    page.locator("#editor code", has_text="a - b").wait_for()
+    (server.repo / "agent" / "core.py").write_text("def add(a, b):\n    return a + b  # fixed elsewhere\n")
+    page.locator("#editor code", has_text="fixed elsewhere").wait_for(timeout=5000)
+
+
+def test_unsaved_edits_are_never_replaced_by_a_change_on_disk(page, server, session):
+    open_app(page)
+    page.click("#tree [data-dir='agent']")
+    page.click("#tree [data-file='agent/core.py']")
+    page.locator("#editor code", has_text="a - b").wait_for()
+    page.click("#fEdit")
+    page.locator("#codeEdit").wait_for()
+    page.locator("#codeEdit").press("End")
+    page.locator("#codeEdit").type("\n# mine")
+    (server.repo / "agent" / "core.py").write_text("theirs = 1\n")
+    page.get_by_text("changed on disk. Your unsaved edits are kept").wait_for(timeout=5000)
+    assert "# mine" in page.input_value("#codeEdit")

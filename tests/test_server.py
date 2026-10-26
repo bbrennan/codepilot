@@ -233,3 +233,18 @@ def test_a_message_queued_as_the_stream_ends_still_runs(cfg, store, repo, monkey
     sid = client.post("/api/sessions", json={"repo": str(repo)}, headers=hdr).json()["id"]
     lines = client.post(f"/api/sessions/{sid}/chat", json={"message": "hi"}, headers=hdr).text.splitlines()
     assert any("late arrival" in ln for ln in lines) and any('"two"' in ln for ln in lines)
+
+
+def test_stat_reports_folder_and_file_changes(cfg, store, repo):
+    client = TestClient(create_app(cfg, store, Agent(cfg, store, llm=FakeLLM([]))))
+    hdr = {"X-Codepilot": "1"}
+    sid = client.post("/api/sessions", json={"repo": str(repo)}, headers=hdr).json()["id"]
+    body = {"dirs": [".", "agent", "gone", "../.."], "files": ["agent/core.py", "nope.py"]}
+    first = client.post(f"/api/sessions/{sid}/stat", json=body, headers=hdr).json()
+    assert first["dirs"]["gone"] is None and first["dirs"]["../.."] is None and first["files"]["nope.py"] is None
+    assert first["dirs"]["agent"] == client.get(f"/api/sessions/{sid}/files", params={"path": "agent"}).json()["stamp"]
+    (repo / "agent" / "new.py").write_text("")
+    (repo / "agent" / "core.py").write_text("changed = True\n")
+    second = client.post(f"/api/sessions/{sid}/stat", json=body, headers=hdr).json()
+    assert second["dirs"]["agent"] != first["dirs"]["agent"] and second["dirs"]["."] == first["dirs"]["."]
+    assert second["files"]["agent/core.py"] != first["files"]["agent/core.py"]
