@@ -87,7 +87,7 @@ class ScriptedLLM:
             if "text" in block:
                 for word in re.findall(r"\S+\s*", block["text"]):
                     if "slow" in user_text:
-                        time.sleep(0.15)
+                        time.sleep(0.5 if "very slow" in user_text else 0.15)
                     yield {"type": "text", "text": word}
         sent = len(json.dumps(system)) + len(json.dumps(messages)) + len(json.dumps(tools or []))
         yield {"type": "message", "content": content,

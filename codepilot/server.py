@@ -79,26 +79,71 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             raise ToolError("No workspace open in this session yet.")
         return ToolContext(root=root, cfg=cfg, store=store, session_id=sid)
 
+    # A turn runs on its own thread, so closing or reloading the page doesn't stop it. Its events are kept
+    # until it ends; the page that started it reads them from the start, and a reloaded page from where it is.
+    runs: dict[str, dict] = {}  # sid -> {"events": [bytes], "done": bool}
+    runs_cond = threading.Condition()
+
+    def publish(run: dict, event: dict) -> None:
+        with runs_cond:
+            run["events"].append((json.dumps(event, default=str) + "\n").encode())
+            runs_cond.notify_all()
+
+    def run_turn(sid: str, run: dict, events: Iterator[dict]) -> None:
+        current, produced = events, True
+        try:
+            while True:
+                for event in current:
+                    produced = True
+                    publish(run, event)
+                # A message queued as the turn was ending must not be lost: run it before letting go.
+                with busy_lock:
+                    if not produced or not agent.queued(sid) or not store.has_session(sid) \
+                            or store.get_session(sid).pending:
+                        busy.discard(sid)
+                        break
+                current, produced = agent.drain(sid), False
+        except Exception as exc:  # surface unexpected failures in the chat instead of a dead stream
+            log.error("agent failure:\n%s", traceback.format_exc())
+            publish(run, {"type": "error", "message": f"{type(exc).__name__}: {exc}"})
+            publish(run, {"type": "done"})
+        finally:
+            with busy_lock:
+                busy.discard(sid)
+            with runs_cond:
+                run["done"] = True
+                if runs.get(sid) is run:
+                    runs.pop(sid)
+                runs_cond.notify_all()
+
+    def follow_body(run: dict, start: int) -> Iterator[bytes]:
+        i = start
+        while True:
+            with runs_cond:
+                if i >= len(run["events"]) and not run["done"]:
+                    runs_cond.wait(timeout=15)
+                new, done = run["events"][i:], run["done"]
+            i += len(new)
+            yield from new
+            if done and i >= len(run["events"]):
+                return
+            if not new:
+                yield b"\n"  # keep-alive (the page skips blank lines)
+
+    def ndjson(body: Iterator[bytes]) -> Response:
+        return StreamingResponse(body, media_type="application/x-ndjson",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
     def stream(sid: str, events: Iterator[dict]) -> Response:
         with busy_lock:
             if sid in busy:
                 return err("This session is already working; wait for it to finish.", 409)
             busy.add(sid)
-
-        def body() -> Iterator[bytes]:
-            try:
-                for event in events:
-                    yield (json.dumps(event, default=str) + "\n").encode()
-            except Exception as exc:  # surface unexpected failures in the chat instead of a dead stream
-                log.error("agent failure:\n%s", traceback.format_exc())
-                yield (json.dumps({"type": "error", "message": f"{type(exc).__name__}: {exc}"}) + "\n").encode()
-                yield (json.dumps({"type": "done"}) + "\n").encode()
-            finally:
-                with busy_lock:
-                    busy.discard(sid)
-
-        return StreamingResponse(body(), media_type="application/x-ndjson",
-                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+        run = {"events": [], "done": False}
+        with runs_cond:
+            runs[sid] = run
+        threading.Thread(target=run_turn, args=(sid, run, events), name=f"turn-{sid[:8]}", daemon=True).start()
+        return ndjson(follow_body(run, 0))
 
     async def index(request: Request) -> Response:
         html = (STATIC / "index.html").read_text().replace("__CODEPILOT_TOKEN__", term_token if cfg.terminal else "")
@@ -276,6 +321,14 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         sess = store.create_session(repo, tier, auto_approve=bool(data.get("auto_approve", False)))
         return JSONResponse(sess.public())
 
+    async def follow(request: Request) -> Response:
+        """Stream a running turn's events from now on (for a page opened or reloaded while it runs). 204 when
+        nothing is running."""
+        with runs_cond:
+            run = runs.get(request.path_params["sid"])
+            start = len(run["events"]) if run else 0
+        return ndjson(follow_body(run, start)) if run else Response(status_code=204)
+
     async def session(request: Request) -> Response:
         sid = request.path_params["sid"]
         try:
@@ -317,6 +370,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             await run_in_threadpool(retire_stale_proposals, store, sid, root)
         return JSONResponse({
             "session": sess.public(),
+            "busy": sid in busy,
             "summary": sess.summary,
             "events": history_events(store, sid),
             "pending": sess.pending and agent.approval_view(sess.pending["awaiting"], root),
@@ -398,13 +452,16 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             return JSONResponse({"queued": agent.queued(sid)})
         if request.method == "DELETE":
             return JSONResponse({"ok": agent.dequeue(sid, request.path_params.get("qid", ""))})
-        text = str((await request.json()).get("text") or "").strip()
+        data = await request.json()
+        if request.method == "PATCH":
+            return JSONResponse({"ok": agent.requeue(sid, request.path_params.get("qid", ""), data.get("when"))})
+        text = str(data.get("text") or "").strip()
         if not text:
             return err("Empty message")
         with busy_lock:
             if sid not in busy:
                 return err("Not working right now; send it as a normal message.", 409)
-            return JSONResponse(agent.enqueue(sid, text))
+            return JSONResponse(agent.enqueue(sid, text, data.get("when", "now")))
 
     async def rewind(request: Request) -> Response:
         sid = request.path_params["sid"]
@@ -883,7 +940,8 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         Route("/api/sessions/{sid}/approve", approve, methods=["POST"]),
         Route("/api/sessions/{sid}/cancel", cancel, methods=["POST"]),
         Route("/api/sessions/{sid}/queue", queue, methods=["GET", "POST"]),
-        Route("/api/sessions/{sid}/queue/{qid}", queue, methods=["DELETE"]),
+        Route("/api/sessions/{sid}/queue/{qid}", queue, methods=["DELETE", "PATCH"]),
+        Route("/api/sessions/{sid}/follow", follow),
         Route("/api/sessions/{sid}/rewind", rewind, methods=["POST"]),
         Route("/api/sessions/{sid}/compact", compact, methods=["POST"]),
         Route("/api/sessions/{sid}/handoff", handoff, methods=["POST"]),

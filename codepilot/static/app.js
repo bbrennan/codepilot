@@ -99,7 +99,7 @@ const fileIcon = (p) => `<span class="ficon file" style="color:${EXT_COLORS[extO
 
 // ---------------------------------------------------------------- state
 const state = {
-  cfg: null, sid: null, session: null, workspace: "", streams: new Set(), proposals: new Map(), toolEls: new Map(),
+  cfg: null, sid: null, session: null, workspace: "", streams: new Set(), streamEnds: new Map(), proposals: new Map(), toolEls: new Map(),
   tabs: [], active: null, tree: new Map(), expanded: new Set(), activity: 0, context: null, testCmd: "", traceFiles: [],
   msgText: new Map(), // message id -> the text the user sent (for edit and retry)
   attachments: [], // images waiting to be sent with the next message
@@ -237,7 +237,8 @@ async function loadSessions() {
 }
 async function pollSessions() {
   if (!(state.sessionList || []).some((s) => s.busy) && !state.streams.size) return;
-  await loadSessions();
+  const list = await loadSessions();
+  followIfRunning(state.sid, list.find((s) => s.id === state.sid)?.busy);
 }
 $("#sessionList").addEventListener("click", async (e) => {
   const del = e.target.closest("[data-del]");
@@ -289,6 +290,7 @@ async function openSession(sid) {
   setWorkspace(data.session.repo, prevWorkspace !== (data.session.repo || ""));
   renderProposalList(); loadSessions(); scrollEnd(true);
   loadSteering(true);
+  followIfRunning(sid, data.busy);
 }
 
 // ---------------------------------------------------------------- workspace / explorer
@@ -1263,6 +1265,8 @@ $("#transcript").addEventListener("click", (e) => {
   if (e.target.closest("[data-retry-last]")) { const el = lastTurnBubble(); if (el) retryFrom(el); return; }
   const qb = e.target.closest(".msg.queued [data-qedit], .msg.queued [data-qcancel]");
   if (qb) { unqueue(qb.closest(".msg.queued"), !!qb.dataset.qedit || qb.hasAttribute("data-qedit")); return; }
+  const qs = e.target.closest(".msg.queued [data-qswitch]");
+  if (qs) { switchQueued(qs.closest(".msg.queued")); return; }
   const more = e.target.closest(".msg.user .more");
   if (more) {
     const msg = more.closest(".msg.user");
@@ -1299,16 +1303,20 @@ function notifyDone(sid) {
 function askNotifyPermission() { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {}); }
 function updateBusy() {
   const busy = state.streams.has(state.sid);
-  input.placeholder = busy ? "Working… type to queue a message for its next step" : state.placeholder || input.placeholder;
-  $("#sendBtn").hidden = busy; $("#stopBtn").hidden = !busy;
+  input.placeholder = busy ? "Working… Enter steers it now · Tab queues a message to run after" : state.placeholder || input.placeholder;
+  $("#sendBtn").hidden = busy; $("#stopBtn").hidden = !busy; $("#steerBtn").hidden = $("#queueBtn").hidden = !busy;
   $("#sbBusy").innerHTML = busy ? '<span class="spinner"></span>working…' : "";
 }
+// body === null follows a turn that's already running (the page was opened or reloaded while it ran).
 async function streamTo(sid, url, body) {
   if (state.streams.has(sid)) return;
+  let ended; state.streamEnds.set(sid, new Promise((r) => { ended = r; }));
   state.streams.add(sid); updateBusy(); loadSessions();
   const typing = sid === state.sid ? add(`<div class="typing"><i></i><i></i><i></i></div>`) : null;
+  const follow = body === null;
   try {
-    const res = await fetch(url, { method: "POST", headers: H, body: JSON.stringify(body) });
+    const res = await fetch(url, follow ? { headers: H } : { method: "POST", headers: H, body: JSON.stringify(body) });
+    if (res.status === 409 && !follow) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "This session is busy."); }
     if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || res.statusText); }
     const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = "";
     for (;;) {
@@ -1327,7 +1335,8 @@ async function streamTo(sid, url, body) {
     }
   } catch (err) { if (sid === state.sid) render({ type: "error", message: err.message }); }
   finally {
-    typing?.remove(); state.streams.delete(sid); updateBusy(); loadSessions();
+    typing?.remove(); state.streams.delete(sid); state.streamEnds.delete(sid); ended(); updateBusy(); loadSessions();
+    if (follow) { if (sid === state.sid) await openSession(sid).catch(() => null); return; } // redraw it whole
     notifyDone(sid);
     if (sid === state.sid) {
       const pending = [...state.proposals.values()].filter((p) => p.status === "pending");
@@ -1337,15 +1346,28 @@ async function streamTo(sid, url, body) {
     if (sid === state.sid) { loadGit(); const d = await api(`/api/sessions/${sid}`).catch(() => null); if (d) { state.summary = d.summary; state.allow = d.allow || []; $("#chatTitle").textContent = d.session.title || "New session"; if ($(".view.on")?.dataset.view === "memory") renderMemory(); } }
   }
 }
-// While a turn runs, Enter queues the message: codepilot reads it at its next step (or right after it finishes).
-async function queueMessage(text) {
+// While a turn runs, a message either steers it (when="now": codepilot reads it at its next step) or waits to
+// run as its own turn once the current one finishes (when="after").
+const QUEUE_LABEL = { now: "Steering: codepilot reads this at its next step", after: "Queued: runs when the current work finishes" };
+const queuedBar = (when) => `${icon(when === "after" ? "list" : "history")}<span>${QUEUE_LABEL[when]}</span><span class="spacer"></span><button class="btn sm ghost" data-qswitch>${when === "after" ? "Steer now instead" : "Run after instead"}</button><button class="btn sm ghost" data-qedit>Edit</button><button class="btn sm ghost" data-qcancel>Remove</button>`;
+async function queueMessage(text, when = "now") {
   let q;
-  try { q = await api(`/api/sessions/${state.sid}/queue`, { method: "POST", body: { text } }); }
+  try { q = await api(`/api/sessions/${state.sid}/queue`, { method: "POST", body: { text, when } }); }
   catch (err) { if (err.status === 409) return false; toast(err.message, true); return true; } // 409: the turn just ended
   $("#input").value = ""; autosize(); hideMentions(); resetHistory(); rememberPrompt(text);
-  add(`<div class="msg user queued" data-qid="${esc(q.id)}"><div class="body">${userHtml(text)}</div><div class="queued-bar">${icon("history")}<span>Queued: codepilot reads this at its next step</span><span class="spacer"></span><button class="btn sm ghost" data-qedit>Edit</button><button class="btn sm ghost" data-qcancel>Remove</button></div></div>`);
+  add(`<div class="msg user queued" data-qid="${esc(q.id)}" data-when="${q.when || when}"><div class="body">${userHtml(text)}</div><div class="queued-bar">${queuedBar(q.when || when)}</div></div>`);
   scrollEnd(true);
   return true;
+}
+async function switchQueued(el) {
+  const when = el.dataset.when === "after" ? "now" : "after";
+  const r = await api(`/api/sessions/${state.sid}/queue/${el.dataset.qid}`, { method: "PATCH", body: { when } }).catch(() => ({ ok: false }));
+  if (!r.ok) return toast("Already sent to codepilot.", true);
+  el.dataset.when = when; $(".queued-bar", el).innerHTML = queuedBar(when);
+}
+// A turn running on the server that this page isn't showing (reloaded, or started in another window): follow it.
+function followIfRunning(sid, busy) {
+  if (busy && sid === state.sid && !state.streams.has(sid)) streamTo(sid, `/api/sessions/${sid}/follow`, null);
 }
 async function unqueue(el, edit) {
   const r = await api(`/api/sessions/${state.sid}/queue/${el.dataset.qid}`, { method: "DELETE" }).catch(() => ({ ok: false }));
@@ -1353,14 +1375,15 @@ async function unqueue(el, edit) {
   const text = $(".body", el).innerText; el.remove();
   if (edit) setInput(input.value ? input.value + "\n" + text : text);
 }
-async function send() {
+async function send(when = "now") {
   const text = $("#input").value.trim();
   const pics = state.attachments.slice();
   if (!pics.length && runSlashCommand(text)) return;
   if (!text && !pics.length) return;
   if (state.sid && state.streams.has(state.sid)) {
     if (pics.length) return toast("Images go with your next message: send them when codepilot finishes (or press Stop).", true);
-    if (await queueMessage(text)) return;
+    if (await queueMessage(text, when)) return;
+    await state.streamEnds.get(state.sid); // it was just finishing: send this as the next message
   }
   if (state.creatingSession) await state.creatingSession.catch(() => null); // "New session" still opening
   if (!state.sid) { try { await newSession(state.workspace); } catch (err) { toast(err.message, true); return; } }
@@ -1441,7 +1464,9 @@ function pasteFailed(why) {
     chromium ? { label: "Copy settings link", run: () => copyText(settings) } : null);
 }
 function insertAtCaret(text, el = input) { el.setRangeText(text, el.selectionStart, el.selectionEnd, "end"); el.dispatchEvent(new Event("input", { bubbles: true })); if (el === input) autosize(); }
-$("#sendBtn").onclick = send;
+$("#sendBtn").onclick = () => send();
+$("#steerBtn").onclick = () => { if (input.value.trim()) send("now"); else input.focus(); };
+$("#queueBtn").onclick = () => { if (input.value.trim()) send("after"); else input.focus(); };
 $("#stopBtn").onclick = async () => {
   if (!state.sid) return;
   state.runAll = null;
@@ -1756,6 +1781,7 @@ input.addEventListener("keydown", (e) => {
     const edge = e.key === "ArrowUp" ? !v.slice(0, pos).includes("\n") : !v.slice(pos).includes("\n");
     if (edge && historyStep(e.key === "ArrowUp" ? -1 : 1)) { e.preventDefault(); return; }
   }
+  if (e.key === "Tab" && !e.shiftKey && state.streams.has(state.sid) && input.value.trim()) { e.preventDefault(); send("after"); return; }
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
 });
 $("#mentionPop").addEventListener("mousedown", (e) => { const o = e.target.closest("[data-i]"); if (o) { e.preventDefault(); acceptMention(+o.dataset.i); } });

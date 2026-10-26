@@ -175,6 +175,8 @@
           <label class="toggle" title="Run tests without asking each time"><input type="checkbox" id="autoApprove"><span>auto-run tests</span></label>
           <label class="toggle" title="Write proposed edits immediately, for this session (each can be undone in Changes)"><input type="checkbox" id="autoApply"><span>auto-apply edits</span></label>
           <div class="spacer"></div>
+          <button class="chip-btn busy-act" id="queueBtn" title="Queue: run this after the current work finishes (Tab)" data-icon="list" hidden>Queue</button>
+          <button class="chip-btn busy-act" id="steerBtn" title="Steer: codepilot reads this at its next step, while it keeps working (Enter)" data-icon="send" hidden>Steer</button>
           <button class="send" id="sendBtn" title="Send (Enter)" data-icon="send"></button>
           <button class="send stop" id="stopBtn" title="Stop" data-icon="stop" hidden></button>
         </div>

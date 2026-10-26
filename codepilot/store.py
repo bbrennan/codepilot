@@ -175,6 +175,10 @@ class Store:
             raise KeyError(f"no session {sid}")
         return self._session(row)
 
+    def has_session(self, sid: str) -> bool:
+        with self._lock:
+            return self._db.execute("SELECT 1 FROM sessions WHERE id = ?", (sid,)).fetchone() is not None
+
     def list_sessions(self, limit: int = 50) -> list[Session]:
         with self._lock:
             rows = self._db.execute("SELECT * FROM sessions ORDER BY updated DESC LIMIT ?", (limit,)).fetchall()

@@ -78,8 +78,10 @@ class Agent:
 
     # -- queued messages: typed while a turn runs ------------------------------------------------
 
-    def enqueue(self, session_id: str, text: str) -> dict:
-        item = {"id": uuid.uuid4().hex[:10], "text": text}
+    def enqueue(self, session_id: str, text: str, when: str = "now") -> dict:
+        """when="now" steers the running turn (read at its next step); "after" runs as its own turn once the
+        current one finishes."""
+        item = {"id": uuid.uuid4().hex[:10], "text": text, "when": "after" if when == "after" else "now"}
         with self._queue_lock:
             self._queues.setdefault(session_id, []).append(item)
         return item
@@ -91,17 +93,46 @@ class Agent:
             self._queues[session_id] = kept
             return len(kept) != len(items)
 
-    def take_queue(self, session_id: str) -> list[dict]:
+    def requeue(self, session_id: str, qid: str, when: str) -> bool:
+        """Switch a waiting message between steering now and running after."""
         with self._queue_lock:
-            return self._queues.pop(session_id, [])
+            for q in self._queues.get(session_id, []):
+                if q["id"] == qid:
+                    q["when"] = "after" if when == "after" else "now"
+                    return True
+        return False
+
+    def take_queue(self, session_id: str, when: str | None = None) -> list[dict]:
+        with self._queue_lock:
+            items = self._queues.pop(session_id, [])
+            if when is None:
+                return items
+            taken = [q for q in items if q["when"] == when]
+            if len(taken) != len(items):
+                self._queues[session_id] = [q for q in items if q["when"] != when]
+            return taken
 
     def queued(self, session_id: str) -> list[dict]:
         with self._queue_lock:
             return list(self._queues.get(session_id, []))
 
+    def _next_queued_turn(self, session_id: str) -> list[dict]:
+        """The messages for the next queued turn: one "run after" message, or the steering messages that
+        arrived too late for the turn they were meant for (together)."""
+        with self._queue_lock:
+            items = self._queues.get(session_id, [])
+            if not items:
+                return []
+            n = 1
+            if items[0]["when"] == "now":
+                while n < len(items) and items[n]["when"] == "now":
+                    n += 1
+            self._queues[session_id] = items[n:]
+            return items[:n]
+
     def _deliver_queue(self, session_id: str) -> Iterator[dict]:
-        """Mid-turn: add queued messages to the conversation before the next model call."""
-        items = self.take_queue(session_id)
+        """Mid-turn: add steering messages to the conversation before the next model call."""
+        items = self.take_queue(session_id, "now")
         if not items:
             return
         last = self.store.last_message(session_id)
@@ -149,11 +180,17 @@ class Agent:
         yield from self._chat_once(session_id, text, tier, pasted)
         yield from self._drain_queue_turns(session_id)
 
+    def drain(self, session_id: str) -> Iterator[dict]:
+        """Run whatever is still queued (the server calls this if a message arrives as a stream is ending)."""
+        yield from self._drain_queue_turns(session_id)
+
     def _drain_queue_turns(self, session_id: str) -> Iterator[dict]:
-        """Messages queued too late for the turn that just ended start the next one, in the same stream."""
+        """Queued messages run as the next turns, one after another, in the same stream."""
         while self.queued(session_id) and session_id not in self._cancelled \
                 and not self.store.get_session(session_id).pending:
-            items = self.take_queue(session_id)
+            items = self._next_queued_turn(session_id)
+            if not items:
+                break
             text = "\n\n".join(q["text"] for q in items)
             yield {"type": "user", "text": text, "queued_ids": [q["id"] for q in items]}
             yield from self._chat_once(session_id, text)

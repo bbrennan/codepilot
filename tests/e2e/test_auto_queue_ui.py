@@ -43,7 +43,7 @@ def test_a_message_typed_while_working_is_queued_then_sent(page, server, session
     send(page, "and also check the tests")
     queued = page.locator(".msg.queued")
     queued.wait_for()
-    assert "Queued" in queued.text_content()
+    assert "Steering" in queued.text_content()  # Enter steers the running work
     wait_idle(page)
     page.locator(".msg.queued").wait_for(state="detached")  # became a normal message
     page.locator(".msg.user:not(.queued)", has_text="and also check the tests").wait_for()
@@ -164,3 +164,50 @@ def test_old_servers_without_versions_get_a_warning(page, server, session):
         json={k: v for k, v in route.fetch().json().items() if k not in ("version", "stale")}))
     open_app(page, wait_tree=False)
     page.locator("#staleBanner", has_text="older than this page").wait_for()
+
+
+def test_queue_runs_a_message_after_the_current_work(page, server, session):
+    open_app(page)
+    start_slow_reply(page)
+    assert page.locator("#steerBtn").is_visible() and page.locator("#queueBtn").is_visible()
+    page.fill("#input", "then summarise the repo")
+    page.click("#queueBtn")
+    queued = page.locator(".msg.queued")
+    queued.wait_for()
+    assert "runs when the current work finishes" in queued.text_content()
+    page.fill("#input", "and keep it short")
+    page.press("#input", "Tab")  # Tab queues too
+    page.wait_for_function("() => document.querySelectorAll('.msg.queued').length === 2")
+    wait_idle(page)
+    calls = model_calls(server)
+    # Each queued message ran as its own turn, in order, and can be edited like any message that starts a turn.
+    assert len(calls) == 3
+    assert calls[1]["messages"][-1]["content"][0]["text"].startswith("then summarise the repo")
+    assert calls[2]["messages"][-1]["content"][0]["text"].startswith("and keep it short")
+    page.locator(".msg.user[data-mid]", has_text="and keep it short").wait_for()
+
+
+def test_a_waiting_message_can_switch_between_steer_and_queue(page, server, session):
+    open_app(page)
+    start_slow_reply(page)
+    send(page, "steer me")
+    bar = page.locator(".msg.queued .queued-bar")
+    bar.locator("[data-qswitch]").click()
+    page.locator(".msg.queued[data-when=after]").wait_for()
+    assert "runs when the current work finishes" in bar.text_content()
+    wait_idle(page)
+    page.locator(".msg.user:not(.queued)", has_text="steer me").wait_for()
+
+
+def test_a_reloaded_page_follows_the_running_turn_and_can_still_steer(page, server, session):
+    open_app(page)
+    send(page, "be very slow")
+    page.locator(".msg.assistant", has_text="Thinking").wait_for()
+    page.reload()
+    page.locator("#stopBtn").wait_for()  # it knows codepilot is still working
+    send(page, "one more thing")
+    page.locator(".msg.queued").wait_for()  # steered, not refused as "already working"
+    wait_idle(page)
+    page.locator(".msg.user:not(.queued)", has_text="one more thing").wait_for()
+    page.locator(".msg.assistant", has_text="Thinking slowly").first.wait_for()
+    assert "one more thing" in str(model_calls(server)[-1]["messages"])

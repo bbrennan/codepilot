@@ -97,3 +97,28 @@ def test_rewind_refuses_tool_results_and_compacted_messages(cfg, store, repo):
     store.archive_messages(sess.id, [msgs[0][0]])
     assert "compacted" in list(agent.rewind(sess.id, msgs[0][0], "x"))[0]["message"]
     assert len(store.messages(sess.id)) == len(msgs) - 1  # nothing deleted
+
+
+def test_run_after_messages_wait_for_the_turn_then_run_one_by_one(cfg, store, repo):
+    agent, sess, llm = make(cfg, store, repo, [
+        [tool_use("t1", "read_file", path="agent/core.py")], [{"text": "first done"}],
+        [{"text": "second done"}], [{"text": "third done"}],
+    ], at=0, text="steer: mention tests")
+    agent.enqueue(sess.id, "then write docs", when="after")
+    agent.enqueue(sess.id, "then tidy up", when="after")
+    events = list(agent.chat(sess.id, "check add()"))
+    calls = [c for c in llm.calls if "messages" in c]
+    # The steering message joined the running turn at its next step; the "after" ones waited, then ran in order.
+    assert "steer: mention tests" in last_user_text(calls[1]) and "then write docs" not in str(calls[1]["messages"])
+    assert last_user_text(calls[2]).startswith("then write docs") and "then tidy up" not in last_user_text(calls[2])
+    assert last_user_text(calls[3]).startswith("then tidy up")
+    assert [e["text"] for e in events if e["type"] == "user" and e.get("queued_ids")] == ["then write docs",
+                                                                                           "then tidy up"]
+
+
+def test_a_waiting_message_can_switch_to_run_after(cfg, store, repo):
+    agent = Agent(cfg, store, llm=FakeLLM([]))
+    q = agent.enqueue("s1", "later please")
+    assert agent.requeue("s1", q["id"], "after") and agent.queued("s1")[0]["when"] == "after"
+    assert agent.take_queue("s1", "now") == [] and len(agent.queued("s1")) == 1
+    assert not agent.requeue("s1", "nope", "now")

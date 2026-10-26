@@ -187,3 +187,49 @@ def test_git_branch_before_the_first_commit(client_and_llm, repo):
     sess = client.post("/api/sessions", json={"repo": str(repo)}, headers=H).json()
     g = client.get(f"/api/sessions/{sess['id']}/git").json()
     assert g["git"] and g["branch"] and "fatal" not in g["branch"]  # fresh `git init`, no commits yet
+
+
+def test_a_turn_keeps_running_when_the_page_goes_away_and_can_be_followed(cfg, store, repo):
+    import threading
+    import time
+
+    gate = threading.Event()
+
+    class SlowLLM(FakeLLM):
+        def stream(self, model, system, messages, tools=None, max_tokens=None):
+            gate.wait(10)
+            yield from super().stream(model, system, messages, tools, max_tokens)
+
+    agent = Agent(cfg, store, llm=SlowLLM([[{"text": "finished anyway"}]]))
+    client = TestClient(create_app(cfg, store, agent))
+    hdr = {"X-Codepilot": "1"}
+    sid = client.post("/api/sessions", json={"repo": str(repo)}, headers=hdr).json()["id"]
+    with client.stream("POST", f"/api/sessions/{sid}/chat", json={"message": "hi"}, headers=hdr) as r:
+        next(r.iter_lines())  # the page reads a little, then is reloaded
+    assert client.get(f"/api/sessions/{sid}").json()["busy"] is True
+    with client.stream("GET", f"/api/sessions/{sid}/follow", headers=hdr) as r:
+        gate.set()
+        lines = [ln for ln in r.iter_lines() if ln.strip()]
+    assert any("finished anyway" in ln for ln in lines) and '"done"' in lines[-1]
+    for _ in range(50):
+        if not client.get(f"/api/sessions/{sid}").json()["busy"]:
+            break
+        time.sleep(0.05)
+    assert client.get(f"/api/sessions/{sid}/follow", headers=hdr).status_code == 204
+    assert any("finished anyway" in str(m) for m in store.live_messages(sid))
+
+
+def test_a_message_queued_as_the_stream_ends_still_runs(cfg, store, repo, monkeypatch):
+    agent = Agent(cfg, store, llm=FakeLLM([[{"text": "one"}], [{"text": "two"}]]))
+    real_chat = agent.chat
+
+    def chat_then_late_queue(sid, text, tier=None, pasted=None):
+        yield from real_chat(sid, text, tier, pasted)
+        agent.enqueue(sid, "late arrival", when="after")  # after the agent's own last check of the queue
+
+    monkeypatch.setattr(agent, "chat", chat_then_late_queue)
+    client = TestClient(create_app(cfg, store, agent))
+    hdr = {"X-Codepilot": "1"}
+    sid = client.post("/api/sessions", json={"repo": str(repo)}, headers=hdr).json()["id"]
+    lines = client.post(f"/api/sessions/{sid}/chat", json={"message": "hi"}, headers=hdr).text.splitlines()
+    assert any("late arrival" in ln for ln in lines) and any('"two"' in ln for ln in lines)

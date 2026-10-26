@@ -152,9 +152,17 @@ history only from the first or last line.
 **Long pastes** (a trace, a log, a big JSON) are sent in full, but the chat shows only their first lines
 with **Show all (N lines · size)** and **Copy**, so scrolling back through the conversation stays easy.
 
-**While it works:** keep typing. Enter **queues** your message (it shows as *Queued*). codepilot reads it
-at its next step, between tool calls, or right after it finishes. **Edit** or **Remove** a queued message
-until then; **Stop** puts queued messages back in the box. If codepilot is waiting for you to approve a
+**While it works:** keep typing, and choose what your message does:
+
+- **Steer** (Enter, or the **Steer** button): codepilot reads it at its next step, between tool calls,
+  and carries on with it in mind ("use the v2 API instead", "keep it short").
+- **Queue** (Tab, or the **Queue** button): it waits, then runs as its own message once the current work
+  finishes. Queue several and they run one after another.
+
+A waiting message shows as *Steering* or *Queued*; **Run after instead** / **Steer now instead** switches
+it, and **Edit** or **Remove** work until codepilot picks it up. **Stop** puts waiting messages back in
+the box. A turn keeps running if you reload or close the page: open the session again and it picks up
+where it is, with Stop, Steer and Queue working as before. If codepilot is waiting for you to approve a
 command, writing a message instead declines the command, and your message goes to codepilot with that
 decision.
 
