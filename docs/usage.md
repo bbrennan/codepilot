@@ -129,6 +129,10 @@ path (`/Users/me/app.py fails`) is sent as normal.
 **Use a skill:** pick one from the same `/` menu, for example `/diagnose-bug the checkout total is wrong`.
 See [skills-and-modes.md](skills-and-modes.md).
 
+**Paste** with ⌘V, or with Ctrl+V on a Mac too, in the message box and every other text box (not the
+terminal, where Ctrl+V belongs to the shell). For Ctrl+V the browser asks once to allow clipboard access;
+if it was blocked, codepilot says how to allow it.
+
 **Images:** paste a screenshot (⌘V, or Ctrl+V on a Mac too), drop image files on the message box, or click
 the 🖼 button. Thumbnails appear above the box; ✕ removes one. Images are shrunk in the browser before
 sending, and an image alone (no text) is fine. codepilot also attaches images you point at:
@@ -364,11 +368,18 @@ cloud-metadata addresses. A fetched URL could carry data out, so read what you a
 ## Model tiers and cost
 
 Each provider has three tiers, **fast**, **main** and **hard**, plus **auto** (the default), which picks
-one for each turn. The model dropdown in the chat header lists the tiers, **every model your account can use** (found automatically and cached for 12 hours),
-models that aren't enabled yet (greyed out, with the reason on hover), and **Refresh model list**. Pick a
-tier, or pin a specific model for the session. If a tier's model isn't enabled for your account, it shows
-"(fallback)" and uses the best enabled model in the same family. The `explore` sub-agent and memory
-summaries always use **fast**.
+one for each turn. The model dropdown in the chat header lists the tiers, then **only the models your
+account can call** (found automatically by asking each one for a few tokens, and cached for 12 hours):
+the newest of each family first, earlier versions under **Older versions**, and each version once even
+when it's reachable several ways (Messages API, `us.` and `global.` profiles). Models that aren't enabled
+are hidden; hover **Refresh model list** to see how many, and `codepilot models` lists them with the
+reason. Pick a tier, or pin a specific model for the session.
+
+**Each tier uses the newest model of its family on your account.** If `.env` says Sonnet 4.5 and Sonnet 4.6
+is enabled, the main tier uses Sonnet 4.6 (hover the tier to see this). Set `CODEPILOT_LATEST_MODELS=0`
+to use exactly the configured IDs. If a tier's family isn't enabled at all, it shows "(fallback)" and
+uses the best enabled model of the next family. The `explore` sub-agent and memory summaries always use
+**fast**.
 
 **Auto** picks the model for each message by simple rules, and a chip in the chat shows its pick and why
 ("auto → claude-sonnet-5-5 · routine work"):

@@ -333,8 +333,12 @@ class Agent:
 
     def auto_model(self, tier: str) -> str:
         """Auto uses the newest model of each class this account can use: Haiku (fast), Sonnet (main, the
-        default), Opus (hard). Without discovery results (or for non-Claude providers) it uses the tier's model."""
-        return models.best_in_family(models.cached(self.cfg), models.AUTO_FAMILIES[tier]) or self.tier_model(tier)
+        default), Opus (hard). Without discovery results, for non-Claude providers, or with
+        CODEPILOT_LATEST_MODELS=0, it uses the tier's model."""
+        if not self.cfg.latest_models:
+            return self.tier_model(tier)
+        return (models.best_in_family(models.cached(self.cfg), models.AUTO_FAMILIES[tier], like=self.cfg.models[tier])
+                or self.tier_model(tier))
 
     def _model_for(self, sess: Session) -> str:
         """The model for this session's current turn: a pinned model, Auto's pick, or the mode's/session's tier."""

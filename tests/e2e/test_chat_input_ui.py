@@ -85,6 +85,28 @@ def test_ctrl_v_pastes_on_a_mac(page, server, session):
     page.wait_for_function("() => document.querySelector('#input').value === 'from the clipboard'")
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="Ctrl+V as paste is a macOS convenience")
+def test_ctrl_v_works_in_other_text_boxes_too(page, server, session):
+    open_app(page)
+    page.evaluate("() => navigator.clipboard.writeText('core.py')")
+    page.keyboard.press("Meta+p")
+    page.locator("#paletteInput").wait_for()
+    page.keyboard.press("Control+v")
+    page.wait_for_function("() => document.querySelector('#paletteInput').value === 'core.py'")
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="Ctrl+V as paste is a macOS convenience")
+def test_ctrl_v_says_how_to_fix_a_blocked_clipboard(page, server, session):
+    open_app(page)
+    page.context.clear_permissions()  # like a browser where clipboard access was blocked
+    page.click("#input")
+    page.keyboard.press("Control+v")
+    msg = page.locator(".toast", has_text="Ctrl+V couldn't read the clipboard")
+    msg.wait_for()
+    assert "⌘V always works" in msg.text_content() and "chrome://settings/content/clipboard" in msg.text_content()
+    assert any("Ctrl+V paste" in e for e in page.evaluate("() => pageErrors"))  # so a problem report shows it
+
+
 def test_image_link_in_a_message_is_attached(page, server, session):
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):  # noqa: N802

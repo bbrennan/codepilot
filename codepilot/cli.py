@@ -230,7 +230,7 @@ def _doctor_bedrock(cfg: Config, skip_models: bool) -> int:
         else:
             ok = any(m["id"] == t["model"] for m in enabled)
             failures += 0 if ok else 1
-            _line(OK if ok else FAIL, tier, t["model"])
+            _line(OK if ok else FAIL, tier, t["model"] + _tier_note(t))
     return failures
 
 
@@ -371,16 +371,27 @@ def print_models(cfg: Config, refresh: bool = True) -> int:
     print(f"Checking which models this account can use ({cfg.provider}"
           f"{', ' + cfg.region if cfg.provider == 'bedrock' else ''})…")
     data = models.discover(cfg, refresh=refresh)
-    for m in data["models"]:
-        status = OK if m["available"] else WARN
+    shown = [m for m in data["models"] if m["available"] and "same_as" not in m]
+    for m in shown:
         window = f"{m['window'] // 1000}k" if m["window"] < 1_000_000 else f"{m['window'] // 1_000_000}M"
-        detail = f"{m['label']} · {m['api']} · {window}" + ("" if m["available"] else f" · {m['reason']}")
-        _line(status, m["id"], detail)
+        _line(OK, m["id"], f"{m['label']} · {m['api']} · {window}" + (" · newest" if m.get("newest") else ""))
+    off = [m for m in data["models"] if not m["available"]]
+    if off:
+        print(f"\nnot enabled for this account ({len(off)}; the picker hides these)")
+        for m in off:
+            _line(WARN, m["id"], m["reason"])
     print("\ntiers")
     for tier, t in data["tiers"].items():
-        note = f" (configured {t['configured']} is not available, using this instead)" if t["fallback"] else ""
-        _line(WARN if t["fallback"] else OK, tier, t["model"] + note)
+        _line(WARN if t["fallback"] else OK, tier, t["model"] + _tier_note(t))
     return 0 if any(m["available"] for m in data["models"]) else 1
+
+
+def _tier_note(t: dict) -> str:
+    if t.get("upgraded"):
+        return f" (newest in its family; .env has {t['configured']}. CODEPILOT_LATEST_MODELS=0 keeps that)"
+    if t["fallback"]:
+        return f" (configured {t['configured']} is not available, using this instead)"
+    return ""
 
 
 # -- bench ----------------------------------------------------------------------------------------

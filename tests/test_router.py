@@ -116,7 +116,13 @@ def test_auto_uses_the_newest_available_sonnet_by_default(cfg, store, repo):
     # newest Sonnet, newest Opus, and Haiku 4.5 because 5.5 isn't enabled yet
     assert models_used(llm) == ["anthropic.claude-sonnet-5-5", "anthropic.claude-opus-5-5",
                                 "anthropic.claude-haiku-4-5"]
-    store.update_session(sess.id, tier="main", mode="build")  # a fixed tier still uses what's configured
+    store.update_session(sess.id, tier="main", mode="build")  # a fixed tier also uses the newest of its family
     llm.script.append([{"text": "d"}])
     list(agent.chat(sess.id, "rename"))
-    assert models_used(llm)[-1] == "anthropic.claude-sonnet-4-5"
+    assert models_used(llm)[-1] == "anthropic.claude-sonnet-5-5"
+    pinned = Agent(replace(cfg, latest_models=False), store, llm=llm)  # CODEPILOT_LATEST_MODELS=0: as configured
+    llm.script += [[{"text": "e"}], [{"text": "f"}]]
+    list(pinned.chat(sess.id, "rename"))
+    store.update_session(sess.id, tier="auto")
+    list(pinned.chat(sess.id, "rename it back"))
+    assert models_used(llm)[-2:] == ["anthropic.claude-sonnet-4-5", "anthropic.claude-sonnet-4-5"]

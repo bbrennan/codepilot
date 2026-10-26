@@ -1414,19 +1414,33 @@ $("#input").addEventListener("paste", (e) => { // ("input" is declared further d
   if (!files.length) return; // plain text pastes normally
   e.preventDefault(); files.forEach(addImageFile);
 });
-// Ctrl+V on a Mac (where the system shortcut is ⌘V): read the clipboard ourselves.
-async function pasteFromClipboard() {
+// Ctrl+V on a Mac (where the system shortcut is ⌘V), in any text box: read the clipboard ourselves. The browser
+// asks once for permission ("See text and images copied to the clipboard"); if it's blocked, say how to allow it.
+async function pasteFromClipboard(el = input) {
+  if (!navigator.clipboard) return pasteFailed("this page isn't a secure context; open codepilot at http://127.0.0.1 or http://localhost");
   try {
     if (navigator.clipboard.read) {
       for (const item of await navigator.clipboard.read()) {
         const img = item.types.find((t) => /^image\/(png|jpeg|gif|webp)$/.test(t));
-        if (img) { const blob = await item.getType(img); await addImageFile(new File([blob], "pasted image", { type: img })); continue; }
-        if (item.types.includes("text/plain")) insertAtCaret(await (await item.getType("text/plain")).text());
+        if (img && el === input) { const blob = await item.getType(img); await addImageFile(new File([blob], "pasted image", { type: img })); continue; }
+        if (item.types.includes("text/plain")) insertAtCaret(await (await item.getType("text/plain")).text(), el);
+        else if (item.types.includes("text/html")) insertAtCaret(new DOMParser().parseFromString(await (await item.getType("text/html")).text(), "text/html").body.textContent || "", el);
       }
-    } else insertAtCaret(await navigator.clipboard.readText());
-  } catch { toast("The browser blocked clipboard access; use ⌘V to paste.", true); }
+    } else insertAtCaret(await navigator.clipboard.readText(), el);
+  } catch (err) {
+    let perm = "";
+    try { perm = (await navigator.permissions.query({ name: "clipboard-read" })).state; } catch { /* not every browser can say */ }
+    pasteFailed(perm === "denied" ? "the browser is set to block clipboard access for this page" : `the browser refused (${err.name}: ${err.message})`);
+  }
 }
-function insertAtCaret(text) { input.setRangeText(text, input.selectionStart, input.selectionEnd, "end"); input.dispatchEvent(new Event("input")); autosize(); }
+function pasteFailed(why) {
+  notePageError(`Ctrl+V paste: ${why}`);
+  const edge = /Edg\//.test(navigator.userAgent), settings = `${edge ? "edge" : "chrome"}://settings/content/clipboard`;
+  const chromium = /Chrome\//.test(navigator.userAgent);
+  toast(`Ctrl+V couldn't read the clipboard: ${why}. ⌘V always works.${chromium ? ` To allow Ctrl+V, open ${settings} and add ${location.origin} under "Allowed".` : ""}`, true,
+    chromium ? { label: "Copy settings link", run: () => copyText(settings) } : null);
+}
+function insertAtCaret(text, el = input) { el.setRangeText(text, el.selectionStart, el.selectionEnd, "end"); el.dispatchEvent(new Event("input", { bubbles: true })); if (el === input) autosize(); }
 $("#sendBtn").onclick = send;
 $("#stopBtn").onclick = async () => {
   if (!state.sid) return;
@@ -1459,23 +1473,31 @@ $("#modeSelect").addEventListener("change", async () => {
   const mode = $("#modeSelect").value; setMode(mode);
   if (state.sid) await api(`/api/sessions/${state.sid}`, { method: "PATCH", body: { mode } }).catch((err) => toast(err.message, true));
 });
-// ---- model picker: tiers, every model this account can use, and the ones not enabled yet
+// ---- model picker: tiers, then the models this account can actually call (one entry per version, newest first)
 const winLabel = (w) => (w >= 1_000_000 ? `${w / 1_000_000}M` : `${Math.round(w / 1000)}k`);
 function selectedTier() { const v = $("#tier").value || ""; return v.startsWith("tier:") ? v.slice(5) : (state.session?.tier || state.cfg.default_tier); }
+function tierTip(r, m) {
+  if (r?.upgraded) return `${m}\nThe newest model in its family on your account (.env has ${r.configured}). Set CODEPILOT_LATEST_MODELS=0 to use exactly what's configured.`;
+  if (r?.fallback) return `Configured ${r.configured} isn't enabled for this account (${r.reason || ""}); using ${m}`;
+  return m;
+}
 function renderModelSelect() {
   const c = state.cfg, d = state.modelsData, tiers = d?.tiers || {};
   const tierOpts = c.tiers.map((t) => {
     const r = tiers[t], m = r ? r.model : c.models[t];
-    const tip = r?.fallback ? `Configured ${r.configured} isn't enabled for this account (${r.reason || ""}); using ${m}` : m;
-    return `<option value="tier:${t}" title="${esc(tip)}">${t} · ${esc(shortModel(m) || "not set")}${r?.fallback ? " (fallback)" : ""}</option>`;
+    return `<option value="tier:${t}" title="${esc(tierTip(r, m))}">${t} · ${esc(shortModel(m) || "not set")}${r?.fallback ? " (fallback)" : ""}</option>`;
   }).join("");
-  const avail = (d?.models || []).filter((m) => m.available), off = (d?.models || []).filter((m) => !m.available);
+  const usable = (d?.models || []).filter((m) => m.available && !m.same_as);
+  const newest = usable.filter((m) => m.newest || !/claude-/.test(m.id)), older = usable.filter((m) => !newest.includes(m));
+  const off = (d?.models || []).filter((m) => !m.available).length;
   const name = (m) => `${m.label}${m.api === "Converse" ? " · " + m.id.split(".")[0] : ""} · ${winLabel(m.window)}`;
+  const opt = (m) => `<option value="model:${esc(m.id)}" title="${esc(m.id + " · " + m.api)}">${esc(name(m))}</option>`;
   const autoOpt = `<option value="tier:auto" title="Picks a model for each turn: the newest Sonnet for routine work, the newest Opus for planning, debugging, big changes or when runs keep failing, Haiku for quick questions.">auto · picks per turn</option>`;
+  const refreshTip = off ? `${off} other model${off === 1 ? " isn't" : "s aren't"} enabled for this account, so they're hidden. \`codepilot models\` lists them with the reason.` : "";
   $("#tier").innerHTML = `<optgroup label="Tiers">${autoOpt}${tierOpts}</optgroup>`
-    + (avail.length ? `<optgroup label="Models on your account">${avail.map((m) => `<option value="model:${esc(m.id)}" title="${esc(m.id + " · " + m.api)}">${esc(name(m))}</option>`).join("")}</optgroup>` : "")
-    + (off.length ? `<optgroup label="Not enabled for this account">${off.map((m) => `<option disabled title="${esc(m.reason)}">${esc(name(m))}</option>`).join("")}</optgroup>` : "")
-    + `<option value="refresh">${d ? "↻ Refresh model list" : "Find models on my account…"}</option>`;
+    + (newest.length ? `<optgroup label="Models on your account">${newest.map(opt).join("")}</optgroup>` : "")
+    + (older.length ? `<optgroup label="Older versions">${older.map(opt).join("")}</optgroup>` : "")
+    + `<option value="refresh" title="${esc(refreshTip)}">${d ? "↻ Refresh model list" : "Find models on my account…"}</option>`;
   syncModelSelect();
 }
 function syncModelSelect() {
@@ -1490,6 +1512,7 @@ async function loadModels(refresh) {
     state.modelsData = d;
     const fb = Object.entries(d.tiers || {}).filter(([, t]) => t.fallback);
     if (fb.length && refresh !== null) toast(`${fb.map(([k, t]) => `${k}: ${shortModel(t.configured)} not enabled, using ${shortModel(t.model)}`).join("; ")}`);
+    else if (refresh) toast(`Found ${(d.models || []).filter((m) => m.available && !m.same_as).length} models on your account. Tiers use the newest of each family.`);
   }
   renderModelSelect();
 }
@@ -1733,7 +1756,6 @@ input.addEventListener("keydown", (e) => {
     const edge = e.key === "ArrowUp" ? !v.slice(0, pos).includes("\n") : !v.slice(pos).includes("\n");
     if (edge && historyStep(e.key === "ArrowUp" ? -1 : 1)) { e.preventDefault(); return; }
   }
-  if (isMac && e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === "v") { e.preventDefault(); pasteFromClipboard(); return; }
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
 });
 $("#mentionPop").addEventListener("mousedown", (e) => { const o = e.target.closest("[data-i]"); if (o) { e.preventDefault(); acceptMention(+o.dataset.i); } });
@@ -2447,8 +2469,14 @@ function toast(msg, isErr, action) {
 }
 
 // ---------------------------------------------------------------- keyboard
+// A text box Ctrl+V pastes into on a Mac (not the terminal, where Ctrl+V means something to the shell).
+const isTextBox = (el) => !el.readOnly && !el.disabled && !el.closest(".xterm")
+  && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && /^(text|search|url|email|)$/.test(el.type)));
 document.addEventListener("keydown", (e) => {
   const mod = isMac ? e.metaKey : e.ctrlKey;
+  if (isMac && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "v" && isTextBox(e.target)) {
+    e.preventDefault(); pasteFromClipboard(e.target); return;
+  }
   if (mod && e.key.toLowerCase() === "p") { e.preventDefault(); openPalette(); }
   else if (mod && e.key.toLowerCase() === "b") { e.preventDefault(); toggle("no-sidebar"); }
   else if (mod && e.key.toLowerCase() === "j") { e.preventDefault(); toggle("no-panel"); }

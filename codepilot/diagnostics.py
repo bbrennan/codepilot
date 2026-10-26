@@ -92,7 +92,7 @@ def safe_settings(cfg) -> dict:
     keep = ("provider", "region", "bedrock_api", "prompt_cache", "thinking", "effort", "models", "default_tier",
             "max_tokens", "test_cmd", "eval_cmd", "trace_dirs", "auto_approve_tests", "auto_apply_edits",
             "terminal", "github", "context_tokens", "prune_at", "compact_at", "max_steps", "web_tools",
-            "system_certs")
+            "system_certs", "latest_models")
     out = {k: getattr(cfg, k, None) for k in keep}
     out["profile_set"] = bool(getattr(cfg, "profile", None))
     out["brave_key_set"] = bool(getattr(cfg, "brave_api_key", ""))

@@ -212,11 +212,14 @@ def test_model_dropdown_lists_account_models_and_remembers_choice(page, server, 
     open_app(page)
     page.wait_for_function("() => document.querySelectorAll('#tier optgroup').length === 3")
     groups = page.eval_on_selector_all("#tier optgroup", "gs => gs.map(g => g.label)")
-    assert groups == ["Tiers", "Models on your account", "Not enabled for this account"]
+    assert groups == ["Tiers", "Models on your account", "Older versions"]
     fast = page.locator("#tier option[value='tier:fast']").text_content()
     assert "haiku-4-5" in fast and "(fallback)" in fast  # Haiku 5.5 is pending, so the fast tier falls back
-    off = page.locator("#tier optgroup[label='Not enabled for this account'] option").first
-    assert off.is_disabled() and "pending onboarding" in off.get_attribute("title")
+    # Only what the account can call, once per version: no disabled models, no second route to Opus 5.5.
+    listed = page.eval_on_selector_all("#tier optgroup:not([label=Tiers]) option", "os => os.map(o => o.value)")
+    assert listed == ["model:anthropic.claude-opus-5-5", "model:anthropic.claude-sonnet-5-5",
+                      "model:anthropic.claude-haiku-4-5", "model:us.anthropic.claude-sonnet-4-5-20250929-v1:0"]
+    assert "1 other model isn't enabled" in page.locator("#tier option[value=refresh]").get_attribute("title")
 
     page.select_option("#tier", "model:anthropic.claude-opus-5-5")
     page.wait_for_timeout(200)

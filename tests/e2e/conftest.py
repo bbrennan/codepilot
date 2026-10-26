@@ -122,14 +122,15 @@ class LiveServer:
 
 
 def _fake_models(cfg):
-    """Seed the model cache: two models on the account and one waiting for onboarding."""
+    """Seed the model cache: models on the account (an older Sonnet, and Opus 5.5 reachable two ways) and one
+    waiting for onboarding."""
     def probe(_cfg, model):
         return (False, "AccessDeniedException: model access is pending onboarding") if "haiku-5-5" in model \
             else (True, "ok")
 
     models.discover(cfg, refresh=True, probe=probe, lister=lambda _cfg: [
         "anthropic.claude-sonnet-5-5", "anthropic.claude-opus-5-5", "anthropic.claude-haiku-5-5",
-        "anthropic.claude-haiku-4-5"])
+        "anthropic.claude-haiku-4-5", "us.anthropic.claude-sonnet-4-5-20250929-v1:0", "global.anthropic.claude-opus-5-5"])
 
 
 @pytest.fixture

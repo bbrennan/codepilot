@@ -28,6 +28,7 @@ Run `make doctor` after any change.
 | `CODEPILOT_MODEL_FAST` | `anthropic.claude-haiku-5-5` | Fast tier. `anthropic.*` IDs use the Messages API; `us./eu./global.anthropic…` profile IDs use Converse |
 | `CODEPILOT_MODEL_MAIN` | `anthropic.claude-sonnet-5-5` | Main tier |
 | `CODEPILOT_MODEL_HARD` | `anthropic.claude-opus-5-5` | Hard tier |
+| `CODEPILOT_LATEST_MODELS` | `1` | Each tier uses the newest enabled model in its configured model's family (Sonnet 4.6 when the tier says Sonnet 4.5). `0` uses exactly the configured IDs, and Auto uses them too |
 | `CODEPILOT_BEDROCK_API` | `auto` | `auto` (by model ID), `messages` or `converse` |
 | `CODEPILOT_BEDROCK_MESSAGES_URL` | SDK default | Custom endpoint for the Bedrock Messages API |
 | `CODEPILOT_PROMPT_CACHE` | `1` | Bedrock prompt caching; switches itself off if a model rejects it |

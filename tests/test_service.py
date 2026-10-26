@@ -80,7 +80,9 @@ def test_shell_environment_recovers_login_path(monkeypatch):
     ("global.anthropic.claude-opus-4-5-20251101-v1:0", "us-west-2", True),
     ("eu.anthropic.claude-sonnet-4-5-20250929-v1:0", "us-east-1", False),  # another geography
     ("us.anthropic.claude-3-5-haiku-20241022-v1:0", "us-east-1", False),  # legacy
-    ("apac.anthropic.claude-sonnet-4-20250514-v1:0", "ap-southeast-2", True),
+    ("apac.anthropic.claude-sonnet-4-5-20250929-v1:0", "ap-southeast-2", True),
+    ("us.anthropic.claude-sonnet-4-20250514-v1:0", "us-east-1", False),  # retired by Anthropic
+    ("us.anthropic.claude-sonnet-4-6", "us-east-1", True),
     ("us.meta.llama3-1-70b-instruct-v1:0", "us-east-1", False),
 ])
 def test_only_relevant_inference_profiles_are_probed(profile, region, probe):

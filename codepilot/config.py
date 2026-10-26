@@ -136,6 +136,8 @@ class Config:
     port: int
     # Built-in web tools (no MCP): library_docs (Context7), web_fetch (asks per domain), web_search (Brave key)
     web_tools: bool = True
+    # Each tier uses the newest available model in its configured model's family (see models.resolve_tiers)
+    latest_models: bool = True
     brave_api_key: str = ""
     context7_api_key: str = ""
 
@@ -192,6 +194,7 @@ class Config:
             host=_env("CODEPILOT_HOST", default="127.0.0.1"),
             port=int(_env("CODEPILOT_PORT", default="8765")),
             web_tools=_flag("CODEPILOT_WEB", True),
+            latest_models=_flag("CODEPILOT_LATEST_MODELS", True),
             brave_api_key=_env("BRAVE_API_KEY", "CODEPILOT_BRAVE_API_KEY", default=""),
             context7_api_key=_env("CONTEXT7_API_KEY", default=""),
         )

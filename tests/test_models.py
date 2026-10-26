@@ -86,3 +86,56 @@ def test_models_endpoint_and_model_patch(cfg, store, repo, monkeypatch):
     out = client.patch(f"/api/sessions/{sess['id']}", json={"model": "anthropic.claude-opus-5-5"}, headers=H).json()
     assert out["session"]["model"] == "anthropic.claude-opus-5-5"
     assert out["context"]["window"] == 1_000_000
+
+
+def test_probe_counts_only_answers_from_the_model():
+    busy = ClientError({"Error": {"Code": "ThrottlingException", "Message": "Too many requests"},
+                        "ResponseMetadata": {"HTTPStatusCode": 429}}, "Converse")
+    assert models._probe_error(busy)[0] is True
+    # Not an answer from the model, so not "available" (these used to slip through and fill the picker).
+    assert models._probe_error(ConnectionError("Could not connect to the endpoint URL"))[0] is False
+    expired = ClientError({"Error": {"Code": "ExpiredTokenException", "Message": "The security token expired"},
+                           "ResponseMetadata": {"HTTPStatusCode": 400}}, "Converse")
+    assert models._probe_error(expired)[0] is False
+
+
+def test_newest_in_family_wins_and_duplicates_are_marked(cfg):
+    cfg = replace(cfg, provider="bedrock", region="us-east-1",
+                  models={"fast": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+                          "main": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+                          "hard": "us.anthropic.claude-opus-4-5-20251101-v1:0"})
+    have = ["us.anthropic.claude-sonnet-4-5-20250929-v1:0", "us.anthropic.claude-sonnet-4-6",
+            "global.anthropic.claude-sonnet-4-6", "us.anthropic.claude-opus-4-5-20251101-v1:0",
+            "global.anthropic.claude-opus-4-6-v1", "us.anthropic.claude-haiku-4-5-20251001-v1:0"]
+    candidates = have + ["anthropic.claude-sonnet-5-5", "anthropic.claude-opus-5-5"]
+    data = models.discover(cfg, refresh=True, lister=lambda c: candidates,
+                           probe=lambda c, m: (m in have, "ok" if m in have else "You don't have access"))
+    tiers = data["tiers"]
+    assert tiers["main"] == {"model": "us.anthropic.claude-sonnet-4-6", "configured": cfg.models["main"],
+                             "fallback": False, "upgraded": True}  # same geography as configured
+    assert tiers["hard"]["model"] == "global.anthropic.claude-opus-4-6-v1" and tiers["hard"]["upgraded"]
+    assert tiers["fast"]["model"] == cfg.models["fast"] and not tiers["fast"].get("upgraded")
+    by_id = {m["id"]: m for m in data["models"]}
+    assert by_id["global.anthropic.claude-sonnet-4-6"]["same_as"] == "us.anthropic.claude-sonnet-4-6"
+    assert by_id["us.anthropic.claude-sonnet-4-6"]["newest"] and not by_id[cfg.models["main"]].get("newest")
+    assert [m["id"] for m in data["models"] if m["available"] and "same_as" not in m][:2] == [
+        "global.anthropic.claude-opus-4-6-v1", "us.anthropic.claude-opus-4-5-20251101-v1:0"]  # Opus first, newest first
+    pinned = models.resolve_tiers(replace(cfg, latest_models=False), data)
+    assert pinned["main"]["model"] == cfg.models["main"]
+
+
+def test_known_profiles_are_probed_when_listing_is_denied(cfg, monkeypatch):
+    class Denied:
+        def list_inference_profiles(self, **kw):
+            raise ClientError({"Error": {"Code": "AccessDeniedException", "Message": "not authorized"}},
+                              "ListInferenceProfiles")
+    monkeypatch.setattr("codepilot.bedrock.make_client", lambda c, service: Denied())
+    ids = models.bedrock_candidates(replace(cfg, provider="bedrock", region="us-west-2"))
+    assert "us.anthropic.claude-sonnet-4-6" in ids and "global.anthropic.claude-opus-4-6-v1" in ids
+    assert not any(i.startswith("eu.") for i in ids)
+
+
+def test_a_run_where_nothing_answers_is_not_cached(cfg):
+    cfg = bedrock_cfg(cfg)
+    models.discover(cfg, refresh=True, lister=lambda c: CANDIDATES, probe=lambda c, m: (False, "token expired"))
+    assert not (cfg.home / "models.json").exists()

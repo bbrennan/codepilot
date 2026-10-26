@@ -26,7 +26,9 @@ Start with `make doctor`. It tests each piece and prints the fix for most proble
 | `ThrottlingException` after retries | You hit your account's tokens-per-minute quota. Wait, use a smaller tier, lower `--jobs` in bench, or request a quota increase |
 | `TLS verification failed` / `CERTIFICATE_VERIFY_FAILED` | Keep `CODEPILOT_SYSTEM_CERTS=1`, or set `CODEPILOT_CA_BUNDLE` to your corporate CA file |
 | Only Claude 4.5 models show up, though Claude 5.x is enabled | Update codepilot (`git pull && make install`). Claude 5.x on Bedrock uses the Messages API with `anthropic.claude-…` IDs, which older versions didn't use; run `uv run codepilot models --refresh` |
-| A model shows as "Not enabled" (e.g. pending onboarding) | Your account doesn't have access yet; codepilot falls back to the best enabled model in the tier's family. Once access is granted, use **Refresh model list** in the dropdown |
+| A model you expect isn't in the dropdown | The dropdown only lists models that answered a test request. `uv run codepilot models --refresh` shows every model checked and why each one isn't usable (no access, pending onboarding, expired login). Once access is granted, use **Refresh model list** |
+| A tier uses a newer model than `.env` says | By design: tiers use the newest enabled model in their family. Set `CODEPILOT_LATEST_MODELS=0` to pin the configured IDs |
+| Your Claude 4.x models are missing and your role can't list inference profiles | codepilot then probes the known Claude 4.5/4.6 profile IDs for your region. If yours differs, set it in `CODEPILOT_MODEL_*`; it's always probed |
 | `denied the request ... bedrock-mantle:CreateInference` | Add that IAM permission (see [setup.md](setup.md#amazon-bedrock)) |
 | Works in the AWS CLI but not in codepilot | Check `AWS_PROFILE`/`AWS_REGION` in `.env` match what you use with the CLI; `make doctor` prints both |
 
@@ -62,7 +64,7 @@ Start with `make doctor`. It tests each piece and prints the fix for most proble
 | Symptom | Fix |
 |---|---|
 | "Multimodal data provided, but model does not support…" or images ignored | The model can't read images (most small local models). Use a Claude or GPT-4o-class model, or a vision model on Ollama (e.g. `qwen2.5vl`) |
-| Ctrl+V doesn't paste on a Mac | It does now: Ctrl+V and ⌘V both paste. The first time, the browser may ask to allow clipboard access |
+| Ctrl+V doesn't paste on a Mac | ⌘V always works. Ctrl+V needs the browser's clipboard permission: allow it when asked. If it was blocked, codepilot shows a message: open `chrome://settings/content/clipboard` (Edge: `edge://settings/content/clipboard`) and add `http://127.0.0.1:8765` under Allowed. A work-managed browser may block this by policy; then only ⌘V works. Safari and Firefox show a small **Paste** button to click |
 | A fix you pulled doesn't seem to take effect | The server keeps running the code it started with. `make restart` (or **Restart now** in the banner the app shows) loads the new code. `make start` also restarts a background server whose code changed |
 | Not sure your Anthropic/OpenAI key setup works | `uv run codepilot smoke` runs a real end-to-end turn and reports each check |
 | `address already in use` | Another codepilot is running, or something else uses the port: `codepilot status`; `codepilot stop` for a background one; otherwise `CODEPILOT_PORT=8766 make serve`, or stop the other one (`pkill -f "codepilot serve"`) |
