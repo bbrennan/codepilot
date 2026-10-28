@@ -1344,7 +1344,7 @@ function notifyDone(sid) {
 function askNotifyPermission() { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {}); }
 function updateBusy() {
   const busy = state.streams.has(state.sid);
-  input.placeholder = busy ? "Working… Enter steers it now · Tab queues a message to run after" : state.placeholder || input.placeholder;
+  input.placeholder = busy ? `Working… Enter queues a message to run after · ${isMac ? "⌘" : "Ctrl+"}Enter steers it now` : state.placeholder || input.placeholder;
   $("#sendBtn").hidden = busy; $("#stopBtn").hidden = !busy; $("#steerBtn").hidden = $("#queueBtn").hidden = !busy;
   $("#sbBusy").innerHTML = busy ? '<span class="spinner"></span>working…' : "";
 }
@@ -1393,11 +1393,16 @@ async function streamTo(sid, url, body) {
 // run as its own turn once the current one finishes (when="after").
 const QUEUE_LABEL = { now: "Steering: codepilot reads this at its next step", after: "Queued: runs when the current work finishes" };
 const queuedBar = (when) => `${icon(when === "after" ? "list" : "history")}<span>${QUEUE_LABEL[when]}</span><span class="spacer"></span><button class="btn sm ghost" data-qswitch>${when === "after" ? "Steer now instead" : "Run after instead"}</button><button class="btn sm ghost" data-qedit>Edit</button><button class="btn sm ghost" data-qcancel>Remove</button>`;
-async function queueMessage(text, when = "now") {
+async function queueMessage(text, when = "after") {
+  // Clear the box first: what's typed while the request is in flight is the next message, not this one.
+  $("#input").value = ""; autosize(); hideMentions(); resetHistory();
   let q;
   try { q = await api(`/api/sessions/${state.sid}/queue`, { method: "POST", body: { text, when } }); }
-  catch (err) { if (err.status === 409) return false; toast(err.message, true); return true; } // 409: the turn just ended
-  $("#input").value = ""; autosize(); hideMentions(); resetHistory(); rememberPrompt(text);
+  catch (err) { // 409: the turn just ended, and send() sends it normally
+    if (err.status === 409) return false;
+    toast(err.message, true); if (!input.value.trim()) setInput(text); return true;
+  }
+  rememberPrompt(text);
   add(`<div class="msg user queued" data-qid="${esc(q.id)}" data-when="${q.when || when}"><div class="body">${userHtml(text)}</div><div class="queued-bar">${queuedBar(q.when || when)}</div></div>`);
   scrollEnd(true);
   return true;
@@ -1418,7 +1423,7 @@ async function unqueue(el, edit) {
   const text = $(".body", el).innerText; el.remove();
   if (edit) setInput(input.value ? input.value + "\n" + text : text);
 }
-async function send(when = "now") {
+async function send(when = "after") {
   const text = $("#input").value.trim();
   const pics = state.attachments.slice();
   if (!pics.length && runSlashCommand(text)) return;
@@ -1435,7 +1440,8 @@ async function send(when = "now") {
     if (row) { row.classList.remove("waiting"); row.classList.add("denied"); row.innerHTML = `${icon("x")}<span>Declined (you wrote a message instead): ${state.approval.tools.map((t) => `<code>${esc(t.command)}</code>`).join(", ")}</span>`; }
     state.approval = null; renderReviewBar();
   }
-  $("#input").value = ""; autosize(); hideMentions(); resetHistory(); askNotifyPermission(); clearAttachments();
+  if ($("#input").value.trim() === text) $("#input").value = ""; // (not something typed since: see queueMessage)
+  autosize(); hideMentions(); resetHistory(); askNotifyPermission(); clearAttachments();
   if (text) { rememberPrompt(text); (state.prompts ||= []).push(text); }
   render({ type: "user", text: text || (pics.length > 1 ? "(see the attached images)" : "(see the attached image)") }); scrollEnd(true);
   if (!state.session?.title) $("#chatTitle").textContent = (text || "Image").split("\n")[0].slice(0, 80);
@@ -1512,6 +1518,7 @@ function pasteFailed(why) {
 function insertAtCaret(text, el = input) { el.setRangeText(text, el.selectionStart, el.selectionEnd, "end"); el.dispatchEvent(new Event("input", { bubbles: true })); if (el === input) autosize(); }
 $("#sendBtn").onclick = () => send();
 $("#steerBtn").onclick = () => { if (input.value.trim()) send("now"); else input.focus(); };
+$("#steerBtn").title = `Steer: codepilot reads this at its next step, while it keeps working (${isMac ? "⌘" : "Ctrl+"}Enter)`;
 $("#queueBtn").onclick = () => { if (input.value.trim()) send("after"); else input.focus(); };
 $("#stopBtn").onclick = async () => {
   if (!state.sid) return;
@@ -1829,7 +1836,8 @@ input.addEventListener("keydown", (e) => {
     const edge = e.key === "ArrowUp" ? !v.slice(0, pos).includes("\n") : !v.slice(pos).includes("\n");
     if (edge && historyStep(e.key === "ArrowUp" ? -1 : 1)) { e.preventDefault(); return; }
   }
-  if (e.key === "Tab" && !e.shiftKey && state.streams.has(state.sid) && input.value.trim()) { e.preventDefault(); send("after"); return; }
+  // While it works, Enter queues (send's default) and ⌘/Ctrl+Enter steers. Stop it reaching the global ⌘Enter (approve).
+  if (e.key === "Enter" && (isMac ? e.metaKey : e.ctrlKey) && !e.isComposing && state.streams.has(state.sid) && input.value.trim()) { e.preventDefault(); e.stopPropagation(); send("now"); return; }
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
 });
 $("#mentionPop").addEventListener("mousedown", (e) => { const o = e.target.closest("[data-i]"); if (o) { e.preventDefault(); acceptMention(+o.dataset.i); } });

@@ -461,7 +461,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         with busy_lock:
             if sid not in busy:
                 return err("Not working right now; send it as a normal message.", 409)
-            return JSONResponse(agent.enqueue(sid, text, data.get("when", "now")))
+            return JSONResponse(agent.enqueue(sid, text, data.get("when", "after")))  # the UI queues by default
 
     async def rewind(request: Request) -> Response:
         sid = request.path_params["sid"]

@@ -163,10 +163,10 @@ with **Show all (N lines · size)** and **Copy**, so scrolling back through the 
 
 **While it works:** keep typing, and choose what your message does:
 
-- **Steer** (Enter, or the **Steer** button): codepilot reads it at its next step, between tool calls,
-  and carries on with it in mind ("use the v2 API instead", "keep it short").
-- **Queue** (Tab, or the **Queue** button): it waits, then runs as its own message once the current work
-  finishes. Queue several and they run one after another.
+- **Queue** (Enter, or the **Queue** button): it waits, then runs as its own message once the current
+  work finishes. Queue several and they run one after another.
+- **Steer** (⌘Enter, Ctrl+Enter on Windows and Linux, or the **Steer** button): codepilot reads it at its
+  next step, between tool calls, and carries on with it in mind ("use the v2 API instead", "keep it short").
 
 A waiting message shows as *Steering* or *Queued*; **Run after instead** / **Steer now instead** switches
 it, and **Edit** or **Remove** work until codepilot picks it up. **Stop** puts waiting messages back in
@@ -474,6 +474,7 @@ issue (a short summary you review before submitting). Details: [troubleshooting]
 | ↑ / ↓ (message box) | Earlier / later prompts |
 | Alt+W | Close editor tab |
 | Enter / Shift+Enter | Send / new line |
+| Enter / ⌘Enter (while it works) | Queue a message to run after / steer the running work |
 | `@` / `/` / `#` | Reference a file / run a command or skill / attach a steering doc |
 | Esc | Close popups |
 

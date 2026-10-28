@@ -235,6 +235,30 @@ def test_a_message_queued_as_the_stream_ends_still_runs(cfg, store, repo, monkey
     assert any("late arrival" in ln for ln in lines) and any('"two"' in ln for ln in lines)
 
 
+def test_a_message_sent_while_working_queues_unless_it_asks_to_steer(cfg, store, repo):
+    import threading
+
+    gate = threading.Event()
+
+    class SlowLLM(FakeLLM):
+        def stream(self, model, system, messages, tools=None, max_tokens=None):
+            gate.wait(10)
+            yield from super().stream(model, system, messages, tools, max_tokens)
+
+    agent = Agent(cfg, store, llm=SlowLLM([[{"text": "done"}]]))
+    client = TestClient(create_app(cfg, store, agent))
+    hdr = {"X-Codepilot": "1"}
+    sid = client.post("/api/sessions", json={"repo": str(repo)}, headers=hdr).json()["id"]
+    with client.stream("POST", f"/api/sessions/{sid}/chat", json={"message": "hi"}, headers=hdr) as r:
+        next(r.iter_lines())
+        assert client.post(f"/api/sessions/{sid}/queue", json={"text": "later"}, headers=hdr).json()["when"] == "after"
+        steer = client.post(f"/api/sessions/{sid}/queue", json={"text": "now", "when": "now"}, headers=hdr).json()
+        assert steer["when"] == "now"
+        assert [q["text"] for q in client.get(f"/api/sessions/{sid}/queue").json()["queued"]] == ["later", "now"]
+        client.post(f"/api/sessions/{sid}/cancel", headers=hdr)
+        gate.set()
+
+
 def test_stat_reports_folder_and_file_changes(cfg, store, repo):
     client = TestClient(create_app(cfg, store, Agent(cfg, store, llm=FakeLLM([]))))
     hdr = {"X-Codepilot": "1"}

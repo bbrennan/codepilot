@@ -7,6 +7,7 @@ Set CODEPILOT_E2E_HEADED=1 to watch, or CODEPILOT_E2E_SLOWMO=250 to slow it down
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
@@ -47,7 +48,7 @@ class ScriptedLLM:
         self.calls = []
 
     def stream(self, model, system, messages, tools=None, max_tokens=None):
-        self.calls.append({"model": model, "messages": messages, "system": system})
+        self.calls.append({"model": model, "messages": copy.deepcopy(messages), "system": system})  # as sent, not as it grows
         last = messages[-1]["content"]
         user_text = " ".join(b.get("text", "") for b in last if "text" in b).split("<turn_context>")[0].lower()
         n = len(self.calls)
@@ -63,6 +64,9 @@ class ScriptedLLM:
             doc = phase.group(1)
             content = [{"toolUse": {"toolUseId": f"t{n}", "name": "write_spec",
                                     "input": {"doc": doc, "content": SPEC_DOCS[doc]}}}]
+        elif "slow tool" in user_text:  # a step that takes a while, then a read-only tool: a turn you can steer
+            time.sleep(1.5)
+            content = [{"toolUse": {"toolUseId": f"t{n}", "name": "read_file", "input": {"path": "agent/core.py"}}}]
         elif "run python" in user_text:
             content = [{"toolUse": {"toolUseId": f"t{n}", "name": "run_command",
                                     "input": {"command": "python -c \"print('ran-' + str(6*7))\""}}}]

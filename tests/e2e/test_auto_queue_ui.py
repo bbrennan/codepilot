@@ -43,12 +43,61 @@ def test_a_message_typed_while_working_is_queued_then_sent(page, server, session
     send(page, "and also check the tests")
     queued = page.locator(".msg.queued")
     queued.wait_for()
-    assert "Steering" in queued.text_content()  # Enter steers the running work
+    assert "Queued" in queued.text_content()  # Enter queues it to run after the current work
     wait_idle(page)
     page.locator(".msg.queued").wait_for(state="detached")  # became a normal message
     page.locator(".msg.user:not(.queued)", has_text="and also check the tests").wait_for()
     calls = model_calls(server)
-    assert len(calls) == 2 and "and also check the tests" in str(calls[1]["messages"][-1])
+    # Its own turn: the first reply finished without it, then it ran as the next user message.
+    assert len(calls) == 2 and "and also check the tests" not in str(calls[0]["messages"])
+    assert calls[1]["messages"][-1]["content"][0]["text"].startswith("and also check the tests")
+
+
+def test_cmd_enter_steers_the_running_turn(page, server, session):
+    open_app(page)
+    send(page, "use a slow tool")  # a model step that takes a while, then a tool call: a next step to steer
+    page.wait_for_function("() => !document.querySelector('#stopBtn').hidden")
+    while not model_calls(server):  # the first model call is in flight
+        page.wait_for_timeout(50)
+    page.fill("#input", "use the v2 API instead")
+    page.press("#input", "ControlOrMeta+Enter")
+    page.locator(".msg.queued[data-when=now]", has_text="Steering").wait_for()
+    wait_idle(page)
+    # Read inside the running turn, at its next step: no extra turn was started for it.
+    calls = model_calls(server)
+    assert len(calls) == 2
+    assert "use the v2 API instead" not in str(calls[0]["messages"])
+    assert "use the v2 API instead" in str(calls[1]["messages"][-1])
+    assert page.locator(".msg.queued").count() == 0
+
+
+def test_typing_the_next_message_while_one_is_being_queued_keeps_it(page, server, session):
+    open_app(page)
+    start_slow_reply(page)
+    page.route("**/queue", lambda route: (page.wait_for_timeout(400), route.continue_())[1])  # a slow server
+    send(page, "first follow-up")
+    page.fill("#input", "second follow-up")  # typed before the first has been accepted
+    page.press("#input", "ControlOrMeta+Enter")
+    page.wait_for_function("() => document.querySelectorAll('.msg.queued').length === 2")
+    texts = page.eval_on_selector_all(".msg.queued", "els => els.map(e => e.dataset.when + ':' + e.querySelector('.body').innerText)")
+    assert texts == ["after:first follow-up", "now:second follow-up"] and page.input_value("#input") == ""
+    wait_idle(page)
+
+
+def test_steer_and_queue_shortcuts_are_shown_while_working(page, server, session):
+    open_app(page)
+    start_slow_reply(page)
+    placeholder = page.get_attribute("#input", "placeholder")
+    assert "Enter queues" in placeholder and "Enter steers" in placeholder
+    assert "(Enter)" in page.get_attribute("#queueBtn", "title")
+    assert "Enter)" in page.get_attribute("#steerBtn", "title") and "(Enter)" not in page.get_attribute("#steerBtn", "title")
+    page.fill("#input", "steer with the button")
+    page.click("#steerBtn")
+    page.locator(".msg.queued[data-when=now]").wait_for()
+    page.fill("#input", "nothing typed with Tab")
+    page.press("#input", "Tab")  # Tab no longer sends: it just moves focus, like any text box
+    assert page.locator(".msg.queued").count() == 1
+    wait_idle(page)
 
 
 def test_queued_message_can_be_removed_or_edited(page, server, session):
@@ -175,8 +224,7 @@ def test_queue_runs_a_message_after_the_current_work(page, server, session):
     queued = page.locator(".msg.queued")
     queued.wait_for()
     assert "runs when the current work finishes" in queued.text_content()
-    page.fill("#input", "and keep it short")
-    page.press("#input", "Tab")  # Tab queues too
+    send(page, "and keep it short")  # Enter queues too
     page.wait_for_function("() => document.querySelectorAll('.msg.queued').length === 2")
     wait_idle(page)
     calls = model_calls(server)
@@ -192,9 +240,10 @@ def test_a_waiting_message_can_switch_between_steer_and_queue(page, server, sess
     start_slow_reply(page)
     send(page, "steer me")
     bar = page.locator(".msg.queued .queued-bar")
-    bar.locator("[data-qswitch]").click()
     page.locator(".msg.queued[data-when=after]").wait_for()
-    assert "runs when the current work finishes" in bar.text_content()
+    bar.locator("[data-qswitch]").click()
+    page.locator(".msg.queued[data-when=now]").wait_for()
+    assert "reads this at its next step" in bar.text_content()
     wait_idle(page)
     page.locator(".msg.user:not(.queued)", has_text="steer me").wait_for()
 
@@ -206,7 +255,7 @@ def test_a_reloaded_page_follows_the_running_turn_and_can_still_steer(page, serv
     page.reload()
     page.locator("#stopBtn").wait_for()  # it knows codepilot is still working
     send(page, "one more thing")
-    page.locator(".msg.queued").wait_for()  # steered, not refused as "already working"
+    page.locator(".msg.queued").wait_for()  # queued, not refused as "already working"
     wait_idle(page)
     page.locator(".msg.user:not(.queued)", has_text="one more thing").wait_for()
     page.locator(".msg.assistant", has_text="Thinking slowly").first.wait_for()

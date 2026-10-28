@@ -76,8 +76,8 @@ assistant's replies in them are scripted so the demo is reproducible.</sub>
   search.
 - **Slash commands:** `/plan`, `/debug …`, `/model opus`, `/spec …`, `/init`, `/undo`, `/export`, `/bug` and
   more, run instantly in the app.
-- **Chat that keeps up with you:** while it works, steer it (read at its next step) or queue messages to
-  run after; reloading the page doesn't stop a turn. Edit or retry
+- **Chat that keeps up with you:** while it works, Enter queues messages to run after, and ⌘Enter steers
+  it (read at its next step); reloading the page doesn't stop a turn. Edit or retry
   any message, ↑ for earlier prompts, and desktop notifications when it's done.
 - **Spec-driven development:** for bigger work, requirements (EARS acceptance criteria), then design, then
   tasks, each reviewed in a Spec tab, then task-by-task implementation. Includes drift checks and mapping
