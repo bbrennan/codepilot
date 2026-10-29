@@ -191,3 +191,25 @@ def test_view_image_outside_the_workspace_asks_first(cfg, store, repo, tmp_path)
 def test_the_model_is_told_it_can_see_images():
     from codepilot.prompts import STATIC
     assert "You can see images" in STATIC and "view_image" in STATIC
+
+
+def test_image_links_never_reach_cloud_metadata_or_follow_cross_site_redirects(monkeypatch):
+    import socket
+
+    monkeypatch.setattr(socket, "getaddrinfo", lambda host, *a, **k: [(2, 1, 6, "", ("169.254.169.254", 80))])
+    with pytest.raises(images.ImageError, match="link-local"):
+        images.fetch("http://169.254.169.254/latest/meta-data/")
+
+    opened = []
+    monkeypatch.setattr(socket, "getaddrinfo", lambda host, *a, **k: [(2, 1, 6, "", ("93.184.216.34", 80))])
+
+    class Opener:
+        def open(self, req, timeout=None):
+            opened.append(req.full_url)
+            raise OSError("offline")
+
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *handlers: (opened.append([type(h).__name__ if not isinstance(h, type) else h.__name__ for h in handlers]), Opener())[1])
+    with pytest.raises(images.ImageError, match="couldn't download"):
+        images.fetch("https://example.com/a.png")
+    assert any("SameHost" in str(h) for h in opened[0])  # redirects are limited to the same host

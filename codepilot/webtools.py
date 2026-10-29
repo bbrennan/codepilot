@@ -107,7 +107,7 @@ def host_of(url: str) -> str:
     return (urllib.parse.urlsplit(url).hostname or "").lower()
 
 
-def _check_target(url: str) -> None:
+def check_target(url: str) -> None:
     parts = urllib.parse.urlsplit(url)
     if parts.scheme not in ("http", "https") or not parts.hostname:
         raise WebError("only http and https URLs can be fetched")
@@ -121,7 +121,7 @@ def _check_target(url: str) -> None:
             raise WebError("cloud metadata and link-local addresses are never fetched")
 
 
-class _SameHost(urllib.request.HTTPRedirectHandler):
+class SameHostRedirects(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         if host_of(newurl) != host_of(req.full_url):
             raise WebError(f"the page redirects to another site ({newurl}); fetch that URL if you trust it")
@@ -129,8 +129,8 @@ class _SameHost(urllib.request.HTTPRedirectHandler):
 
 
 def _get(url: str, headers: dict | None = None, timeout: float = TIMEOUT) -> tuple[bytes, str, str]:
-    _check_target(url)
-    opener = urllib.request.build_opener(_SameHost)
+    check_target(url)
+    opener = urllib.request.build_opener(SameHostRedirects)
     req = urllib.request.Request(url, headers={"User-Agent": UA, **(headers or {})})
     try:
         with opener.open(req, timeout=timeout) as resp:
