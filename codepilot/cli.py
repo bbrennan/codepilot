@@ -365,6 +365,24 @@ def _doctor_repo(cfg: Config, root: Path) -> int:
 # -- models ---------------------------------------------------------------------------------------
 
 
+def _caller_identity(cfg: Config) -> str:
+    from .bedrock import make_client
+
+    try:
+        return make_client(cfg, "sts").get_caller_identity()["Arn"]
+    except Exception as exc:  # noqa: BLE001 - only used to explain a failure
+        return f"unknown ({type(exc).__name__})"
+
+
+def _who_is_denied(cfg: Config) -> None:
+    """Shown when no model is usable: which AWS credentials were tried, and how to choose others."""
+    print("\nNo model could be called with these credentials:")
+    _line(WARN, "identity", _caller_identity(cfg))
+    _line(WARN, "profile", f"profile {cfg.profile}" if cfg.profile else "none set: using the default credential chain")
+    print("  Not the identity you meant? Set AWS_PROFILE=<your-profile> in .env (see docs/setup.md), run\n"
+          "  `aws sso login --profile <your-profile>` if it uses SSO, then `codepilot models --refresh`.")
+
+
 def print_models(cfg: Config, refresh: bool = True) -> int:
     from . import models
 
@@ -376,6 +394,8 @@ def print_models(cfg: Config, refresh: bool = True) -> int:
         window = f"{m['window'] // 1000}k" if m["window"] < 1_000_000 else f"{m['window'] // 1_000_000}M"
         _line(OK, m["id"], f"{m['label']} · {m['api']} · {window}" + (" · newest" if m.get("newest") else ""))
     off = [m for m in data["models"] if not m["available"]]
+    if cfg.provider == "bedrock" and off and not shown:
+        _who_is_denied(cfg)
     if off:
         print(f"\nnot enabled for this account ({len(off)}; the picker hides these)")
         for m in off:
