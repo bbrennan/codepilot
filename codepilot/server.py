@@ -632,11 +632,18 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                                  "mtime": str(base.stat().st_mtime_ns)})
         entries = []
         stamp = dir_stamp(base)
+        asked = os.path.normpath(request.query_params.get("path", ".").strip() or ".").strip("/")
+
+        def child_path(p: Path) -> str:
+            # Under the path that was asked for, not the resolved one: a link to an ancestor ("loop" -> ".") would
+            # otherwise list children whose paths equal their parent's, and the explorer would recurse forever.
+            return p.name if asked in ("", ".") else f"{asked}/{p.name}"
+
         for p in sorted(base.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
             if p.name in (".git", ".DS_Store"):
                 continue
             # Build output, caches and environments are shown (you may have just made one) but dimmed.
-            entries.append({"name": p.name, "path": ctx.rel(p), "dir": p.is_dir(),
+            entries.append({"name": p.name, "path": child_path(p), "dir": p.is_dir(),
                             **({"dim": True} if p.name in SKIP_DIRS and p.is_dir() else {})})
         return JSONResponse({"path": ctx.rel(base), "entries": entries, "stamp": stamp})
 

@@ -95,3 +95,17 @@ def test_symlinks_act_on_the_link_not_the_target(fs, repo, tmp_path):
 def test_requires_csrf_header(fs):
     r = fs.client.post(f"/api/sessions/{fs.sid}/fs", json={"op": "new_file", "path": "x.py"})
     assert r.status_code == 403
+
+
+def test_listing_a_symlinked_folder_names_children_under_the_requested_path(fs, repo):
+    """A link back to an ancestor used to list its children under their real paths, so the explorer saw a folder
+    that contained itself and recursed until the tab crashed."""
+    os.symlink(repo, repo / "loop")
+    client, sid = fs.client, fs.sid
+    root = client.get(f"/api/sessions/{sid}/files", params={"path": "."}).json()
+    assert "loop" in [e["path"] for e in root["entries"]]
+    inside = client.get(f"/api/sessions/{sid}/files", params={"path": "loop"}).json()
+    paths = [e["path"] for e in inside["entries"]]
+    assert paths and all(p.startswith("loop/") for p in paths), paths
+    deeper = client.get(f"/api/sessions/{sid}/files", params={"path": "loop/loop"}).json()
+    assert all(e["path"].startswith("loop/loop/") for e in deeper["entries"])
