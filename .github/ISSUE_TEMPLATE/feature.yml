@@ -1,0 +1,7 @@
+name: Feature
+description: Something CodePilot should do
+labels: [enhancement]
+body:
+  - type: textarea
+    attributes: { label: The problem and the behaviour you want }
+    validations: { required: true }
