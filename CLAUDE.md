@@ -26,6 +26,10 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/architecture.md](docs/architec
 - Extend by adding (a tool, a provider, a slash command), not by adding branches to existing functions.
 - Keep the system prompt stable within a session; tools raise `ToolError` rather than crash the loop.
 
+## MCP
+- MCP servers (`.mcp.json`, e.g. Playwright) are local developer tools for Claude Code only. CodePilot itself must
+  never connect to MCP servers: no MCP client, dependency or config in `codepilot/` (enforced by `tests/test_no_mcp.py`).
+
 ## Hygiene
 - Match surrounding style and comment density; line length 120. Comments explain why.
 - No secrets or company-specific values (this repo is public). No mock/fixture data for real or internal projects.
