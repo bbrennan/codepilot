@@ -32,6 +32,7 @@ from starlette.websockets import WebSocket
 from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 
+from .http_input import HANDLERS, json_body
 from . import checks, diagnostics, github, images, mentions, models, modes, skills, specs, steering, traces, version
 from .agent import Agent, history_events
 from .config import TIER_CHOICES, TIERS, Config
@@ -199,7 +200,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             return err("Terminal access refused (disabled, or the page is from an earlier server; reload it).", 403)
         tid = request.path_params.get("tid")
         if tid is None and request.method == "POST":
-            data = await request.json()
+            data = await json_body(request)
             try:
                 term = terminals.create(term_dir(data.get("cwd"), data.get("sid")), str(data.get("name") or "")[:60])
             except ValueError as exc:
@@ -216,14 +217,14 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             await run_in_threadpool(terminals.kill, tid)
             return JSONResponse({"ok": True})
         if request.method == "PATCH":
-            name = str((await request.json()).get("name") or "").strip()[:60]
+            name = str((await json_body(request)).get("name") or "").strip()[:60]
             if name:
                 term.name = name
         return JSONResponse(term.info())
 
     async def report_view(request: Request) -> Response:
         """A diagnostics report (to download) and a short redacted summary for a GitHub issue."""
-        data = await request.json()
+        data = await json_body(request)
         report = await run_in_threadpool(build_report, data)
         title = str(data.get("title") or "").strip() or "Problem report"
         body = diagnostics.issue_markdown(report, str(data.get("description") or ""), title)
@@ -308,7 +309,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
     async def sessions(request: Request) -> Response:
         if request.method == "GET":
             return JSONResponse([{**s.public(), "busy": s.id in busy} for s in store.list_sessions()])
-        data = await request.json()
+        data = await json_body(request)
         repo = (data.get("repo") or "").strip()
         if repo:
             path = Path(repo).expanduser().resolve()
@@ -339,7 +340,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             store.delete_session(sid)
             return JSONResponse({"ok": True})
         if request.method == "PATCH":
-            data = await request.json()
+            data = await json_body(request)
             fields = {k: data[k] for k in ("title", "tier", "auto_approve", "repo", "mode", "model") if k in data}
             if isinstance(data.get("allow"), list) or "auto_apply" in data:
                 state = dict(sess.context_state or {})
@@ -384,10 +385,14 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
 
     async def chat(request: Request) -> Response:
         sid = request.path_params["sid"]
-        data = await request.json()
+        data = await json_body(request)
+        if not isinstance(data.get("message") or "", str) or not isinstance(data.get("images") or [], list):
+            return err("message must be text and images a list")
         text = (data.get("message") or "").strip()
         pasted = []
         for i, item in enumerate((data.get("images") or [])[:images.MAX_PER_MESSAGE]):
+            if not isinstance(item, dict):
+                return err(f"Image {i + 1}: expected an object with base64 data")
             try:
                 pasted.append(images.block(base64.b64decode(str(item.get("data") or ""), validate=True)))
             except (binascii.Error, ValueError) as exc:
@@ -423,7 +428,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
 
     async def compact(request: Request) -> Response:
         sid = request.path_params["sid"]
-        data = await request.json() if request.headers.get("content-length") not in (None, "0") else {}
+        data = await json_body(request, optional=True)
         try:
             store.get_session(sid)
         except KeyError:
@@ -452,7 +457,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             return JSONResponse({"queued": agent.queued(sid)})
         if request.method == "DELETE":
             return JSONResponse({"ok": agent.dequeue(sid, request.path_params.get("qid", ""))})
-        data = await request.json()
+        data = await json_body(request)
         if request.method == "PATCH":
             return JSONResponse({"ok": agent.requeue(sid, request.path_params.get("qid", ""), data.get("when"))})
         text = str(data.get("text") or "").strip()
@@ -465,7 +470,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
 
     async def rewind(request: Request) -> Response:
         sid = request.path_params["sid"]
-        data = await request.json()
+        data = await json_body(request)
         text = str(data.get("message") or "").strip()
         tier = data.get("tier")
         if not text:
@@ -502,7 +507,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
 
     async def approve(request: Request) -> Response:
         sid = request.path_params["sid"]
-        data = await request.json()
+        data = await json_body(request)
         return stream(sid, agent.resume(sid, bool(data.get("approve")), bool(data.get("remember"))))
 
     async def proposal_action(request: Request) -> Response:
@@ -655,7 +660,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             ctx = ctx_for(request.path_params["sid"])
         except (KeyError, ToolError):  # a session switch or a closed folder raced the check: nothing to report
             return JSONResponse({"dirs": {}, "files": {}})
-        data = await request.json()
+        data = await json_body(request)
         return JSONResponse(await run_in_threadpool(stat_paths, ctx, data))
 
     def stat_paths(ctx: ToolContext, data: dict) -> dict:
@@ -678,7 +683,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         """The user's own file operations from the explorer and editor (not the assistant's, which go through
         proposals). Paths are workspace-relative and must stay inside it; deletes go to a restorable trash."""
         ctx = ctx_for(request.path_params["sid"])
-        data = await request.json()
+        data = await json_body(request)
         try:
             result = await run_in_threadpool(file_op, ctx, data)
             await run_in_threadpool(retire_stale_proposals, store, ctx.session_id, ctx.root)
@@ -779,7 +784,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
 
     async def spec_create(request: Request) -> Response:
         ctx = ctx_for(request.path_params["sid"])
-        data = await request.json()
+        data = await json_body(request)
         name = str(data.get("name") or "").strip() or specs.slug(str(data.get("description") or ""))
         try:
             spec = await run_in_threadpool(specs.create, ctx.root, name, str(data.get("kind") or "feature"))
@@ -800,7 +805,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             set_active_spec(ctx.session_id, spec.name)
             return JSONResponse(spec.info(ctx.root))
         if action == "approve":
-            phase = str((await request.json()).get("phase") or spec.phase)
+            phase = str((await json_body(request)).get("phase") or spec.phase)
             try:
                 spec = specs.approve(ctx.root, spec, phase)
             except (ValueError, FileNotFoundError) as exc:
@@ -825,7 +830,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                              "global_dir": str(cfg.home / "steering"), "foundation_prompt": steering.FOUNDATION_PROMPT})
 
     async def steering_create(request: Request) -> Response:
-        data = await request.json()
+        data = await json_body(request)
         name = str(data.get("name") or "").strip().removesuffix(".md")
         inclusion = data.get("inclusion") if data.get("inclusion") in steering.INCLUSIONS else "always"
         pattern = str(data.get("pattern") or "").strip()
@@ -852,7 +857,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
 
     async def steering_global(request: Request) -> Response:
         """Read or save a doc in ~/.codepilot/steering (outside any workspace, so not via /fs)."""
-        data = await request.json() if request.method == "PUT" else dict(request.query_params)
+        data = await json_body(request) if request.method == "PUT" else dict(request.query_params)
         name = str(data.get("name") or "")
         if not steering.NAME.match(name):
             return err("Bad steering doc name.")
@@ -910,7 +915,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         if not sess.repo:
             raise ToolError("No workspace open in this session yet.")
         if request.method == "PUT":
-            data = await request.json()
+            data = await json_body(request)
             path = store.notes_path(sess.repo)
             path.write_text(data.get("notes", ""))
         return JSONResponse({"notes": store.read_notes(sess.repo), "path": str(store.notes_path(sess.repo))})
@@ -918,7 +923,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
     async def run(request: Request) -> Response:
         """User-initiated test/eval run from the UI (no model involved)."""
         sid = request.path_params["sid"]
-        data = await request.json()
+        data = await json_body(request)
         kind = data.get("kind")
         if kind not in ("tests", "command", "checks"):
             return err("kind must be tests, checks or command")
@@ -1012,7 +1017,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         yield
         terminals.close_all()  # don't leave shells running after codepilot stops
 
-    app = Starlette(routes=routes, middleware=middleware, lifespan=lifespan)
+    app = Starlette(routes=routes, middleware=middleware, lifespan=lifespan, exception_handlers=HANDLERS)
     app.state.terminals = terminals
     return app
 
