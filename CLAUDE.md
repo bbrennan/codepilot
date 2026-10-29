@@ -4,7 +4,7 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/architecture.md](docs/architec
 
 ## Git workflow
 - Never commit or push to `main` or `develop`. Branch from `develop` as `feature/<topic>` or `fix/<topic>`;
-  `hotfix/<topic>` branches from `main`. One issue per branch, one focused PR into `develop`.
+  `hotfix/<topic>` branches from `main`. One issue per branch; feature/fix PRs target `develop`, hotfix PRs target `main`.
 - No human review is required. Open the PR and, once CI (`unit`, `e2e`) is green, squash-merge it yourself.
 - `main` only moves by a release merge of `develop`, or by a `hotfix/**` PR into `main` that is merged back into
   `develop` straight after. Never force-push a shared branch.
