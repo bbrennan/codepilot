@@ -41,7 +41,7 @@ BEDROCK_CONVERSE_CATALOG = [
 ]
 # Preferred families per tier, best first, for falling back when a configured model isn't enabled.
 TIER_FAMILIES = {"fast": ["haiku", "sonnet"], "main": ["sonnet", "opus"], "hard": ["opus", "fable", "sonnet"]}
-DENIED = re.compile(r"access|not authori[sz]ed|not enabled|not available|don't have|do not have|unsupported|"
+DENIED = re.compile(r"access|not authori[sz]ed|not enabled|not available|don't have|do not have|unsupported (?:region|model)|"
                     r"not found|invalid model|model identifier|use case|subscribe|agreement|onboard", re.IGNORECASE)
 
 

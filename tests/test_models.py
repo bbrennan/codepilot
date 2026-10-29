@@ -139,3 +139,13 @@ def test_a_run_where_nothing_answers_is_not_cached(cfg):
     cfg = bedrock_cfg(cfg)
     models.discover(cfg, refresh=True, lister=lambda c: CANDIDATES, probe=lambda c, m: (False, "token expired"))
     assert not (cfg.home / "models.json").exists()
+
+
+def test_a_model_that_rejects_the_probe_parameters_is_available_not_denied():
+    for msg in ("Unsupported parameter: temperature is not allowed with this model", "unsupported value for max_tokens"):
+        err = ClientError({"Error": {"Code": "ValidationException", "Message": msg},
+                           "ResponseMetadata": {"HTTPStatusCode": 400}}, "Converse")
+        assert models._probe_error(err)[0] is True, msg
+    gone = ClientError({"Error": {"Code": "ValidationException", "Message": "The provided model identifier is invalid."},
+                        "ResponseMetadata": {"HTTPStatusCode": 400}}, "Converse")
+    assert models._probe_error(gone)[0] is False
