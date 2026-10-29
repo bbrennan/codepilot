@@ -632,3 +632,5 @@ details.card.prop:has(.status.outdated), details.card.prop:has(.status.supersede
 .md-doc li:has(> input[type=checkbox]) { list-style: none; margin-left: -1.3em; }
 
 #tree .row.dim .name, #tree .row.dim .ficon { opacity: .55; }
+
+#tree.drop-target, #tree .row.drop-target { outline: 1px dashed var(--accent); outline-offset: -2px; background: var(--accent-soft); }
