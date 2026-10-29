@@ -170,6 +170,9 @@ def _discover(cfg: Config, refresh: bool, probe: Callable[[Config, str], tuple[b
             pass
     models: list[dict] = []
     if cfg.provider == "bedrock":
+        from . import bedrock
+
+        bedrock.prepare_tls(cfg)  # before the probe threads start: see prepare_tls
         candidates = (lister or bedrock_candidates)(cfg)
         probe = probe or probe_bedrock
         with ThreadPoolExecutor(max_workers=8) as pool:

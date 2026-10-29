@@ -175,3 +175,27 @@ def test_ollama_recovers_tool_call_printed_as_text(monkeypatch):
     assert final["stop_reason"] == "tool_use"
     assert final["content"] == [{"toolUse": {"toolUseId": final["content"][0]["toolUse"]["toolUseId"],
                                              "name": "read_file", "input": {"path": "a.py"}}}]
+
+
+def test_system_certs_are_injected_exactly_once_even_when_threads_race(monkeypatch):
+    """Model discovery builds clients from 8 threads at once. Injecting truststore twice makes ssl.SSLContext
+    recurse ("maximum recursion depth exceeded"), which hid every model as unavailable."""
+    import threading
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    import truststore
+
+    from codepilot import bedrock
+
+    calls = []
+
+    def slow_inject():
+        calls.append(threading.get_ident())
+        time.sleep(0.05)
+
+    monkeypatch.setattr(truststore, "inject_into_ssl", slow_inject)
+    monkeypatch.setattr(bedrock, "_certs_done", False)
+    with ThreadPoolExecutor(8) as pool:
+        list(pool.map(lambda _: bedrock._use_system_certs(), range(8)))
+    assert len(calls) == 1
