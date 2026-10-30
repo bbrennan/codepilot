@@ -289,7 +289,7 @@ risky areas in parallel, and reports only bugs it could demonstrate.
 
 The **Traces** view (the pulse icon) appears only when the open folder has trace or log files. It lists
 JSON/JSONL trace and log files from folders named `traces/`, `logs/`, `eval_results/` or `results/` (add
-more with `CODEPILOT_TRACE_DIRS`). In codepilot's own repo it shows the demo agent's sample traces. Opening
+more with `CODEPILOT_TRACE_DIRS`). Opening
 one shows:
 
 - record, span and error counts, total duration, and trace/session ids
