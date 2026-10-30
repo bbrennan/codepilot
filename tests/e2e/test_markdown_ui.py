@@ -47,11 +47,29 @@ def doc_repo(server):
     (server.repo / "GUIDE.md").write_text(DOC)
 
 
-def test_markdown_opens_rendered_and_safe(page, server, session):
+def open_preview(page, path="GUIDE.md"):
+    page.locator(f"#tree [data-file='{path}']").click(button="right")
+    page.locator("#ctxMenu .mi span", has_text="Open Preview").click()
+
+
+def test_markdown_opens_as_raw_text_like_vscode(page, server, session):
+    doc_repo(server)
+    page.expected_errors.append("Failed to load resource")
+    open_app(page)
+    page.click("#tree [data-file='GUIDE.md']")
+    page.locator(".code-view", has_text="# Project guide").wait_for()
+    assert page.locator("#docBody").count() == 0  # not rendered
+    assert page.locator("[data-view-mode=preview]").count() == 1  # the Preview button is one click away
+
+    page.click("#fEdit")  # the raw text is editable straight away
+    assert page.input_value("#codeEdit").startswith("---\ninclusion: always")
+
+
+def test_open_preview_renders_safely(page, server, session):
     doc_repo(server)
     page.expected_errors.append("Failed to load resource")  # the hostile <img src="x"> 404s
     open_app(page)
-    page.click("#tree [data-file='GUIDE.md']")
+    open_preview(page)
     doc = page.locator("#docBody")
     doc.locator("h1", has_text="Project guide").wait_for()
     assert doc.locator("table th", has_text="Command").count() == 1
@@ -64,7 +82,7 @@ def test_markdown_opens_rendered_and_safe(page, server, session):
     assert doc.locator("script").count() == 0 and doc.locator("[onerror]").count() == 0
     assert doc.locator("a[href^='javascript']").count() == 0
 
-    doc.locator("a", has_text="the API notes").click()  # a link to another file opens it, rendered
+    doc.locator("a", has_text="the API notes").click()  # a link followed from a preview opens its target in preview
     page.locator("#docBody h1", has_text="API notes").wait_for()
 
 
@@ -73,11 +91,11 @@ def test_source_toggle_and_draft_preview(page, server, session):
     page.expected_errors.append("Failed to load resource")
     open_app(page)
     page.click("#tree [data-file='GUIDE.md']")
-    page.locator("#docBody h1").wait_for()
-    page.click("[data-view-mode=source]")
     page.locator(".code-view", has_text="# Project guide").wait_for()
     page.click("[data-view-mode=preview]")
     page.locator("#docBody h1").wait_for()
+    page.click("[data-view-mode=source]")
+    page.locator(".code-view", has_text="# Project guide").wait_for()
 
     page.click("#fEdit")
     page.locator("#codeEdit").fill("# Draft title\n\nSome **bold** text.")
@@ -88,6 +106,15 @@ def test_source_toggle_and_draft_preview(page, server, session):
     assert page.input_value("#codeEdit").startswith("# Draft title")
 
 
+def test_other_files_have_no_open_preview_item(page, server, session):
+    doc_repo(server)
+    open_app(page)
+    page.click("#tree [data-dir='docs']")
+    page.locator("#tree [data-file='docs/arch.png']").click(button="right")
+    page.locator("#ctxMenu .mi").first.wait_for()
+    assert page.locator("#ctxMenu .mi span", has_text="Open Preview").count() == 0
+
+
 def test_image_files_open_as_images(page, server, session):
     doc_repo(server)
     open_app(page)
@@ -95,3 +122,16 @@ def test_image_files_open_as_images(page, server, session):
     page.click("#tree [data-file='docs/arch.png']")
     page.wait_for_function("() => document.querySelector('#imgView')?.naturalWidth > 0")
     assert page.locator("#imgSize").text_content() == "1 × 1"
+
+
+def test_open_preview_on_a_file_being_edited_shows_the_draft_rendered(page, server, session):
+    doc_repo(server)
+    page.expected_errors.append("Failed to load resource")
+    open_app(page)
+    page.click("#tree [data-file='GUIDE.md']")
+    page.click("#fEdit")
+    page.locator("#codeEdit").fill("# Unsaved draft\n\nbody")
+    open_preview(page)
+    page.locator("#docBody h1", has_text="Unsaved draft").wait_for()
+    page.click("#fEditPreview")  # and back to editing keeps the draft
+    assert page.input_value("#codeEdit").startswith("# Unsaved draft")
