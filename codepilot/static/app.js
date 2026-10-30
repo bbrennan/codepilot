@@ -173,7 +173,7 @@ async function init() {
   const theme = store("cp-theme"); if (theme) document.documentElement.dataset.theme = theme;
   for (const v of ["--sidebar-w", "--chat-w", "--panel-h"]) { const s = store("cp" + v); if (s) ide.style.setProperty(v, s); }
   for (const c of ["no-sidebar", "no-panel", "no-chat"]) if (store("cp-" + c) === "1") ide.classList.add(c);
-  hydrateIcons();
+  hydrateIcons(); renderQuick(); // before the first await, so the composer doesn't change height after first paint
   state.cfg = await api("/api/config");
   const c = state.cfg;
   showStaleBanner(c);
@@ -182,7 +182,6 @@ async function init() {
   renderModelSelect();
   loadModels(false);
   if (c.eval_cmd) $("#cmdInput").value = c.eval_cmd;
-  renderQuick();
   api("/api/github").then((g) => {
     $("#sbGithub").innerHTML = g.available ? `${icon("branch")}github: ${esc(g.user)}${g.host !== "github.com" ? " @ " + esc(g.host) : ""}` : `<span title="${esc(g.reason || "")}">${icon("alert")}github off</span>`;
     $("#sbGithub").className = "sb-item " + (g.available ? "" : "warn");
@@ -785,9 +784,10 @@ function renderReviewBar() {
   let html = "";
   if (ap) {
     const rule = ap.tools.length === 1 ? ap.tools[0].allow : null;
-    html += `<div class="rb-row rb-approval">${icon("alert")}<div class="rb-main"><b>Run ${ap.tools.length > 1 ? "these" : "this"}?</b>${ap.tools.map((t) => `<code class="rb-cmd">${esc(t.command)}</code>`).join("")}
-      ${rule ? `<label class="toggle rb-allow" title="Run commands starting with this without asking, for the rest of this session. Commands that chain or redirect (;, &&, |, >) always ask."><input type="checkbox" id="rbAllow"><span>always allow <code>${esc(rule.prefix)}</code> in this session</span></label>` : ""}</div>
-      <div class="rb-acts"><button class="btn primary" id="rbApprove" title="${mod}Enter">${icon("check")}Run <kbd>${mod}⏎</kbd></button><button class="btn" id="rbDeny">Deny</button></div></div>`;
+    // The buttons sit on the title line so the command gets the full width (and scrolls if it's long).
+    html += `<div class="rb-row rb-approval">${icon("alert")}<div class="rb-main"><div class="rb-head"><b>Run ${ap.tools.length > 1 ? "these" : "this"}?</b><span class="spacer"></span>
+      <div class="rb-acts"><button class="btn primary" id="rbApprove" title="${mod}Enter">${icon("check")}Run <kbd>${mod}⏎</kbd></button><button class="btn" id="rbDeny">Deny</button></div></div>${ap.tools.map((t) => `<code class="rb-cmd">${esc(t.command)}</code>`).join("")}
+      ${rule ? `<label class="toggle rb-allow" title="Run commands starting with this without asking, for the rest of this session. Commands that chain or redirect (;, &&, |, >) always ask."><input type="checkbox" id="rbAllow"><span>always allow <code>${esc(rule.prefix)}</code> in this session</span></label>` : ""}</div></div>`;
   }
   if (pend.length) {
     const tot = pend.reduce((acc, p) => { const st = diffStat(p.diff); acc.a += st.a; acc.d += st.d; return acc; }, { a: 0, d: 0 });
@@ -1073,8 +1073,24 @@ let curText = null, curThink = null, curBuf = "";
 function endText() { curText = null; curThink = null; curBuf = ""; }
 let stickToBottom = true;
 function scrollEnd(force) { const t = $("#transcript"); if (force) stickToBottom = true; if (stickToBottom) t.scrollTop = t.scrollHeight; }
-$("#transcript").addEventListener("scroll", () => { const t = $("#transcript"); stickToBottom = t.scrollHeight - t.scrollTop - t.clientHeight < 80; });
-function add(html) { $(".chat-empty")?.remove(); const d = document.createElement("div"); d.innerHTML = html; const el = d.firstElementChild; $("#transcript").appendChild(el); return el; }
+// Only the user scrolling up stops it following the newest output. Scrolls the browser makes on its own (the view
+// shrinking while the message box grows clamps scrollTop) used to switch following off mid-turn.
+let userScrollUntil = 0, userDragging = false;
+for (const ev of ["wheel", "touchmove", "keydown", "focusin"]) $("#transcript").addEventListener(ev, () => { userScrollUntil = performance.now() + 500; }, { passive: true });
+$("#transcript").addEventListener("pointerdown", () => { userDragging = true; }); // e.g. dragging the scrollbar
+for (const ev of ["pointerup", "pointercancel"]) addEventListener(ev, () => { if (userDragging) { userDragging = false; userScrollUntil = performance.now() + 300; } }); // a cancelled touch pan sends no pointerup
+$("#transcript").addEventListener("scroll", () => {
+  const t = $("#transcript");
+  if (t.scrollHeight - t.scrollTop - t.clientHeight < 80) stickToBottom = true;
+  else if (userDragging || performance.now() < userScrollUntil) stickToBottom = false;
+});
+// The composer growing (a long draft, an approval, the plan) makes the transcript shorter: keep the newest line in view.
+new ResizeObserver(() => scrollEnd()).observe($("#transcript"));
+// New content goes above the typing dots and any waiting (queued) messages, which stay last without being moved.
+function add(html, last = false) {
+  $(".chat-empty")?.remove(); const d = document.createElement("div"); d.innerHTML = html; const el = d.firstElementChild;
+  const t = $("#transcript"); t.insertBefore(el, last ? null : $(":scope > .typing, :scope > .msg.queued", t)); return el;
+}
 function renderChatEmpty() {
   $("#transcript").innerHTML = `<div class="chat-empty">${icon("sparkle")}<b>What should we work on?</b>${state.workspace ? `Working in <span class="mono">${esc(base(state.workspace))}</span>. Ask for a review, a fix, tests, or an explanation.` : "Open a folder, or just say which one — e.g. “review ~/code/payments for bugs”."}</div>`;
 }
@@ -1371,8 +1387,6 @@ async function streamTo(sid, url, body) {
           const ev = JSON.parse(line);
           render(ev);
           if (ev.type === "tool_result" || ev.type === "proposals_changed" || ev.type === "done") checkDiskSoon(); // the agent may have changed files
-          if (typing && typing.isConnected) $("#transcript").appendChild(typing);
-          $$("#transcript .msg.queued").forEach((q) => $("#transcript").appendChild(q)); // queued messages stay last
         }
       }
     }
@@ -1403,7 +1417,7 @@ async function queueMessage(text, when = "after") {
     toast(err.message, true); if (!input.value.trim()) setInput(text); return true;
   }
   rememberPrompt(text);
-  add(`<div class="msg user queued" data-qid="${esc(q.id)}" data-when="${q.when || when}"><div class="body">${userHtml(text)}</div><div class="queued-bar">${queuedBar(q.when || when)}</div></div>`);
+  add(`<div class="msg user queued" data-qid="${esc(q.id)}" data-when="${q.when || when}"><div class="body">${userHtml(text)}</div><div class="queued-bar">${queuedBar(q.when || when)}</div></div>`, true);
   scrollEnd(true);
   return true;
 }
@@ -1638,7 +1652,7 @@ function resetHistory() { hist.idx = null; }
 
 // ---------------------------------------------------------------- composer: @ mentions, drag & drop
 const input = $("#input");
-function autosize() { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 220) + "px"; }
+function autosize() { input.style.height = "auto"; input.style.height = input.scrollHeight + "px"; } // capped by CSS max-height
 function setInput(text) { input.value = text; autosize(); input.focus(); ide.classList.remove("no-chat"); }
 // @path, quoted when the path has spaces or other characters a bare reference can't hold.
 const refText = (path) => "@" + (/^[\w.\-/~]+$/.test(path) ? path : `"${path}"`);
@@ -2546,9 +2560,13 @@ function toast(msg, isErr, action) {
     const b = document.createElement("button"); b.className = "toast-act"; b.textContent = action.label;
     b.onclick = () => { el.remove(); action.run(); }; el.appendChild(b);
   }
-  el.style.cssText = `position:fixed;bottom:36px;left:50%;transform:translateX(-50%);z-index:60;padding:7px 14px;border-radius:8px;font-size:12.5px;box-shadow:var(--shadow);background:var(--bg-4);border:1px solid var(--line-2);color:${isErr ? "var(--err)" : "var(--fg)"}`;
-  document.querySelectorAll(".toast").forEach((t) => { if (t !== el) t.style.transform = "translate(-50%, -44px)"; });
-  document.body.appendChild(el); setTimeout(() => el.remove(), action ? 8000 : 2600);
+  if (isErr) el.classList.add("err");
+  let box = $(".toasts");
+  if (!box) { box = document.createElement("div"); box.className = "toasts"; document.body.appendChild(box); }
+  const c = $(".center").getBoundingClientRect(); // over the editor; the whole window when that's hidden or narrow
+  const fits = c.width >= 160; // the editor is narrow at ~1000px windows; centring on the window would cover the message box
+  box.style.setProperty("--toast-x", fits ? `${Math.round(c.left + c.width / 2)}px` : "50%"); box.style.maxWidth = fits ? `${Math.round(c.width - 24)}px` : "";
+  box.appendChild(el); setTimeout(() => el.remove(), action ? 8000 : 2600);
 }
 
 // ---------------------------------------------------------------- keyboard
