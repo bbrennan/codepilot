@@ -148,6 +148,20 @@ def test_a_cancelled_touch_pan_does_not_leave_following_switched_off(page, serve
     assert gap(page) < 5, f"following was switched off by browser-made scrolls ({gap(page)}px from the bottom)"
 
 
+def test_a_scroll_event_queued_as_the_view_shrinks_is_not_mistaken_for_the_user(page, server, session):
+    start_slow_turn(page)
+    # Just after a touch, scrolls count as the user's for a moment. A scroll event already queued by streaming can
+    # then fire after the message box grew but before the ResizeObserver catches up, far from the bottom. Forced in
+    # that order here, in one task, so it doesn't depend on timing.
+    page.evaluate("""() => { const t = document.querySelector('#transcript');
+      t.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      t.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true }));
+      document.querySelector('.composer').style.paddingTop = '200px';
+      t.dispatchEvent(new Event('scroll')); }""")
+    page.wait_for_timeout(100)
+    assert gap(page) < 5, f"following was switched off by a browser-made scroll ({gap(page)}px from the bottom)"
+
+
 def test_focusing_older_content_stops_the_chat_following(page, server, session):
     start_slow_turn(page)
     # keyboard focus (or Find) scrolling to older content sends no wheel/touch/key event to the transcript

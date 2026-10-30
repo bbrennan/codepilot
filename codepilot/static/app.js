@@ -1142,13 +1142,15 @@ let userScrollUntil = 0, userDragging = false;
 for (const ev of ["wheel", "touchmove", "keydown", "focusin"]) $("#transcript").addEventListener(ev, () => { userScrollUntil = performance.now() + 500; }, { passive: true });
 $("#transcript").addEventListener("pointerdown", () => { userDragging = true; }); // e.g. dragging the scrollbar
 for (const ev of ["pointerup", "pointercancel"]) addEventListener(ev, () => { if (userDragging) { userDragging = false; userScrollUntil = performance.now() + 300; } }); // a cancelled touch pan sends no pointerup
+let viewHeight = 0; // as of the last ResizeObserver run
 $("#transcript").addEventListener("scroll", () => {
   const t = $("#transcript");
+  if (t.clientHeight !== viewHeight) return; // the view just resized: this says nothing about the user, and the observer below is about to settle it
   if (t.scrollHeight - t.scrollTop - t.clientHeight < 80) stickToBottom = true;
   else if (userDragging || performance.now() < userScrollUntil) stickToBottom = false;
 });
 // The composer growing (a long draft, an approval, the plan) makes the transcript shorter: keep the newest line in view.
-new ResizeObserver(() => scrollEnd()).observe($("#transcript"));
+new ResizeObserver(() => { viewHeight = $("#transcript").clientHeight; scrollEnd(); }).observe($("#transcript"));
 // New content goes above the typing dots and any waiting (queued) messages, which stay last without being moved.
 function add(html, last = false) {
   $(".chat-empty")?.remove(); const d = document.createElement("div"); d.innerHTML = html; const el = d.firstElementChild;
