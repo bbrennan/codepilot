@@ -26,7 +26,7 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from . import checks
+from . import checks, procenv
 from .config import Config
 from .store import Proposal
 from .tools import ToolError, apply_proposal, detect_test_cmd
@@ -172,8 +172,7 @@ def run_env(root: Path, copy: Path, pycache: Path) -> dict:
     """The environment for a command on the copy: PATH entries into the workspace (an activated venv) point at the
     copy instead, and Python's bytecode goes to a cache of this run's own, so one version never runs the other's."""
     roots = {str(root), str(root.resolve())}
-    env = dict(os.environ)
-    env.pop("VIRTUAL_ENV", None)
+    env = procenv.env()
     env["PATH"] = os.pathsep.join(_rebase(p, roots, copy) for p in env.get("PATH", "").split(os.pathsep))
     env["PYTHONPYCACHEPREFIX"] = str(pycache)
     return env
@@ -188,13 +187,12 @@ def rebase_argv(argv: list[str], root: Path, copy: Path) -> list[str]:
 def run_argv(argv: list[str], cwd: Path, timeout: float, env: dict | None = None) -> tuple[int | None, str]:
     """Run a command in the copy. (exit, full output); exit None: timed out. Callers keep only the tail."""
     try:
-        proc = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, timeout=max(1.0, timeout), env=env,
-                              errors="replace", check=False, stdin=subprocess.DEVNULL)
+        code, out, err = procenv.run(argv, cwd, max(1.0, timeout), env)
     except subprocess.TimeoutExpired:
         return None, f"timed out after {timeout:.0f}s"
     except OSError as exc:
         return 127, str(exc)
-    return proc.returncode, proc.stdout + ("\n[stderr]\n" + proc.stderr if proc.stderr.strip() else "")
+    return code, out + ("\n[stderr]\n" + err if err.strip() else "")
 
 
 TEST_IDS = (re.compile(r"^(?:FAILED|ERROR) (\S+)", re.M),  # pytest

@@ -16,7 +16,7 @@
 <p align="center">
   <b>Point it at any folder and ask, in chat, to review code, hunt bugs, fix them, build features, or explain
   why an agent run failed from its traces.</b><br>
-  Every edit is a diff you approve (and can undo). Every command asks first. It never commits or pushes.
+  Every edit is a diff you approve (and can undo). Every command asks first. It never commits or pushes on its own.
 </p>
 
 <p align="center">
@@ -53,7 +53,7 @@ assistant's replies in them are scripted so the demo is reproducible.</sub>
 - **Runs like an app:** `make start` runs it in the background in its own window, and on macOS `make app`
   installs a **Codepilot.app** for the Dock. No terminal to keep open.
 - **Safe by default:** it reads freely, but every edit is a diff you **Apply** (and can **Undo**), and every
-  shell command needs your approval. It never commits or pushes.
+  shell command needs your approval. It never commits or pushes on its own.
 - **Focused modes:** Ask, Plan, Build, Debug, Bug-hunt and Review, each a focused agent. Add your own.
 - **Built for debugging:** it reproduces first (a failing test or a scratch script), tests hypotheses one at
   a time, fixes the root cause, and adds a regression test. Skills such as `diagnose-bug`, `tdd`,

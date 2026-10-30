@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import checks, github, images, skills, specs, steering, traces, webtools
+from . import checks, github, gitcmd, images, procenv, skills, specs, steering, traces, webtools
 from .config import Config
 from .store import Store
 
@@ -25,8 +25,6 @@ SKIP_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".mypy_cach
              ".ruff_cache", "dist", "build", ".tox", ".idea", ".vscode", "cdk.out", ".aws-sam"}
 TRACE_DIR_NAMES = {"traces", "trace", "logs", "log", ".traces", "journeys", "eval_results", "results"}
 TRACE_SUFFIXES = {".json", ".jsonl", ".ndjson", ".log", ".txt"}
-GIT_READONLY = {"status", "diff", "log", "show", "blame", "branch", "rev-parse", "ls-files", "shortlog"}
-GIT_BANNED_ARGS = ("--output", "--exec", "-c", "--git-dir", "--work-tree", "--ext-diff")
 
 
 class ToolError(Exception):
@@ -210,11 +208,11 @@ def search_code(ctx: ToolContext, pattern: str, path: str = ".", glob: str = "",
 
 def git(ctx: ToolContext, args: str) -> str:
     argv = shlex.split(args)
-    if not argv or argv[0] not in GIT_READONLY:
-        raise ToolError(f"only read-only git subcommands are allowed: {sorted(GIT_READONLY)}")
-    for arg in argv:
-        if arg in GIT_BANNED_ARGS or any(arg.startswith(b + "=") for b in GIT_BANNED_ARGS):
-            raise ToolError(f"git argument {arg!r} is not allowed")
+    try:
+        gitcmd.check_read_only(argv)
+    except gitcmd.NotReadOnly as exc:
+        raise ToolError(f"{exc}. This tool only reads; to change the repository, use run_command (the user "
+                        "approves it)") from None
     proc = subprocess.run(["git", "--no-pager", "-C", str(ctx.root), *argv], capture_output=True, text=True,
                           timeout=120, errors="replace")
     out = proc.stdout + (f"\n[stderr]\n{proc.stderr}" if proc.stderr.strip() else "")
@@ -231,17 +229,14 @@ def _run_command(ctx: ToolContext, argv: list[str] | str, timeout: int, what: st
         if shutil.which(argv[0]) is None:
             raise ToolError(f"{what} command {argv[0]!r} not found on PATH")
         shown = shlex.join(argv)
-    env = dict(os.environ)
-    env.pop("VIRTUAL_ENV", None)  # don't leak codepilot's own venv into the workspace's tooling
     started = time.monotonic()
     try:
-        proc = subprocess.run(argv, cwd=ctx.root, capture_output=True, text=True, timeout=timeout, env=env,
-                              errors="replace")
+        code, out, err = procenv.run(argv, ctx.root, timeout)  # non-interactive: nobody can type into it
     except subprocess.TimeoutExpired:
         raise ToolError(f"{what} timed out after {timeout}s") from None
     took = time.monotonic() - started
-    header = f"$ {shown}\nexit code {proc.returncode} in {took:.1f}s\n"
-    return header + clip(proc.stdout + ("\n[stderr]\n" + proc.stderr if proc.stderr.strip() else ""), tail=True)
+    header = f"$ {shown}\nexit code {code} in {took:.1f}s\n"
+    return header + clip(out + ("\n[stderr]\n" + err if err.strip() else ""), tail=True)
 
 
 def detect_test_cmd(root: Path | None, cfg: Config) -> str:
@@ -322,7 +317,8 @@ def github_cli(ctx: ToolContext, args: str) -> str:
     if kind is None:
         raise ToolError("not an allowed gh command. Read: pr list/view/diff/checks, issue list/view, run list/view "
                         "(--log-failed), repo view, search ..., api <GET endpoint>. With approval: pr create/comment/"
-                        "review/edit/checkout, issue create/comment/edit, run rerun, api writes.")
+                        "review/edit/checkout/merge/close, issue create/comment/edit, run rerun, api writes. "
+                        "--watch isn't available: call `pr checks <n>` again later instead.")
     code, out = github.run(ctx.root or Path.home(), shlex.join(argv), ctx.cfg.github_host)
     if code != 0:
         raise ToolError(clip(out or f"gh exited {code}"))

@@ -15,8 +15,8 @@ from collections.abc import Callable, Generator, Iterator
 from pathlib import Path
 from typing import Any
 
-from . import (checkpoints, checks, images, mentions, models, modes, prompts, repomap, router, skills, specs, steering,
-               verification, webtools)
+from . import (checkpoints, checks, gitstate, images, mentions, models, modes, prompts, repomap, router, skills, specs,
+               steering, verification, webtools)
 from .bedrock import BedrockError, make_client
 from .config import Config
 from .context import CLEARED_PREFIX, ContextManager, is_overflow
@@ -392,7 +392,7 @@ class Agent:
             state["mode"] = mode.name
         else:
             lines.append(f"Mode: {mode.label} (unchanged).")
-        git = _git_summary(root)
+        git = gitstate.summary(root)
         if git and git != state.get("git"):
             lines.append("Git:\n" + git)
             state["git"] = git
@@ -883,34 +883,6 @@ def _reopens(tu: dict, root: Path | None) -> bool:
         return Path(str(tu["input"].get("path", ""))).expanduser().resolve() == root
     except (OSError, RuntimeError):
         return False
-
-
-def _git_summary(root: Path | None) -> str:
-    """Branch, short status and recent commits: cheap orientation for reviews and debugging."""
-    if root is None or not (root / ".git").exists():
-        return ""
-    import subprocess
-
-    def run(*args: str) -> str:
-        try:
-            proc = subprocess.run(["git", "--no-pager", "-C", str(root), *args], capture_output=True, text=True,
-                                  timeout=10, errors="replace", check=False)
-        except (OSError, subprocess.SubprocessError):
-            return ""
-        return proc.stdout.strip() if proc.returncode == 0 else ""
-
-    branch = run("rev-parse", "--abbrev-ref", "HEAD")
-    status = run("status", "--short").splitlines()
-    log = run("log", "--oneline", "-5")
-    parts = [f"branch {branch or '?'}"]
-    if status:
-        parts.append(f"uncommitted ({len(status)}): " + ", ".join(line[3:] for line in status[:25])
-                     + (" ..." if len(status) > 25 else ""))
-    else:
-        parts.append("working tree clean")
-    if log:
-        parts.append("recent commits:\n" + log)
-    return "\n".join(parts)
 
 
 def render_transcript(messages: list[dict], limit: int = 120_000) -> str:

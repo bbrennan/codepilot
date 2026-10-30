@@ -258,8 +258,11 @@ to turn it off.
 
 Prefer speed? `CODEPILOT_AUTO_APPLY=1` writes changes immediately; every one can still be undone.
 
-codepilot **never commits, pushes or changes branches**. Use git yourself; the **Changes** view shows the
-working tree diff.
+codepilot **never commits, pushes or changes branches on its own**. Its git tool only reads. When you ask for a
+commit, branch, merge or push, it runs the git command with `run_command`, so you approve each one. Before it does,
+the turn context tells it whether the branch is behind its upstream, and whether a merge or rebase is half done with
+conflicted files. Commands run without a terminal: an editor or password prompt fails at once instead of hanging.
+The **Changes** view shows the working tree diff.
 
 ## Approvals: commands, tests, checks
 
@@ -270,7 +273,7 @@ working tree diff.
 | `run_checks` (linters, type checkers, scanners) | Asks, with the same auto-run switch |
 | `run_command` (any shell command) | Always asks, and shows the exact command |
 | GitHub reads | Run freely |
-| GitHub writes (comment, create PR or issue, re-run CI) | Always ask |
+| GitHub writes (comment, create, merge or close a PR, create an issue, re-run CI) | Always ask |
 | Opening a different folder | Asks |
 
 Approvals appear in the same **review bar** above the message box, with the exact command: **Run**
