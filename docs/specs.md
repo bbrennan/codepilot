@@ -10,8 +10,8 @@ reviewable documents:
 Then codepilot **builds it task by task**. You approve each document before the next is written, so
 misunderstandings surface while they're cheap to fix.
 
-Specs use **Kiro's file format**. codepilot also lists and continues Kiro specs and GitHub Spec Kit specs
-in the same repo.
+Specs use **Kiro's file format** and live in `.codepilot/specs/`. Only those are listed: other tools' spec
+folders (`.kiro/specs/`, Spec Kit's `specs/`) belong to those tools, so codepilot leaves them out.
 
 - [When to use a spec](#when-to-use-a-spec)
 - [Walkthrough](#walkthrough)
@@ -74,15 +74,8 @@ Design and tasks follow as usual. In Spec mode, a message that describes a bug (
   spec.json         codepilot's bookkeeping: kind and the last approved phase
 ```
 
-They're plain Markdown: commit them, review them in pull requests, edit them anywhere. Also listed:
-
-| Folder | From | Phase |
-|---|---|---|
-| `.kiro/specs/<name>/` (`requirements.md`, `design.md`, `tasks.md`) | Kiro | inferred from which files exist |
-| `specs/<NNN-name>/` (`spec.md`, `plan.md`, `tasks.md`) | GitHub Spec Kit | inferred the same way |
-
-codepilot keeps its approval state for those in `.codepilot/specs/.state/`, so their folders stay
-untouched apart from the documents themselves.
+They're plain Markdown: commit them, review them in pull requests, edit them anywhere. Because the format is
+Kiro's, a spec can be copied between `.codepilot/specs/` and `.kiro/specs/` by hand.
 
 ## Running tasks
 

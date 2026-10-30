@@ -391,7 +391,7 @@ For bigger changes, open the **Specs** view (the list icon) → **New spec**, or
 describe what you want. codepilot writes **requirements** (EARS acceptance criteria), then a **design**,
 then **tasks**, and you approve each in the **Spec** tab before the next. Then **Run** tasks one by one or
 **Run all remaining**. **Check spec vs code** and **Verify with evals** keep the spec and the code in
-step. Specs live in `.codepilot/specs/` in Kiro's format; Kiro and Spec Kit specs are listed too. Full
+step. Specs live in `.codepilot/specs/` in Kiro's format; other tools' spec folders aren't listed. Full
 guide: [specs.md](specs.md).
 
 ## Web tools

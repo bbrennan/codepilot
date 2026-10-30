@@ -81,7 +81,7 @@ assistant's replies in them are scripted so the demo is reproducible.</sub>
   any message, ↑ for earlier prompts, and desktop notifications when it's done.
 - **Spec-driven development:** for bigger work, requirements (EARS acceptance criteria), then design, then
   tasks, each reviewed in a Spec tab, then task-by-task implementation. Includes drift checks and mapping
-  eval results to acceptance criteria. It uses Kiro's format, and reads Kiro and Spec Kit specs too.
+  eval results to acceptance criteria. It uses Kiro's format, in `.codepilot/specs/`.
 - **Steering:** standing instructions it always follows, in Kiro's format (`.codepilot/steering/`):
   always on, for matching files, by `#name`, or when relevant. It drafts them from your repo, and reads
   `AGENTS.md`, `CLAUDE.md`, Kiro, Cursor and Copilot instruction files too.
