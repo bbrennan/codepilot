@@ -122,3 +122,16 @@ def test_image_files_open_as_images(page, server, session):
     page.click("#tree [data-file='docs/arch.png']")
     page.wait_for_function("() => document.querySelector('#imgView')?.naturalWidth > 0")
     assert page.locator("#imgSize").text_content() == "1 × 1"
+
+
+def test_open_preview_on_a_file_being_edited_shows_the_draft_rendered(page, server, session):
+    doc_repo(server)
+    page.expected_errors.append("Failed to load resource")
+    open_app(page)
+    page.click("#tree [data-file='GUIDE.md']")
+    page.click("#fEdit")
+    page.locator("#codeEdit").fill("# Unsaved draft\n\nbody")
+    open_preview(page)
+    page.locator("#docBody h1", has_text="Unsaved draft").wait_for()
+    page.click("#fEditPreview")  # and back to editing keeps the draft
+    assert page.input_value("#codeEdit").startswith("# Unsaved draft")

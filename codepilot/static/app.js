@@ -491,7 +491,7 @@ async function openFile(path, line, view) { // view: "preview" opens Markdown re
   if (!state.sid || !state.workspace) return toast("Open a folder first.", true);
   const id = "file:" + path;
   const existing = state.tabs.find((t) => t.id === id);
-  if (existing && existing.content != null) { if (view) existing.view = view; existing.flash = line || null; if (line) existing.sel = null; state.active = id; renderEditor(); return; }
+  if (existing && existing.content != null) { if (view) { existing.view = view; if (view === "preview" && existing.editing) existing.editPreview = true; } existing.flash = line || null; if (line) existing.sel = null; state.active = id; renderEditor(); return; }
   if (/\.(png|jpe?g|gif|webp|svg|ico|bmp|avif)$/i.test(path)) { // images: show the image, not its bytes
     openTab({ id, kind: "image", path, title: base(path), tip: path });
     return;
