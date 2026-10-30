@@ -1581,7 +1581,7 @@ function renderModelSelect() {
   }).join("");
   const usable = (d?.models || []).filter((m) => m.available && !m.same_as);
   const newest = usable.filter((m) => m.newest || !/claude-/.test(m.id)), older = usable.filter((m) => !newest.includes(m));
-  const off = (d?.models || []).filter((m) => !m.available).length;
+  const unavailable = (d?.models || []).filter((m) => !m.available), off = unavailable.length;
   const name = (m) => `${m.label}${m.api === "Converse" ? " · " + m.id.split(".")[0] : ""} · ${winLabel(m.window)}`;
   const opt = (m) => `<option value="model:${esc(m.id)}" title="${esc(m.id + " · " + m.api)}">${esc(name(m))}</option>`;
   const autoOpt = `<option value="tier:auto" title="Picks a model for each turn: the newest Sonnet for routine work, the newest Opus for planning, debugging, big changes or when runs keep failing, Haiku for quick questions.">auto · picks per turn</option>`;
@@ -1589,6 +1589,7 @@ function renderModelSelect() {
   $("#tier").innerHTML = `<optgroup label="Tiers">${autoOpt}${tierOpts}</optgroup>`
     + (newest.length ? `<optgroup label="Models on your account">${newest.map(opt).join("")}</optgroup>` : "")
     + (older.length ? `<optgroup label="Older versions">${older.map(opt).join("")}</optgroup>` : "")
+    + (off ? `<optgroup label="Not available on this account">${unavailable.map((m) => `<option value="off:${esc(m.id)}" disabled title="${esc(m.reason || "")}">${esc(m.label)} — ${esc((m.reason || "not available").slice(0, 70))}</option>`).join("")}</optgroup>` : "")
     + `<option value="refresh" title="${esc(refreshTip)}">${d ? "↻ Refresh model list" : "Find models on my account…"}</option>`;
   syncModelSelect();
 }
