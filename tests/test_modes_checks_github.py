@@ -50,7 +50,7 @@ def test_mode_tier_override_and_blocking(cfg, store, repo):
     ("api repos/o/r/issues -f title=x", "write"), ("api --method=DELETE repos/o/r", "write"),
     ("pr merge 3 --squash", "write"), ("pr close 3", "write"),
     ("auth token", None), ("secret list", None), ("repo delete o/r", None), ("", None),
-    ("pr checks 3 --watch", None), ("run watch 99", None),  # streams for minutes: the call would time out
+    ("pr checks 3 --watch", None), ("pr checks 3 --watch=true", None), ("run watch 99", None),  # streams for minutes: the call would time out
 ])
 def test_github_classify(args, kind):
     assert github.classify(args.split()) == kind

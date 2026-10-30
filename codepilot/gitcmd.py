@@ -17,26 +17,27 @@ class NotReadOnly(ValueError):
 
 
 def _branch(args: list[str]) -> None:
-    flags = {"-a", "--all", "-r", "--remotes", "-v", "-vv", "--verbose", "-l", "--list", "--show-current",
-             "--no-color", "--color", "--column", "--no-column", "-i", "--ignore-case", "--omit-empty"}
-    with_value = {"--contains", "--no-contains", "--merged", "--no-merged", "--points-at", "--sort", "--format",
-                  "--abbrev"}
+    flags = {"-a", "--all", "-r", "--remotes", "-v", "-vv", "--verbose", "--list", "--show-current", "--abbrev",
+             "--no-abbrev", "--no-color", "--color", "--column", "--no-column", "-i", "--ignore-case", "--omit-empty"}
+    with_value = {"--contains", "--no-contains", "--merged", "--no-merged", "--points-at", "--sort", "--format"}
     listing = False
     i = 0
     while i < len(args):
         a = args[i]
         name = a.split("=", 1)[0]
         if name in with_value:
-            i += 1 if "=" in a else 2  # its value isn't a branch name to create
+            # Its value isn't a branch name to create. Never take a flag as the value, though: that would let
+            # `--sort -D keep` slip -D past this check.
+            i += 2 if "=" not in a and i + 1 < len(args) and not args[i + 1].startswith("-") else 1
             continue
         if a.startswith("--"):
             if name not in flags:
                 raise NotReadOnly(f"git branch {a} changes branches")
             listing = listing or name == "--list"
         elif a.startswith("-") and len(a) > 1:
-            if set(a[1:]) - set("arvli"):  # e.g. -d, -D, -m, -M, -c, -C, -f, -u, -t, and clusters like -vD
+            # -l is --create-reflog, not --list; others: -d, -D, -m, -M, -c, -C, -f, -u, -t, clusters like -vD
+            if set(a[1:]) - set("arvi"):
                 raise NotReadOnly(f"git branch {a} changes branches")
-            listing = listing or "l" in a
         elif not listing:
             raise NotReadOnly(f"git branch {a} creates a branch")
         i += 1
@@ -48,7 +49,9 @@ def _stash(args: list[str]) -> None:
 
 
 def _remote(args: list[str]) -> None:
-    if args and args[0] not in ("-v", "--verbose", "get-url"):
+    while args and args[0] in ("-v", "--verbose"):  # git takes these before the subcommand: `remote -v remove x`
+        args = args[1:]
+    if args and args[0] != "get-url":
         raise NotReadOnly("only `git remote`, `git remote -v` and `git remote get-url` are read-only")
 
 

@@ -31,6 +31,8 @@ def repo(tmp_path):
     (root / "traces" / "run.jsonl").write_text("\n".join(json.dumps(s) for s in spans) + "\n")
     (root / "Makefile").write_text("eval-bedrock:\n\techo eval\n")
     subprocess.run(["git", "init", "-q", str(root)], check=True)
+    for key, value in (("user.name", "Test"), ("user.email", "test@example.invalid")):  # CI has no global identity
+        subprocess.run(["git", "-C", str(root), "config", key, value], check=True)
     return root
 
 

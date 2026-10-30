@@ -61,8 +61,8 @@ def summary(root: Path | None) -> str:
 
 
 def _branch_line(root: Path) -> str:
-    branch = _git(root, "rev-parse", "--abbrev-ref", "HEAD")
-    if branch in ("HEAD", ""):
+    branch = _git(root, "symbolic-ref", "--quiet", "--short", "HEAD")  # also names a branch with no commits yet
+    if not branch:
         sha = _git(root, "rev-parse", "--short", "HEAD")
         return f"detached HEAD at {sha or '?'}"
     upstream = _git(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")

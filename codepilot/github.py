@@ -30,7 +30,7 @@ API_WRITE_FLAGS = ("-X", "--method", "-f", "-F", "--field", "--raw-field", "--in
 
 def classify(argv: list[str]) -> str | None:
     """'read', 'write', or None (not allowed)."""
-    if "--watch" in argv:  # streams until CI finishes, longer than a tool call may take
+    if any(a == "--watch" or a.startswith("--watch=") for a in argv):  # streams until CI finishes: too long
         return None
     if len(argv) >= 2 and (argv[0], argv[1]) in READ:
         return "read"

@@ -239,13 +239,17 @@ def _git(repo, *args):
     "branch -u origin/x", "branch --unset-upstream", "branch --edit-description",
     "stash", "stash drop", "stash pop", "stash clear", "remote add evil https://x", "remote remove origin",
     "reflog expire --all", "reflog delete HEAD@{0}",
+    "branch --abbrev -D --abbrev keep", "branch -l new-one", "branch --contains -D keep", "branch --sort -D keep",
+    "remote -v remove origin", "remote --verbose set-url origin https://x", "remote -v add evil https://x",
 ])
 def test_read_only_git_refuses_anything_that_writes(ctx, repo, args):
     _git(repo, "commit", "-q", "--allow-empty", "-m", "init")
     _git(repo, "branch", "keep")
-    with pytest.raises(ToolError):
+    _git(repo, "remote", "add", "origin", "https://example.invalid/r.git")
+    with pytest.raises(ToolError, match="read-only|changes|creates|only `git"):  # refused, not a git error
         git(ctx, args)
-    assert "keep" in _git(repo, "branch")
+    assert "keep" in _git(repo, "branch") and "example.invalid/r.git" in _git(repo, "remote", "-v")
+    assert "new-one" not in _git(repo, "branch")
 
 
 @pytest.mark.parametrize("args", [

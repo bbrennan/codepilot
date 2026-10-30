@@ -58,3 +58,21 @@ def test_commands_get_no_stdin(ctx):
     started = time.monotonic()
     out = _run_command(ctx, "cat", 10, "command")  # would wait for input if it inherited a terminal
     assert out.startswith("$ cat\nexit code 0") and time.monotonic() - started < 5
+
+
+def test_a_timeout_returns_even_if_a_child_escaped_the_process_group(ctx, tmp_path):
+    import os
+    import sys
+    pidfile = tmp_path / "escaped.pid"
+    script = f"import os, time; os.setsid(); open({str(pidfile)!r}, 'w').write(str(os.getpid())); time.sleep(60)"
+    started = time.monotonic()
+    try:
+        with pytest.raises(ToolError, match="timed out"):
+            _run_command(ctx, f"{sys.executable} -c \"{script}\" & wait", 2, "command")
+        assert time.monotonic() - started < 10  # not stuck waiting for the escaped child's pipes
+    finally:
+        if pidfile.exists():
+            try:
+                os.kill(int(pidfile.read_text()), 9)
+            except ProcessLookupError:
+                pass

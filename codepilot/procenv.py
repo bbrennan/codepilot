@@ -42,6 +42,9 @@ def run(argv: list[str], cwd: Path | str | None, timeout: float, environ: dict |
             os.killpg(proc.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
-        proc.communicate()
+        # Don't wait for EOF: a child that started its own session survives the kill and keeps the pipes open.
+        for pipe in (proc.stdout, proc.stderr):
+            pipe.close()
+        proc.wait()
         raise
     return proc.returncode, out, err

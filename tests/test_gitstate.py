@@ -90,3 +90,10 @@ def test_detached_head(tmp_path):
     root = repo_with_commit(tmp_path / "r")
     sh(root, "checkout", "-q", "--detach")
     assert gitstate.summary(root).startswith("detached HEAD at ")
+
+
+def test_a_new_repository_without_commits_is_on_its_branch(tmp_path):
+    root = tmp_path / "fresh"
+    root.mkdir()
+    sh(root, "init", "-q", "-b", "main")
+    assert gitstate.summary(root).splitlines()[0] == "branch main (no upstream: not pushed yet)"
