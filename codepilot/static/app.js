@@ -173,7 +173,7 @@ async function init() {
   const theme = store("cp-theme"); if (theme) document.documentElement.dataset.theme = theme;
   for (const v of ["--sidebar-w", "--chat-w", "--panel-h"]) { const s = store("cp" + v); if (s) ide.style.setProperty(v, s); }
   for (const c of ["no-sidebar", "no-panel", "no-chat"]) if (store("cp-" + c) === "1") ide.classList.add(c);
-  hydrateIcons();
+  hydrateIcons(); renderQuick(); // before the first await, so the composer doesn't change height after first paint
   state.cfg = await api("/api/config");
   const c = state.cfg;
   showStaleBanner(c);
@@ -182,7 +182,6 @@ async function init() {
   renderModelSelect();
   loadModels(false);
   if (c.eval_cmd) $("#cmdInput").value = c.eval_cmd;
-  renderQuick();
   api("/api/github").then((g) => {
     $("#sbGithub").innerHTML = g.available ? `${icon("branch")}github: ${esc(g.user)}${g.host !== "github.com" ? " @ " + esc(g.host) : ""}` : `<span title="${esc(g.reason || "")}">${icon("alert")}github off</span>`;
     $("#sbGithub").className = "sb-item " + (g.available ? "" : "warn");
@@ -413,6 +412,68 @@ $("#tree").addEventListener("dragstart", (e) => {
   e.dataTransfer.effectAllowed = "copy";
 });
 
+// ---- files dragged in from the desktop (Finder, Explorer) are added to the workspace
+const isFileDrag = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
+// A file dropped anywhere else would make the browser navigate to it and leave codepilot behind.
+for (const ev of ["dragover", "drop"]) window.addEventListener(ev, (e) => { if (isFileDrag(e)) e.preventDefault(); });
+function dropDir(e) { const r = e.target.closest?.("[data-file],[data-dir]"); return !r ? "" : r.dataset.dir ?? dirOf(r.dataset.file); }
+function markDropTarget(e) {
+  $$("#tree .drop-target").forEach((r) => r.classList.remove("drop-target"));
+  const dir = dropDir(e); (dir ? $(`#tree [data-dir="${CSS.escape(dir)}"]`) : $("#tree"))?.classList.add("drop-target");
+}
+$("#tree").addEventListener("dragover", (e) => { if (!isFileDrag(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = "copy"; markDropTarget(e); });
+$("#tree").addEventListener("dragleave", (e) => { if (!$("#tree").contains(e.relatedTarget)) $$("#tree .drop-target").forEach((r) => r.classList.remove("drop-target")); });
+// Entries must be read before the first await (the browser empties the DataTransfer afterwards).
+async function filesFromDrop(dt) {
+  const picked = [...(dt.items || [])].filter((i) => i.kind === "file").map((i) => ({ entry: i.webkitGetAsEntry?.() || null, file: i.getAsFile() }));
+  const out = [];
+  const walk = async (entry, prefix) => {
+    if (entry.isFile) { out.push({ rel: prefix + entry.name, file: await new Promise((ok, no) => entry.file(ok, no)) }); return; }
+    const reader = entry.createReader();
+    for (let batch = await new Promise((ok, no) => reader.readEntries(ok, no)); batch.length; batch = await new Promise((ok, no) => reader.readEntries(ok, no))) {
+      for (const child of batch) await walk(child, prefix + entry.name + "/");
+    }
+  };
+  for (const { entry, file } of picked) { if (entry) await walk(entry, ""); else if (file) out.push({ rel: file.name, file }); }
+  return out;
+}
+const MAX_UPLOAD = 100 * 1024 * 1024;
+async function putFile(sid, dest, file, replace) {
+  const res = await fetch(`/api/sessions/${sid}/upload?path=${encodeURIComponent(dest)}${replace ? "&replace=1" : ""}`, { method: "PUT", headers: H, body: file });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { const e = new Error(data.error || res.statusText); e.status = res.status; throw e; }
+  return data;
+}
+async function uploadDropped(sid, items, dir) { // sid: the session the files were dropped on, fixed before any await
+  let added = 0; const failed = [];
+  for (const { rel, file } of items) {
+    const dest = dir ? dir + "/" + rel : rel;
+    if (file.size > MAX_UPLOAD) { failed.push(`${rel}: larger than 100 MB`); continue; }
+    try {
+      try { await putFile(sid, dest, file, false); }
+      catch (err) {
+        if (err.status !== 409 || !/already exists/.test(err.message)) throw err;
+        if (!(await confirmDialog(`Replace ${dest}?`, "A file with this name is already in the workspace.", "Replace"))) continue;
+        await putFile(sid, dest, file, true);
+      }
+      added++;
+    } catch (err) { failed.push(`${rel}: ${err.message}`); }
+  }
+  if (state.sid === sid) { // the explorer on screen is still that workspace
+    if (dir) for (let p = dir; p; p = dirOf(p)) state.expanded.add(p);
+    state.tree.clear(); renderTree(); loadGit();
+  }
+  if (added) toast(`Added ${added} file${added > 1 ? "s" : ""}${dir ? " to " + dir : ""}.`);
+  if (failed.length) toast(failed.slice(0, 3).join(" · ") + (failed.length > 3 ? ` · and ${failed.length - 3} more` : ""), true);
+}
+$("#tree").addEventListener("drop", async (e) => {
+  if (!isFileDrag(e)) return;
+  e.preventDefault(); $$("#tree .drop-target").forEach((r) => r.classList.remove("drop-target"));
+  if (!state.sid || !state.workspace) return toast("Open a folder first.", true);
+  const sid = state.sid, dir = dropDir(e), items = await filesFromDrop(e.dataTransfer);
+  if (items.length) await uploadDropped(sid, items, dir);
+});
+
 async function loadWorkspaceInfo() {
   if (!state.sid) return;
   const w = await api(`/api/sessions/${state.sid}/workspace`).catch(() => null);
@@ -488,11 +549,11 @@ function bindWelcome() {
 }
 
 // file tab
-async function openFile(path, line) {
+async function openFile(path, line, view) { // view: "preview" opens Markdown rendered; otherwise it opens as raw text
   if (!state.sid || !state.workspace) return toast("Open a folder first.", true);
   const id = "file:" + path;
   const existing = state.tabs.find((t) => t.id === id);
-  if (existing && existing.content != null) { existing.flash = line || null; if (line) existing.sel = null; state.active = id; renderEditor(); return; }
+  if (existing && existing.content != null) { if (view) { existing.view = view; if (view === "preview" && existing.editing) existing.editPreview = true; } existing.flash = line || null; if (line) existing.sel = null; state.active = id; renderEditor(); return; }
   if (/\.(png|jpe?g|gif|webp|svg|ico|bmp|avif)$/i.test(path)) { // images: show the image, not its bytes
     openTab({ id, kind: "image", path, title: base(path), tip: path });
     return;
@@ -500,7 +561,7 @@ async function openFile(path, line) {
   try {
     const d = await api(`/api/sessions/${state.sid}/files?path=${encodeURIComponent(path)}`);
     if (d.entries) { state.expanded.add(path); setView("explorer"); renderTree(); return; }
-    openTab({ id, kind: "file", path: d.path, title: base(d.path), tip: d.path, content: d.content, mtime: d.mtime, flash: line || null, sel: null });
+    openTab({ id, kind: "file", path: d.path, title: base(d.path), tip: d.path, content: d.content, mtime: d.mtime, flash: line || null, sel: null, ...(view ? { view } : {}) });
   } catch (err) { toast(err.message, true); }
 }
 function highlight(text, path) {
@@ -512,7 +573,7 @@ function highlight(text, path) {
 }
 function renderFileTab(tab) {
   if (tab.editing) return renderEditTab(tab);
-  if (isMarkdown(tab.path) && tab.view !== "source") return renderDocTab(tab);
+  if (isMarkdown(tab.path) && tab.view === "preview") return renderDocTab(tab); // raw text by default, like VS Code
   const lines = tab.content.split("\n");
   if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
   const sel = tab.sel;
@@ -651,7 +712,7 @@ $("#editor").addEventListener("click", (e) => {
   e.preventDefault();
   if (a.dataset.anchor) { document.getElementById(a.dataset.anchor)?.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
   const [path, hash] = [a.dataset.docPath, (a.getAttribute("data-hash") || "")];
-  if (state.workspace) openFile(path).then(() => hash && document.getElementById(hash)?.scrollIntoView());
+  if (state.workspace) openFile(path, undefined, "preview").then(() => hash && document.getElementById(hash)?.scrollIntoView());
 });
 
 // edit mode: a plain-text editor with Save (⌘S), dirty tracking and a check for changes made on disk
@@ -785,9 +846,10 @@ function renderReviewBar() {
   let html = "";
   if (ap) {
     const rule = ap.tools.length === 1 ? ap.tools[0].allow : null;
-    html += `<div class="rb-row rb-approval">${icon("alert")}<div class="rb-main"><b>Run ${ap.tools.length > 1 ? "these" : "this"}?</b>${ap.tools.map((t) => `<code class="rb-cmd">${esc(t.command)}</code>`).join("")}
-      ${rule ? `<label class="toggle rb-allow" title="Run commands starting with this without asking, for the rest of this session. Commands that chain or redirect (;, &&, |, >) always ask."><input type="checkbox" id="rbAllow"><span>always allow <code>${esc(rule.prefix)}</code> in this session</span></label>` : ""}</div>
-      <div class="rb-acts"><button class="btn primary" id="rbApprove" title="${mod}Enter">${icon("check")}Run <kbd>${mod}⏎</kbd></button><button class="btn" id="rbDeny">Deny</button></div></div>`;
+    // The buttons sit on the title line so the command gets the full width (and scrolls if it's long).
+    html += `<div class="rb-row rb-approval">${icon("alert")}<div class="rb-main"><div class="rb-head"><b>Run ${ap.tools.length > 1 ? "these" : "this"}?</b><span class="spacer"></span>
+      <div class="rb-acts"><button class="btn primary" id="rbApprove" title="${mod}Enter">${icon("check")}Run <kbd>${mod}⏎</kbd></button><button class="btn" id="rbDeny">Deny</button></div></div>${ap.tools.map((t) => `<code class="rb-cmd">${esc(t.command)}</code>`).join("")}
+      ${rule ? `<label class="toggle rb-allow" title="Run commands starting with this without asking, for the rest of this session. Commands that chain or redirect (;, &&, |, >) always ask."><input type="checkbox" id="rbAllow"><span>always allow <code>${esc(rule.prefix)}</code> in this session</span></label>` : ""}</div></div>`;
   }
   if (pend.length) {
     const tot = pend.reduce((acc, p) => { const st = diffStat(p.diff); acc.a += st.a; acc.d += st.d; return acc; }, { a: 0, d: 0 });
@@ -1073,8 +1135,24 @@ let curText = null, curThink = null, curBuf = "";
 function endText() { curText = null; curThink = null; curBuf = ""; }
 let stickToBottom = true;
 function scrollEnd(force) { const t = $("#transcript"); if (force) stickToBottom = true; if (stickToBottom) t.scrollTop = t.scrollHeight; }
-$("#transcript").addEventListener("scroll", () => { const t = $("#transcript"); stickToBottom = t.scrollHeight - t.scrollTop - t.clientHeight < 80; });
-function add(html) { $(".chat-empty")?.remove(); const d = document.createElement("div"); d.innerHTML = html; const el = d.firstElementChild; $("#transcript").appendChild(el); return el; }
+// Only the user scrolling up stops it following the newest output. Scrolls the browser makes on its own (the view
+// shrinking while the message box grows clamps scrollTop) used to switch following off mid-turn.
+let userScrollUntil = 0, userDragging = false;
+for (const ev of ["wheel", "touchmove", "keydown", "focusin"]) $("#transcript").addEventListener(ev, () => { userScrollUntil = performance.now() + 500; }, { passive: true });
+$("#transcript").addEventListener("pointerdown", () => { userDragging = true; }); // e.g. dragging the scrollbar
+for (const ev of ["pointerup", "pointercancel"]) addEventListener(ev, () => { if (userDragging) { userDragging = false; userScrollUntil = performance.now() + 300; } }); // a cancelled touch pan sends no pointerup
+$("#transcript").addEventListener("scroll", () => {
+  const t = $("#transcript");
+  if (t.scrollHeight - t.scrollTop - t.clientHeight < 80) stickToBottom = true;
+  else if (userDragging || performance.now() < userScrollUntil) stickToBottom = false;
+});
+// The composer growing (a long draft, an approval, the plan) makes the transcript shorter: keep the newest line in view.
+new ResizeObserver(() => scrollEnd()).observe($("#transcript"));
+// New content goes above the typing dots and any waiting (queued) messages, which stay last without being moved.
+function add(html, last = false) {
+  $(".chat-empty")?.remove(); const d = document.createElement("div"); d.innerHTML = html; const el = d.firstElementChild;
+  const t = $("#transcript"); t.insertBefore(el, last ? null : $(":scope > .typing, :scope > .msg.queued", t)); return el;
+}
 function renderChatEmpty() {
   $("#transcript").innerHTML = `<div class="chat-empty">${icon("sparkle")}<b>What should we work on?</b>${state.workspace ? `Working in <span class="mono">${esc(base(state.workspace))}</span>. Ask for a review, a fix, tests, or an explanation.` : "Open a folder, or just say which one — e.g. “review ~/code/payments for bugs”."}</div>`;
 }
@@ -1371,8 +1449,6 @@ async function streamTo(sid, url, body) {
           const ev = JSON.parse(line);
           render(ev);
           if (ev.type === "tool_result" || ev.type === "proposals_changed" || ev.type === "done") checkDiskSoon(); // the agent may have changed files
-          if (typing && typing.isConnected) $("#transcript").appendChild(typing);
-          $$("#transcript .msg.queued").forEach((q) => $("#transcript").appendChild(q)); // queued messages stay last
         }
       }
     }
@@ -1403,7 +1479,7 @@ async function queueMessage(text, when = "after") {
     toast(err.message, true); if (!input.value.trim()) setInput(text); return true;
   }
   rememberPrompt(text);
-  add(`<div class="msg user queued" data-qid="${esc(q.id)}" data-when="${q.when || when}"><div class="body">${userHtml(text)}</div><div class="queued-bar">${queuedBar(q.when || when)}</div></div>`);
+  add(`<div class="msg user queued" data-qid="${esc(q.id)}" data-when="${q.when || when}"><div class="body">${userHtml(text)}</div><div class="queued-bar">${queuedBar(q.when || when)}</div></div>`, true);
   scrollEnd(true);
   return true;
 }
@@ -1567,7 +1643,7 @@ function renderModelSelect() {
   }).join("");
   const usable = (d?.models || []).filter((m) => m.available && !m.same_as);
   const newest = usable.filter((m) => m.newest || !/claude-/.test(m.id)), older = usable.filter((m) => !newest.includes(m));
-  const off = (d?.models || []).filter((m) => !m.available).length;
+  const unavailable = (d?.models || []).filter((m) => !m.available), off = unavailable.length;
   const name = (m) => `${m.label}${m.api === "Converse" ? " · " + m.id.split(".")[0] : ""} · ${winLabel(m.window)}`;
   const opt = (m) => `<option value="model:${esc(m.id)}" title="${esc(m.id + " · " + m.api)}">${esc(name(m))}</option>`;
   const autoOpt = `<option value="tier:auto" title="Picks a model for each turn: the newest Sonnet for routine work, the newest Opus for planning, debugging, big changes or when runs keep failing, Haiku for quick questions.">auto · picks per turn</option>`;
@@ -1575,6 +1651,7 @@ function renderModelSelect() {
   $("#tier").innerHTML = `<optgroup label="Tiers">${autoOpt}${tierOpts}</optgroup>`
     + (newest.length ? `<optgroup label="Models on your account">${newest.map(opt).join("")}</optgroup>` : "")
     + (older.length ? `<optgroup label="Older versions">${older.map(opt).join("")}</optgroup>` : "")
+    + (off ? `<optgroup label="Not available on this account">${unavailable.map((m) => `<option value="off:${esc(m.id)}" disabled title="${esc(m.reason || "")}">${esc(m.label)} — ${esc((m.reason || "not available").slice(0, 70))}</option>`).join("")}</optgroup>` : "")
     + `<option value="refresh" title="${esc(refreshTip)}">${d ? "↻ Refresh model list" : "Find models on my account…"}</option>`;
   syncModelSelect();
 }
@@ -1637,7 +1714,7 @@ function resetHistory() { hist.idx = null; }
 
 // ---------------------------------------------------------------- composer: @ mentions, drag & drop
 const input = $("#input");
-function autosize() { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 220) + "px"; }
+function autosize() { input.style.height = "auto"; input.style.height = input.scrollHeight + "px"; } // capped by CSS max-height
 function setInput(text) { input.value = text; autosize(); input.focus(); ide.classList.remove("no-chat"); }
 // @path, quoted when the path has spaces or other characters a bare reference can't hold.
 const refText = (path) => "@" + (/^[\w.\-/~]+$/.test(path) ? path : `"${path}"`);
@@ -2267,6 +2344,7 @@ function pathMenu(rel, isDir) {
   return [
     isDir ? { label: "Expand / collapse", icon: "folderOpen", run: () => { state.expanded.has(rel) ? state.expanded.delete(rel) : state.expanded.add(rel); renderTree(); } }
           : { label: "Open", icon: "file", run: () => openFile(rel) },
+    ...(!isDir && isMarkdown(rel) ? [{ label: "Open Preview", icon: "eye", run: () => openFile(rel, undefined, "preview") }] : []),
     ...(isDir ? [{ label: "New File…", icon: "filePlus", run: () => newItem("file", rel) }, { label: "New Folder…", icon: "folderPlus", run: () => newItem("folder", rel) }]
               : [{ label: "Edit", icon: "edit", run: async () => { await openFile(rel); editFile("file:" + rel); } }]),
     { label: "Add to chat", icon: "at", run: () => insertRef(rel) },
@@ -2545,9 +2623,13 @@ function toast(msg, isErr, action) {
     const b = document.createElement("button"); b.className = "toast-act"; b.textContent = action.label;
     b.onclick = () => { el.remove(); action.run(); }; el.appendChild(b);
   }
-  el.style.cssText = `position:fixed;bottom:36px;left:50%;transform:translateX(-50%);z-index:60;padding:7px 14px;border-radius:8px;font-size:12.5px;box-shadow:var(--shadow);background:var(--bg-4);border:1px solid var(--line-2);color:${isErr ? "var(--err)" : "var(--fg)"}`;
-  document.querySelectorAll(".toast").forEach((t) => { if (t !== el) t.style.transform = "translate(-50%, -44px)"; });
-  document.body.appendChild(el); setTimeout(() => el.remove(), action ? 8000 : 2600);
+  if (isErr) el.classList.add("err");
+  let box = $(".toasts");
+  if (!box) { box = document.createElement("div"); box.className = "toasts"; document.body.appendChild(box); }
+  const c = $(".center").getBoundingClientRect(); // over the editor; the whole window when that's hidden or narrow
+  const fits = c.width >= 160; // the editor is narrow at ~1000px windows; centring on the window would cover the message box
+  box.style.setProperty("--toast-x", fits ? `${Math.round(c.left + c.width / 2)}px` : "50%"); box.style.maxWidth = fits ? `${Math.round(c.width - 24)}px` : "";
+  box.appendChild(el); setTimeout(() => el.remove(), action ? 8000 : 2600);
 }
 
 // ---------------------------------------------------------------- keyboard
