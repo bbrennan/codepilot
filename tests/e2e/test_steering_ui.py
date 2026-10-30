@@ -41,7 +41,7 @@ def test_view_lists_docs_from_every_source(page, server, session):
     assert page.locator("#steeringView .row.steer:has-text('api') .incl").text_content() == "agent/**"
 
     page.locator("#steeringView .row.steer", has_text="CLAUDE").click()  # a workspace file: opens like any other
-    page.locator("#docBody", has_text="Claude rules").wait_for()  # Markdown opens rendered
+    page.locator(".code-view", has_text="Claude rules").wait_for()  # Markdown opens as raw text
 
 
 def test_create_a_workspace_doc_edit_save_and_the_model_follows_it(page, server, session):
