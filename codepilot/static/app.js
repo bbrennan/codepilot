@@ -487,11 +487,11 @@ function bindWelcome() {
 }
 
 // file tab
-async function openFile(path, line) {
+async function openFile(path, line, view) { // view: "preview" opens Markdown rendered; otherwise it opens as raw text
   if (!state.sid || !state.workspace) return toast("Open a folder first.", true);
   const id = "file:" + path;
   const existing = state.tabs.find((t) => t.id === id);
-  if (existing && existing.content != null) { existing.flash = line || null; if (line) existing.sel = null; state.active = id; renderEditor(); return; }
+  if (existing && existing.content != null) { if (view) { existing.view = view; if (view === "preview" && existing.editing) existing.editPreview = true; } existing.flash = line || null; if (line) existing.sel = null; state.active = id; renderEditor(); return; }
   if (/\.(png|jpe?g|gif|webp|svg|ico|bmp|avif)$/i.test(path)) { // images: show the image, not its bytes
     openTab({ id, kind: "image", path, title: base(path), tip: path });
     return;
@@ -499,7 +499,7 @@ async function openFile(path, line) {
   try {
     const d = await api(`/api/sessions/${state.sid}/files?path=${encodeURIComponent(path)}`);
     if (d.entries) { state.expanded.add(path); setView("explorer"); renderTree(); return; }
-    openTab({ id, kind: "file", path: d.path, title: base(d.path), tip: d.path, content: d.content, mtime: d.mtime, flash: line || null, sel: null });
+    openTab({ id, kind: "file", path: d.path, title: base(d.path), tip: d.path, content: d.content, mtime: d.mtime, flash: line || null, sel: null, ...(view ? { view } : {}) });
   } catch (err) { toast(err.message, true); }
 }
 function highlight(text, path) {
@@ -511,7 +511,7 @@ function highlight(text, path) {
 }
 function renderFileTab(tab) {
   if (tab.editing) return renderEditTab(tab);
-  if (isMarkdown(tab.path) && tab.view !== "source") return renderDocTab(tab);
+  if (isMarkdown(tab.path) && tab.view === "preview") return renderDocTab(tab); // raw text by default, like VS Code
   const lines = tab.content.split("\n");
   if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
   const sel = tab.sel;
@@ -650,7 +650,7 @@ $("#editor").addEventListener("click", (e) => {
   e.preventDefault();
   if (a.dataset.anchor) { document.getElementById(a.dataset.anchor)?.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
   const [path, hash] = [a.dataset.docPath, (a.getAttribute("data-hash") || "")];
-  if (state.workspace) openFile(path).then(() => hash && document.getElementById(hash)?.scrollIntoView());
+  if (state.workspace) openFile(path, undefined, "preview").then(() => hash && document.getElementById(hash)?.scrollIntoView());
 });
 
 // edit mode: a plain-text editor with Save (⌘S), dirty tracking and a check for changes made on disk
@@ -2282,6 +2282,7 @@ function pathMenu(rel, isDir) {
   return [
     isDir ? { label: "Expand / collapse", icon: "folderOpen", run: () => { state.expanded.has(rel) ? state.expanded.delete(rel) : state.expanded.add(rel); renderTree(); } }
           : { label: "Open", icon: "file", run: () => openFile(rel) },
+    ...(!isDir && isMarkdown(rel) ? [{ label: "Open Preview", icon: "eye", run: () => openFile(rel, undefined, "preview") }] : []),
     ...(isDir ? [{ label: "New File…", icon: "filePlus", run: () => newItem("file", rel) }, { label: "New Folder…", icon: "folderPlus", run: () => newItem("folder", rel) }]
               : [{ label: "Edit", icon: "edit", run: async () => { await openFile(rel); editFile("file:" + rel); } }]),
     { label: "Add to chat", icon: "at", run: () => insertRef(rel) },
