@@ -129,7 +129,10 @@ def test_applied_changes_stay_closed_after_a_restart(page, server, session):
         assert page.evaluate("""() => [...document.querySelectorAll('#transcript > *')]
             .findIndex(el => el.matches('.card.prop')) < document.querySelectorAll('#transcript > *').length - 3""")
     finally:
-        relaunched.stop()
+        try:
+            page.goto("about:blank")  # same reason as above: don't leave the page polling a server about to stop
+        finally:
+            relaunched.stop()
 
 
 def test_a_change_made_stale_elsewhere_stops_waiting(page, server, session):
