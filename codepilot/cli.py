@@ -379,8 +379,10 @@ def _who_is_denied(cfg: Config) -> None:
     print("\nNo model could be called with these credentials:")
     _line(WARN, "identity", _caller_identity(cfg))
     _line(WARN, "profile", f"profile {cfg.profile}" if cfg.profile else "none set: using the default credential chain")
-    print("  Not the identity you meant? Set AWS_PROFILE=<your-profile> in .env (see docs/setup.md), run\n"
-          "  `aws sso login --profile <your-profile>` if it uses SSO, then `codepilot models --refresh`.")
+    print("  Not the identity you meant? Set CODEPILOT_AWS_PROFILE=<your-profile> in .env (see docs/setup.md), run\n"
+          "  `aws sso login --profile <your-profile>` if it uses SSO, then `codepilot models --refresh`.\n"
+          "  A variable exported in your shell wins over .env (and CODEPILOT_AWS_PROFILE wins over AWS_PROFILE):\n"
+          "  check `echo $AWS_PROFILE $CODEPILOT_AWS_PROFILE` and unset any that point at the wrong account.")
 
 
 def print_models(cfg: Config, refresh: bool = True) -> int:
