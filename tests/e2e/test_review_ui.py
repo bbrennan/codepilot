@@ -115,6 +115,7 @@ def test_applied_changes_stay_closed_after_a_restart(page, server, session):
     page.locator("#rbApplyAll").click()
     page.wait_for_function("() => document.querySelector('#reviewBar').hidden")
     wait_idle(page)
+    page.goto("about:blank")  # leave first: a page still open would poll the dead server and log connection errors
     server.stop()  # shut codepilot down, then relaunch it on the same data
     store = Store(server.cfg.home)
     relaunched = LiveServer(create_app(server.cfg, store, Agent(server.cfg, store, llm=ScriptedLLM())))
