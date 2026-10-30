@@ -93,7 +93,6 @@ assistant's replies in them are scripted so the demo is reproducible.</sub>
 
 <table>
 <tr>
-<td width="50%"><img alt="Trace viewer: span timeline with the failing span in red" src="docs/assets/traces.webp"><br><b>Trace timelines.</b> Open an agent run's JSON trace and see every span, with failures flagged. Then ask codepilot which code caused them.</td>
 <td width="50%"><img alt="Diff review with Undo" src="docs/assets/changes.webp"><br><b>Review every change.</b> Proposed edits are diffs you Apply or Reject; applied ones can be undone. Git status sits alongside.</td>
 </tr>
 <tr>

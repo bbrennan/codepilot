@@ -1,0 +1,34 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --extra anthropic --extra openai --extra dev
+      - run: uvx ruff check codepilot tests
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --check codepilot/static/app.js
+      - run: uv run pytest -q
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --extra anthropic --extra openai --extra dev --extra e2e
+      - run: uv run playwright install --with-deps chromium
+      - run: uv run pytest -q -m e2e tests/e2e
