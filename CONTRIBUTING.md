@@ -57,7 +57,7 @@ To try the app without any account, use Ollama: `make ollama && make demo`.
 - When a UI bug depends on timing, reproduce it deterministically instead of retrying: hold back a response
   with `page.route` (see `_slow_first_listing` in `tests/e2e/test_ui.py`).
 - `make bench-validate` checks every benchmark task fails unfixed and passes with its reference solution.
-- `node --check codepilot/static/app.js` catches syntax errors.
+- `node --check` on each `codepilot/static/*.js` catches syntax errors (CI checks them all).
 
 Add tests with every change: tools in `tests/test_tools.py`, agent behaviour in `tests/test_agent.py`,
 server endpoints in `tests/test_server.py`, terminals in `tests/test_terminal.py`, the background server

@@ -21,7 +21,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node --check codepilot/static/app.js
+      - run: for f in codepilot/static/*.js; do node --check "$f" || exit 1; done
       - run: uv run pytest -q
 
   e2e:

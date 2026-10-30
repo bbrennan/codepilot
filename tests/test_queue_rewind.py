@@ -1,5 +1,7 @@
 """Messages typed while a turn runs (the queue), and editing or retrying earlier messages (rewind)."""
 
+from dataclasses import replace
+
 from fakes import FakeLLM, tool_use
 
 from codepilot.agent import QUEUED_PREFIX, Agent, history_events
@@ -122,3 +124,51 @@ def test_a_waiting_message_can_switch_to_run_after(cfg, store, repo):
     assert agent.requeue("s1", q["id"], "after") and agent.queued("s1")[0]["when"] == "after"
     assert agent.take_queue("s1", "now") == [] and len(agent.queued("s1")) == 1
     assert not agent.requeue("s1", "nope", "now")
+
+
+def _fix_then_more(cfg, store, repo):
+    """Two turns with auto-apply: the first changes agent/core.py, the second creates agent/extra.py."""
+    llm = FakeLLM([
+        [tool_use("t1", "propose_edit", path="agent/core.py", old_text="a - b", new_text="a + b")], [{"text": "fixed"}],
+        [tool_use("t2", "propose_edit", path="agent/extra.py", old_text="", new_text="x = 1\n")], [{"text": "added"}],
+        [{"text": "redone"}],
+    ])
+    agent = Agent(replace(cfg, auto_apply_edits=True), store, llm=llm)
+    sess = store.create_session(str(repo), "main")
+    first_mid = next(e["mid"] for e in list(agent.chat(sess.id, "fix it")) if e["type"] == "turn")
+    list(agent.chat(sess.id, "add extra"))
+    return agent, sess, llm, first_mid
+
+
+def test_rewind_can_undo_the_file_changes_of_the_rewound_turns(cfg, store, repo):
+    original = (repo / "agent/core.py").read_text()
+    agent, sess, llm, first_mid = _fix_then_more(cfg, store, repo)
+    ids = [p.id for p in store.list_proposals(sess.id)]
+    events = list(agent.rewind(sess.id, first_mid, "fix it, differently", restore=ids))
+    assert (repo / "agent/core.py").read_text() == original and not (repo / "agent/extra.py").exists()
+    assert {p.status for p in store.list_proposals(sess.id)} == {"reverted"}
+    assert sorted(e["proposal"]["id"] for e in events if e["type"] == "proposal") == ids
+    notice = next(e["message"] for e in events if e["type"] == "notice")
+    assert notice.startswith("Undid 2 file changes") and events[-1]["type"] == "done"
+    sent = last_user_text(llm.calls[-1])  # the model hears about it with the resent message
+    assert "fix it, differently" in sent and "Proposal #1 (agent/core.py) was reverted by the user" in sent
+
+
+def test_rewind_without_restore_keeps_the_files(cfg, store, repo):
+    agent, sess, _, first_mid = _fix_then_more(cfg, store, repo)
+    list(agent.rewind(sess.id, first_mid, "again"))
+    assert "a + b" in (repo / "agent/core.py").read_text() and (repo / "agent/extra.py").exists()
+    assert {p.status for p in store.list_proposals(sess.id)} == {"applied"}
+
+
+def test_rewind_stops_without_rewinding_when_undoing_fails(cfg, store, repo):
+    agent, sess, _, first_mid = _fix_then_more(cfg, store, repo)
+    before = len(store.messages(sess.id))
+    (repo / "agent/core.py").chmod(0o444)
+    try:
+        events = list(agent.rewind(sess.id, first_mid, "again", restore=[1, 2]))
+    finally:
+        (repo / "agent/core.py").chmod(0o644)
+    error = next(e["message"] for e in events if e["type"] == "error")
+    assert "Undid 1 of 2 file changes" in error and "agent/core.py" in error
+    assert len(store.messages(sess.id)) == before  # the conversation is left as it was

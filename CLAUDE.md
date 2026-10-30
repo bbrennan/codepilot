@@ -20,7 +20,7 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/architecture.md](docs/architec
 - Write the failing test first and watch it fail for the right reason, then make it pass, then refactor.
 - Bug fix = regression test that fails on the old code. UI behaviour = Playwright test in `tests/e2e/`
   (reproduce timing bugs deterministically, e.g. with `page.route`, never with retries or sleeps).
-- Before opening a PR: `make test`, `make e2e`, `uvx ruff check codepilot tests`, `node --check codepilot/static/app.js`.
+- Before opening a PR: `make test`, `make e2e`, `uvx ruff check codepilot tests`, `node --check` on each `codepilot/static/*.js`.
 - Look at the real UI (the Playwright MCP in `.mcp.json`, or `make e2e` headed) before calling a UI change done.
 
 ## Design (SOLID)

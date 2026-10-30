@@ -1217,17 +1217,17 @@ function markTurn(el, mid, text) {
   el.dataset.mid = mid;
   if (text != null) state.msgText.set(String(mid), text);
   else if (!state.msgText.has(String(mid))) state.msgText.set(String(mid), $(".body", el)?.innerText ?? "");
-  if (!$(".msg-actions", el)) el.insertAdjacentHTML("beforeend", `<div class="msg-actions"><button data-act="edit" title="Edit and resend (rewinds the conversation to here)">${icon("edit")}</button><button data-act="retry" title="Send again from here">${icon("refresh")}</button></div>`);
+  if (!$(".msg-actions", el)) el.insertAdjacentHTML("beforeend", `<div class="msg-actions"><button data-act="edit" title="Edit and resend (rewinds the conversation to here)">${icon("edit")}</button><button data-act="retry" title="Send again from here">${icon("refresh")}</button><button data-act="undo" title="Undo file changes from here (keeps the conversation)" hidden>${icon("history")}</button></div>`);
 }
 const lastTurnBubble = () => [...$$("#transcript .msg.user[data-mid]")].at(-1) || null;
-function rewindTo(el, text) {
+function rewindTo(el, text, undo = null) { // undo: {ids, keep} of file changes to undo with it (checkpoints.js)
   if (!state.sid || state.streams.has(state.sid)) return toast("Wait for codepilot to finish (or press Stop) first.", true);
-  const mid = +el.dataset.mid;
+  const mid = +el.dataset.mid, sid = state.sid;
   while (el.nextElementSibling) el.nextElementSibling.remove();
   el.remove();
   const fresh = add(userMessageHtml(text)); scrollEnd(true);
   state.prompts = (state.prompts || []).concat(text); resetHistory();
-  streamTo(state.sid, `/api/sessions/${state.sid}/rewind`, { mid, message: text, tier: selectedTier() }).then(() => fresh);
+  streamTo(sid, `/api/sessions/${sid}/rewind`, { mid, message: text, tier: selectedTier(), ...(undo ? { restore: undo.ids, keep: undo.keep } : {}) }).then(() => { if (undo) afterRestoreRewind(sid, fresh, undo.ids); return fresh; });
 }
 async function editMessage(el) {
   const original = state.msgText.get(el.dataset.mid) ?? $(".body", el).innerText;
@@ -1238,17 +1238,17 @@ async function editMessage(el) {
   const close = () => { $(".edit-box", el)?.remove(); el.classList.remove("editing"); };
   const go = async () => {
     const text = ta.value.trim(); if (!text) return;
-    const isLast = el === lastTurnBubble();
-    if (!isLast && !(await confirmDialog("Rewind to this message?", "Everything after it in this conversation is removed, then your edited message is sent. File changes you already applied stay (undo them in Changes if needed).", "Rewind & send"))) return;
-    close(); rewindTo(el, text);
+    const choice = await confirmRewind(el, "edit");
+    if (!choice) return;
+    close(); rewindTo(el, text, choice.undo);
   };
   ta.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); go(); } if (e.key === "Escape") close(); };
   $("[data-edit=cancel]", el).onclick = close; $("[data-edit=send]", el).onclick = go;
 }
 async function retryFrom(el) {
-  const isLast = el === lastTurnBubble();
-  if (!isLast && !(await confirmDialog("Retry from here?", "Everything after this message is removed and it's sent again.", "Retry"))) return;
-  rewindTo(el, state.msgText.get(el.dataset.mid) ?? $(".body", el).innerText);
+  const choice = await confirmRewind(el, "retry");
+  if (!choice) return;
+  rewindTo(el, state.msgText.get(el.dataset.mid) ?? $(".body", el).innerText, choice.undo);
 }
 function userHtml(text) {
   return esc(text).replace(/(^|[\s(])@(?:&quot;(.+?)&quot;|([\w.\-/~]+))(?::(\d+)(?:-(\d+))?)?/g, (m, pre, q, p, a) => `${pre}<span class="ref" data-path="${q || p}" ${a ? `data-line="${a}"` : ""}>@${m.slice(pre.length + 1)}</span>`);
@@ -1380,7 +1380,7 @@ function renderPlan(items) {
 }
 $("#transcript").addEventListener("click", (e) => {
   const act = e.target.closest(".msg.user[data-mid] .msg-actions [data-act]");
-  if (act) { const el = act.closest(".msg.user"); act.dataset.act === "edit" ? editMessage(el) : retryFrom(el); return; }
+  if (act) { const el = act.closest(".msg.user"); ({ edit: editMessage, retry: retryFrom, undo: undoFrom })[act.dataset.act](el); return; }
   if (e.target.closest("[data-retry-last]")) { const el = lastTurnBubble(); if (el) retryFrom(el); return; }
   const qb = e.target.closest(".msg.queued [data-qedit], .msg.queued [data-qcancel]");
   if (qb) { unqueue(qb.closest(".msg.queued"), !!qb.dataset.qedit || qb.hasAttribute("data-qedit")); return; }

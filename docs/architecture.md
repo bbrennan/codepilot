@@ -40,6 +40,7 @@ store.py (SQLite in ~/.codepilot): sessions, messages, proposals, usage, notes
 | `prompts.py` | System prompt text and assembly |
 | `context.py` | Context-window management: token estimates, tool-output pruning, summaries, overflow recovery |
 | `store.py` | SQLite persistence with additive migrations |
+| `checkpoints.py` | Turn checkpoints: the changes applied from a message onwards, and undoing them together (guarded like Undo) |
 | `server.py` | HTTP API, NDJSON streaming, localhost and CSRF guards, static files, terminal endpoints. Blocking filesystem and git work runs in worker threads so it can't stall streams or terminals |
 | `terminal.py` | Server-side terminals: PTY shells with scrollback that outlive the page, bridged to xterm.js over WebSockets |
 | `service.py` | `codepilot start/stop/status/logs` (background server) and the macOS launcher (`codepilot app`) |
@@ -93,5 +94,6 @@ failing.
 ## Front end
 
 `static/index.html` is the layout. `app.css` holds the theme tokens, with dark and light variants.
-`app.js` is plain DOM with no framework or build step. It vendors highlight.js (BSD-3) for highlighting and
+`app.js` is plain DOM with no framework or build step. A feature with its own UI gets its own classic script
+(`checkpoints.js`), loaded after `app.js` and using its helpers, so `app.js` only wires it in. It vendors highlight.js (BSD-3) for highlighting and
 xterm.js (MIT) for the terminal; see [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
