@@ -18,7 +18,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --extra anthropic --extra openai --extra dev
       - run: uvx ruff check codepilot tests
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - run: node --check codepilot/static/app.js
