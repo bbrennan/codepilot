@@ -85,11 +85,17 @@ def fetch(url: str, timeout: float = 15.0) -> bytes:
     """Download an image the user linked (http/https only, size-capped)."""
     if not re.match(r"https?://", url, re.I):
         raise ImageError("only http and https links can be fetched")
+    from . import webtools
+
+    try:
+        webtools.check_target(url)  # never cloud-metadata / link-local addresses; redirects stay on the same site
+    except webtools.WebError as exc:
+        raise ImageError(str(exc)) from None
     req = urllib.request.Request(url, headers={"User-Agent": "codepilot (image fetch)", "Accept": "image/*"})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - the user's own link
+        with webtools.safe_opener().open(req, timeout=timeout) as resp:
             data = resp.read(MAX_BYTES + 1)
-    except OSError as exc:
+    except (OSError, webtools.WebError) as exc:
         raise ImageError(f"couldn't download it: {exc}") from None
     if len(data) > MAX_BYTES:
         raise ImageError(f"image is larger than {MAX_BYTES / 1e6:.2f} MB")
