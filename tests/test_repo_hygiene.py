@@ -1,5 +1,6 @@
 """The repo ships no mock traces: nothing under examples/ looks like an agent run, and the docs don't point at one."""
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -15,3 +16,17 @@ def test_docs_do_not_advertise_sample_traces():
     for doc in [ROOT / "README.md", *(ROOT / "docs").glob("*.md"), *(ROOT / "examples").rglob("*.md")]:
         text = doc.read_text().lower()
         assert "sample traces" not in text and "traces.webp" not in text, doc
+
+
+def test_dependabot_is_grouped_limited_and_slow():
+    """An unconfigured Dependabot opened seven PRs at once. It must group updates, keep few PRs open, run
+    monthly, and leave major-version jumps (e.g. actions/checkout 4 -> 7) to a person."""
+    text = (ROOT / ".github" / "dependabot.yml").read_text()
+    ecosystems = text.count("package-ecosystem:")
+    assert ecosystems == 2
+    assert text.count("interval: monthly") == ecosystems
+    assert text.count("groups:") == ecosystems
+    assert text.count("version-update:semver-major") == ecosystems
+    limits = [int(x) for x in re.findall(r"open-pull-requests-limit:\s*(\d+)", text)]
+    assert len(limits) == ecosystems and all(1 <= n <= 2 for n in limits), limits
+    assert "target-branch: develop" in text
