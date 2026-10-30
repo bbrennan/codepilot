@@ -399,7 +399,7 @@ def print_models(cfg: Config, refresh: bool = True) -> int:
     if cfg.provider == "bedrock" and off and not shown:
         _who_is_denied(cfg)
     if off:
-        print(f"\nnot enabled for this account ({len(off)}; the picker hides these)")
+        print(f"\nnot enabled for this account ({len(off)}; greyed out in the model picker, with the reason)")
         for m in off:
             _line(WARN, m["id"], m["reason"])
     print("\ntiers")
