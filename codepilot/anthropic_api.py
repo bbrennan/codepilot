@@ -52,10 +52,9 @@ class AnthropicAPI:
                 import anthropic
             except ImportError as exc:
                 raise BedrockError("The anthropic package isn't installed. Run: uv sync --extra anthropic") from exc
-            if self.cfg.system_certs:
-                from .bedrock import _use_system_certs
+            from .bedrock import prepare_tls
 
-                _use_system_certs()
+            prepare_tls(self.cfg)  # honours a configured CA bundle, same as every other client
             kwargs: dict[str, Any] = {"max_retries": 4, "timeout": 900}
             if self.bedrock:
                 kwargs.update(aws_region=self.cfg.region, aws_profile=self.cfg.profile)
