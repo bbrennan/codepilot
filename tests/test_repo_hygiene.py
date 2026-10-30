@@ -30,3 +30,11 @@ def test_dependabot_is_grouped_limited_and_slow():
     limits = [int(x) for x in re.findall(r"open-pull-requests-limit:\s*(\d+)", text)]
     assert limits == [1] * ecosystems, limits  # exactly one open PR per ecosystem; raising it must fail this
     assert "target-branch: develop" in text
+
+
+def test_dependabot_updates_the_lockfile_not_our_declared_version_ranges():
+    """Raising `anthropic>=2.1` to `>=2.3` just because 2.3 exists forces every user to upgrade for nothing. The
+    declared ranges are a compatibility promise; Dependabot may only move what is locked."""
+    text = (ROOT / ".github" / "dependabot.yml").read_text()
+    uv_block = text.split("package-ecosystem: uv", 1)[1].split("package-ecosystem:", 1)[0]
+    assert "versioning-strategy: lockfile-only" in uv_block
