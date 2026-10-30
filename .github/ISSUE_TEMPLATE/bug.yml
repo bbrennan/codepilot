@@ -1,0 +1,9 @@
+name: Bug
+description: Something in CodePilot is broken
+labels: [bug]
+body:
+  - type: textarea
+    attributes: { label: What happened, description: "What you did, what you expected, what you saw" }
+    validations: { required: true }
+  - type: textarea
+    attributes: { label: Diagnostics, description: "Help > Report a problem attaches a redacted download" }

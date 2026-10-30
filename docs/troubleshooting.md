@@ -30,6 +30,7 @@ Start with `make doctor`. It tests each piece and prints the fix for most proble
 | A tier uses a newer model than `.env` says | By design: tiers use the newest enabled model in their family. Set `CODEPILOT_LATEST_MODELS=0` to pin the configured IDs |
 | Your Claude 4.x models are missing and your role can't list inference profiles | codepilot then probes the known Claude 4.5/4.6 profile IDs for your region. If yours differs, set it in `CODEPILOT_MODEL_*`; it's always probed |
 | `denied the request ... bedrock-mantle:CreateInference` | Add that IAM permission (see [setup.md](setup.md#amazon-bedrock)) |
+| Every model is "not authorized" / 403, though your work account has access | codepilot is using a different AWS identity than you think: with no profile set it uses the default credential chain, which may be an old or personal login. `codepilot models` prints the identity it used. Set `CODEPILOT_AWS_PROFILE=<your-profile>` in `.env` (never commit `.env`), run `aws sso login --profile <your-profile>` if needed, then `codepilot models --refresh`. A variable exported in your shell overrides `.env` (and `CODEPILOT_AWS_PROFILE` overrides `AWS_PROFILE`), so check `echo $AWS_PROFILE $CODEPILOT_AWS_PROFILE` |
 | Works in the AWS CLI but not in codepilot | Check `AWS_PROFILE`/`AWS_REGION` in `.env` match what you use with the CLI; `make doctor` prints both |
 
 ## Anthropic API

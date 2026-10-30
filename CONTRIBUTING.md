@@ -1,5 +1,38 @@
 # Contributing
 
+## Branching
+
+```
+feature/<topic> ─┐
+fix/<topic> ─────┼─► develop ─► main
+                 ┘   (integration)  (releases only)
+hotfix/<topic> ──────────────────► main, then merged back into develop
+```
+
+- Never commit to `develop` or `main` directly. Branch from `develop`: `feature/**` for new behaviour, `fix/**` for bugs.
+- Open the PR into `develop`; CI (ruff, `node --check`, unit tests, browser tests) must pass. Squash-merge.
+- `main` only moves by merging `develop` for a release (merge commit, so releases stay visible), or by a `hotfix/**` PR,
+  which is merged back into `develop` right after.
+- Commit messages: one imperative line saying what a user gets, like the existing history.
+
+## Test-first
+
+Every change starts with a failing test: write it, watch it fail for the right reason, then make it pass. A bug fix
+includes the regression test that would have caught it. Prefer small seams (a function or class with injected
+dependencies, like `FakeLLM` for the model) over patching internals, so a test needs no network or global state.
+
+## Developer tooling (Claude Code)
+
+- `CLAUDE.md` holds the standing rules. `.claude/hooks/` has two Claude Code hooks, tested in
+  `tests/test_claude_hooks.py`: `guard_git.py` blocks commits and pushes on `main`/`develop`, force pushes and
+  `--no-verify`; `check_edit.py` runs ruff / `node --check` on each file edited. Wire them in your own
+  `.claude/settings.json` (PreToolUse on `Bash`, PostToolUse on `Edit|Write`).
+- **MCP servers are for development only.** `.mcp.json` (Playwright) is read by Claude Code on a developer's machine.
+  CodePilot itself never connects to MCP servers (`tests/test_no_mcp.py`).
+- Third-party skills (e.g. from skills.sh) are instructions that run with your privileges: read a skill's `SKILL.md`
+  and pin its source before adding it. CodePilot already bundles `tdd`, `diagnose-bug`, `code-review` and more.
+- GitHub: Dependabot (uv, Actions), CodeQL, secret scanning with push protection, and CODEOWNERS are configured.
+
 ## Dev setup
 
 ```bash
