@@ -967,7 +967,7 @@ def history_events(store: Store, session_id: str) -> list[dict]:
     home = store.home
     events: list[dict] = []
     names: dict[str, str] = {}
-    plan = plans.Tracker()  # the same lifecycle as live, so a reload shows what you saw
+    plan, applied = plans.Tracker(), plans.applied_ids(store, session_id)  # the same lifecycle as live
     live = {mid for mid, _ in store.messages(session_id)}
     for mid, m in store.messages(session_id, include_archived=True):
         # A message that starts a turn (and isn't compacted) can be edited or retried from the UI.
@@ -995,7 +995,7 @@ def history_events(store: Store, session_id: str) -> list[dict]:
                 tu = b["toolUse"]
                 names[tu["toolUseId"]] = tu["name"]
                 events.append({"type": "tool_call", "id": tu["toolUseId"], "name": tu["name"], "input": tu["input"]})
-                if tu["name"] == "update_plan":
+                if tu["name"] == "update_plan" and tu["toolUseId"] in applied:
                     events.append(plan.push(tu["input"].get("items")))
             elif "image" in b and m["role"] == "user":
                 url = images.save(home, b)

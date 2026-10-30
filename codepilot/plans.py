@@ -14,12 +14,13 @@ MARK = {"done": "✓", "doing": "→", "todo": "○"}
 
 
 def normalize(items) -> list[dict]:
-    """[{text, status}] from what models send: dicts, bare strings, or the whole list as a JSON string."""
+    """[{text, status}] from what models send: dicts, bare strings, or the whole list as a JSON string or as lines
+    (as the tool's own argument handling accepts it)."""
     if isinstance(items, str):
         try:
             items = json.loads(items)
         except ValueError:
-            return []
+            items = [line.strip() for line in items.splitlines() if line.strip()]
     if not isinstance(items, list):
         return []
     out = []
@@ -55,7 +56,8 @@ def step(prev: list[dict] | None, new: list[dict]) -> dict:
     before = {_key(i["text"]): i["status"] for i in prev or []}
     shared = sum(_key(i["text"]) in before for i in new)
     if prev is None or _complete(prev) or shared * 2 < len(new):  # mostly different steps: a new piece of work
-        return {"items": new, "kind": "new", "changes": [], "progress": progress(new), "retired": retired}
+        kind = "complete" if _complete(new) else "new"  # a plan can arrive already done
+        return {"items": new, "kind": kind, "changes": [], "progress": progress(new), "retired": retired}
     changes = []
     for item in new:
         was = before.get(_key(item["text"]))
@@ -94,24 +96,37 @@ class Tracker:
         return event
 
 
+def applied_ids(store, sid: str) -> set[str]:
+    """Tool use ids whose result succeeded. A rejected or cancelled update_plan changed nothing, so it isn't part of
+    the plan's story."""
+    ok = set()
+    for _, m in store.messages(sid, include_archived=True):
+        for b in m["content"]:
+            r = b.get("toolResult")
+            if r and r.get("status") != "error":
+                ok.add(r.get("toolUseId", ""))
+    return ok
+
+
 def updates(store, sid: str) -> list[tuple[str, object]]:
-    """Every update_plan call in the session, in order (compacted messages included): (tool use id, items)."""
+    """Every update_plan call that took effect, in order (compacted messages included): (tool use id, items)."""
+    ok = applied_ids(store, sid)
     out = []
     for _, m in store.messages(sid, include_archived=True):
         for b in m["content"]:
             tu = b.get("toolUse")
-            if tu and tu.get("name") == "update_plan":
+            if tu and tu.get("name") == "update_plan" and tu.get("toolUseId") in ok:
                 out.append((tu.get("toolUseId", ""), tu.get("input", {}).get("items")))
     return out
 
 
-def event_for(store, sid: str, tool_use_id: str, raw) -> dict:
-    """The event for one update_plan call, given the calls before it."""
-    calls = updates(store, sid)
-    ids = [tid for tid, _ in calls]
-    before = calls[:ids.index(tool_use_id)] if tool_use_id in ids else calls
+def event_for(store, sid: str, tool_use_id: str, raw, pending: list[tuple[str, object]]) -> dict:
+    """The event for one update_plan call, given the calls that took effect before it. `pending`: calls made earlier
+    in this agent loop, whose results may not be stored yet (several tool calls in one response)."""
+    stored = updates(store, sid)
+    seen = {tid for tid, _ in stored}
     tracker = Tracker()
-    for _, items in before:
+    for _, items in stored + [(tid, items) for tid, items in pending if tid not in seen]:
         tracker.push(items)
     return tracker.push(raw)
 

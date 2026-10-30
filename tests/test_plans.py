@@ -15,7 +15,9 @@ def test_normalize_accepts_what_models_send():
     assert plans.normalize(["Read it", {"text": "Fix it", "status": "bogus"}]) == [
         {"text": "Read it", "status": "todo"}, {"text": "Fix it", "status": "todo"}]
     assert plans.normalize('["Read it"]') == [{"text": "Read it", "status": "todo"}]  # a JSON string
-    assert plans.normalize("not json") == [] and plans.normalize(None) == []
+    assert plans.normalize("Read it\n  Fix it\n") == [{"text": "Read it", "status": "todo"},  # lines, as execute()
+                                                     {"text": "Fix it", "status": "todo"}]
+    assert plans.normalize(None) == [] and plans.normalize({"text": "x"}) == []
     assert plans.normalize([{"text": "  ", "status": "done"}]) == []  # blank items are dropped
 
 
@@ -32,6 +34,13 @@ def test_step_tells_updates_from_new_plans_and_says_what_changed():
     assert after_done["kind"] == "new" and after_done["retired"] is None
     cleared = plans.step(A_DOING, [])
     assert cleared["kind"] == "clear" and cleared["retired"]["progress"] == [1, 2]
+
+
+def test_a_plan_that_arrives_already_done_is_complete():
+    assert plans.step(None, A_DONE)["kind"] == "complete"
+    b_done = [{**i, "status": "done"} for i in B]
+    replaced = plans.step(A_DOING, b_done)
+    assert replaced["kind"] == "complete" and replaced["retired"]["progress"] == [1, 2]
 
 
 def test_summary_is_what_the_tool_returns():
@@ -74,3 +83,28 @@ def test_rewinding_restores_the_plan_as_it_was(cfg, store, repo):
     events = list(agent.rewind(sess.id, second, "something else"))
     restored = next(e for e in events if e["type"] == "plan")
     assert restored["kind"] == "restore" and restored["items"] == A
+
+
+def test_calls_that_failed_are_not_part_of_the_plans_story(cfg, store, repo):
+    agent = Agent(cfg, store, llm=FakeLLM([
+        [tool_use("t0", "update_plan", items=A)], [{"text": "planned"}],
+        [tool_use("t1", "update_plan")], [{"text": "oops"}],  # no items: rejected, the plan stays A
+        [tool_use("t2", "update_plan", items=A_DOING)], [{"text": "progress"}],
+    ]))
+    sess = store.create_session(str(repo), "main")
+    live = []
+    for text in ("plan", "bad call", "progress"):
+        live += [e for e in agent.chat(sess.id, text) if e["type"] == "plan"]
+    assert [e["kind"] for e in live] == ["new", "update"]  # the bad call changed nothing
+    replay = [e for e in history_events(store, sess.id) if e["type"] == "plan"]
+    assert replay == live
+    assert plans.current(store, sess.id)["items"] == A_DOING
+
+
+def test_two_updates_in_one_response_follow_each_other(cfg, store, repo):
+    agent = Agent(cfg, store, llm=FakeLLM([
+        [tool_use("t0", "update_plan", items=A), tool_use("t1", "update_plan", items=A_DOING)], [{"text": "ok"}]]))
+    sess = store.create_session(str(repo), "main")
+    live = [e for e in agent.chat(sess.id, "plan twice") if e["type"] == "plan"]
+    assert [e["kind"] for e in live] == ["new", "update"]
+    assert [e for e in history_events(store, sess.id) if e["type"] == "plan"] == live

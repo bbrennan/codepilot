@@ -41,7 +41,8 @@ class ToolContext:
     events: list[dict] = field(default_factory=list)
     auto_apply: bool = False  # this session writes edits immediately (CODEPILOT_AUTO_APPLY does it everywhere)
     cancelled: Callable[[], bool] = lambda: False  # the user pressed Stop (long-running tools check it)
-    tool_use_id: str = ""  # the call being executed (update_plan finds the plan before it)
+    tool_use_id: str = ""  # the call being executed
+    plan_updates: list = field(default_factory=list)  # update_plan calls in this loop, results maybe not stored yet
 
     def resolve(self, rel: str | None, must_exist: bool = True) -> Path:
         if self.root is None:
@@ -287,7 +288,8 @@ def open_workspace(ctx: ToolContext, path: str) -> str:
 
 
 def update_plan(ctx: ToolContext, items: list) -> str:
-    event = plans.event_for(ctx.store, ctx.session_id, ctx.tool_use_id, items)
+    event = plans.event_for(ctx.store, ctx.session_id, ctx.tool_use_id, items, ctx.plan_updates)
+    ctx.plan_updates.append((ctx.tool_use_id, items))
     ctx.events.append(event)
     return plans.summary(event)
 

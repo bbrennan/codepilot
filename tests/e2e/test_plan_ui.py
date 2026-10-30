@@ -76,3 +76,33 @@ def test_editing_an_earlier_message_brings_back_the_plan_from_then(page, server,
     page.locator(".msg.user", has_text="just say hi").wait_for()
     wait_idle(page)
     assert "Write tests" in page.locator("#plan").text_content() and "0 of 2" in head(page)
+
+
+def test_editing_after_a_plan_finished_keeps_it_out_of_the_way(page, server, session):
+    open_app(page)
+    send(page, "plan start")
+    send(page, "plan finish")
+    send(page, "thanks")
+    assert page.locator("#plan").is_hidden()
+    msg = page.locator(".msg.user", has_text="thanks")
+    msg.hover()
+    msg.locator("[data-act=edit]").click()
+    msg.locator(".edit-box textarea").fill("thanks again")
+    msg.locator(".edit-box textarea").press("Enter")
+    page.locator(".msg.user", has_text="thanks again").wait_for()
+    wait_idle(page)
+    assert page.locator("#plan").is_hidden() and page.locator("#transcript .plan-card.complete").count() == 1
+
+
+def test_the_plan_header_works_from_the_keyboard(page, server, session):
+    open_app(page)
+    send(page, "plan start")
+    toggle = page.locator("#plan .plan-head")
+    assert toggle.get_attribute("role") == "button" and toggle.get_attribute("aria-expanded") == "true"
+    toggle.focus()
+    page.keyboard.press("Enter")
+    assert page.locator("#plan .plan-items").is_hidden()
+    assert page.locator("#plan .plan-head").get_attribute("aria-expanded") == "false"
+    assert page.evaluate("document.activeElement.classList.contains('plan-head')")  # focus survives the re-render
+    page.keyboard.press(" ")
+    assert page.locator("#plan .plan-items").is_visible()
