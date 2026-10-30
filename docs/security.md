@@ -114,6 +114,7 @@ codepilot's page. Mermaid runs in its strict security mode.
 | Read files | Only inside the open workspace (plus configured trace folders); paths outside are refused |
 | Change files | Only through proposals you Apply (unless you enable `CODEPILOT_AUTO_APPLY`); every change can be undone |
 | Run commands | Every `run_command` needs your approval and shows the exact command. Tests and checks need approval unless you tick auto-run |
+| Verify pending changes | Runs the workspace's test command and analysers on a temporary copy with the changes applied (as you, like `run_tests`). Needs approval or a click on **Verify**, unless you tick auto-run. The workspace is never written |
 | git | Read-only subcommands only; never commits, pushes, or changes branches |
 | GitHub | Reads freely; writes need approval; account, secret and admin commands are refused |
 | Open another folder | Needs approval |

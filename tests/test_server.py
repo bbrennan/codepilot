@@ -364,3 +364,41 @@ def test_restore_and_rewind_report_changes_kept_as_listed(cfg, store, repo):
     assert any(e["type"] == "notice" and "left 1 as is" in e["message"] for e in events)
     assert store.get_proposal(1).status == "applied"
     assert client.post(f"/api/sessions/{sid}/restore", json={"ids": [], "keep": "1"}, headers=H).status_code == 400
+
+
+def test_verify_endpoint_streams_a_receipt_and_the_session_carries_it(client_and_llm, repo):
+    client, _ = client_and_llm
+    sid = client.post("/api/sessions", json={"repo": str(repo)}, headers=H).json()["id"]
+    ndjson(client.post(f"/api/sessions/{sid}/chat", json={"message": "fix add"}, headers=H))  # leaves #1 pending
+    assert client.get(f"/api/sessions/{sid}").json()["receipt"] is None
+    events = ndjson(client.post(f"/api/sessions/{sid}/verify", json={}, headers=H))
+    assert [e["type"] for e in events] == ["verifying", "verification", "done"]
+    assert events[1]["receipt"]["proposal_ids"] == [1] and events[1]["receipt"]["status"] == "pass"
+    receipt = client.get(f"/api/sessions/{sid}").json()["receipt"]
+    assert receipt["id"] == events[1]["receipt"]["id"] and receipt["proposal_ids"] == [1]
+    assert "a - b" in (repo / "agent/core.py").read_text()
+
+
+def test_verify_waits_while_the_session_is_working(cfg, store, repo):
+    gate = threading.Event()
+
+    class GatedLLM(FakeLLM):
+        def stream(self, model, system, messages, tools=None, max_tokens=None):
+            gate.wait(10)
+            yield from super().stream(model, system, messages, tools, max_tokens)
+
+    client = TestClient(create_app(cfg, store, Agent(cfg, store, llm=GatedLLM([[{"text": "slow"}]]))))
+    sid = client.post("/api/sessions", json={"repo": str(repo)}, headers=H).json()["id"]
+    with client.stream("POST", f"/api/sessions/{sid}/chat", json={"message": "hi"}, headers=H) as r:
+        next(r.iter_lines())
+        busy = client.post(f"/api/sessions/{sid}/verify", json={}, headers=H)
+        gate.set()
+    assert busy.status_code == 409
+
+
+def test_leftover_verification_copies_are_removed_at_start(cfg, store):
+    leftover = cfg.home / "verify" / "abc" / "copy"
+    leftover.mkdir(parents=True)
+    (leftover / "big.bin").write_bytes(b"x" * 10)
+    with TestClient(create_app(cfg, store, Agent(cfg, store, llm=FakeLLM([])))):
+        assert not (cfg.home / "verify").exists()

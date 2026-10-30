@@ -275,3 +275,60 @@ def test_a_message_while_an_approval_waits_declines_it_and_carries_the_message(c
     sent = llm.calls[-1]["messages"][-1]["content"]
     assert sent[-1] == {"text": "don't delete anything, just list it"} and "toolResult" in sent[0]
     assert store.get_session(sess.id).pending is None and types(events)[-1] == "done"
+
+
+# -- verification receipts ----------------------------------------------------------------------------------------
+
+def _propose_then(*more):
+    return FakeLLM([[tool_use("p1", "propose_edit", path="agent/core.py", old_text="a - b", new_text="a + b")],
+                    *more])
+
+
+def test_verify_changes_needs_approval_unless_tests_auto_run(cfg, store, repo):
+    agent = Agent(cfg, store, llm=_propose_then([tool_use("v1", "verify_changes")]))
+    sess = store.create_session(str(repo), "main")
+    events = list(agent.chat(sess.id, "fix and verify"))
+    waiting = next(e for e in events if e["type"] == "approval_needed")["tools"][0]
+    assert waiting["name"] == "verify_changes" and "verify pending changes" in waiting["command"]
+    assert store.latest_receipt(sess.id) is None
+
+
+def test_verify_changes_tests_the_pending_changes_and_tells_the_agent(cfg, store, repo):
+    agent = Agent(cfg, store, llm=_propose_then([tool_use("v1", "verify_changes")], [{"text": "verified"}]))
+    sess = store.create_session(str(repo), "main", auto_approve=True)
+    events = list(agent.chat(sess.id, "fix and verify"))
+    result = next(e for e in events if e["type"] == "tool_result" and e["name"] == "verify_changes")
+    assert not result["is_error"] and result["output"].startswith("Verified pending change #1: pass")
+    receipts = [e["receipt"] for e in events if e["type"] == "verification"]
+    assert len(receipts) == 1 and receipts[0]["status"] == "pass" and receipts[0]["proposal_ids"] == [1]
+    assert store.latest_receipt(sess.id)["told"] is True  # it saw the result; no repeat in the turn context
+    assert "a - b" in (repo / "agent/core.py").read_text()  # still only proposed
+
+
+def test_a_turn_that_leaves_changes_pending_is_verified_when_tests_auto_run(cfg, store, repo):
+    agent = Agent(cfg, store, llm=_propose_then([{"text": "proposed"}], [{"text": "next"}]))
+    sess = store.create_session(str(repo), "main", auto_approve=True)
+    events = list(agent.chat(sess.id, "fix"))
+    kinds = types(events)
+    assert "verification" in kinds and kinds.index("verification") < kinds.index("done")
+    assert store.latest_receipt(sess.id)["told"] is False
+    list(agent.chat(sess.id, "thanks"))  # the model hears the receipt once, with the next message
+    sent = " ".join(b.get("text", "") for b in agent.llm.calls[-1]["messages"][-1]["content"])
+    assert "Verification of your pending changes #1: pass" in sent
+    assert store.latest_receipt(sess.id)["told"] is True
+
+
+def test_no_automatic_verification_without_auto_run_or_when_already_verified(cfg, store, repo):
+    agent = Agent(cfg, store, llm=_propose_then([{"text": "proposed"}]))
+    sess = store.create_session(str(repo), "main")
+    assert "verification" not in types(agent.chat(sess.id, "fix"))
+    agent = Agent(cfg, store, llm=_propose_then([tool_use("v1", "verify_changes")], [{"text": "verified"}]))
+    sess = store.create_session(str(repo), "main", auto_approve=True)
+    assert types(agent.chat(sess.id, "fix and verify")).count("verification") == 1  # not again at the end
+
+
+def test_verification_can_be_switched_off(cfg, store, repo):
+    agent = Agent(replace(cfg, verify=False), store, llm=_propose_then([{"text": "proposed"}]))
+    sess = store.create_session(str(repo), "main", auto_approve=True)
+    assert "verification" not in types(agent.chat(sess.id, "fix"))
+    assert "verify_changes" not in agent.tools

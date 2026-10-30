@@ -149,10 +149,11 @@ def server(cfg, store, repo):
         "hard": "anthropic.claude-opus-5-5"})
     _fake_models(cfg)
     llm = ScriptedLLM()
-    app = create_app(cfg, store, Agent(cfg, store, llm=llm))
+    agent = Agent(cfg, store, llm=llm)
+    app = create_app(cfg, store, agent)
     app.state.terminals.shell = "/bin/sh"
     live = LiveServer(app)
-    live.store, live.repo, live.llm, live.cfg = store, repo, llm, cfg
+    live.store, live.repo, live.llm, live.cfg, live.agent = store, repo, llm, cfg, agent
     yield live
     live.stop()
 

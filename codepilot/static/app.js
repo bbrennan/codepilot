@@ -280,7 +280,7 @@ async function openSession(sid) {
   for (const ev of data.events) render(ev, true);
   // Changes are redrawn where they were proposed (proposal_ref); anything still waiting that wasn't goes last.
   for (const p of data.proposals) if (p.status === "pending" && !$(`#transcript [data-prop="${p.id}"]`)) renderProposalCard(p);
-  state.approval = null; state.allow = data.allow || [];
+  state.approval = null; state.allow = data.allow || []; state.receipt = data.receipt; state.verifying = null;
   if (data.pending) render({ type: "approval_needed", tools: data.pending }, true);
   renderReviewBar();
   renderPlan(null); for (const ev of data.events) if (ev.type === "plan") renderPlan(ev.items);
@@ -855,9 +855,9 @@ function renderReviewBar() {
     const tot = pend.reduce((acc, p) => { const st = diffStat(p.diff); acc.a += st.a; acc.d += st.d; return acc; }, { a: 0, d: 0 });
     const files = [...new Set(pend.map((p) => base(p.path)))];
     html += `<div class="rb-row rb-changes">${icon("diff")}<div class="rb-main"><b>${pend.length} change${pend.length > 1 ? "s" : ""} to review</b> <span class="dstat"><span class="a">+${tot.a}</span> <span class="d">−${tot.d}</span></span><span class="rb-files muted">${esc(files.slice(0, 4).join(", "))}${files.length > 4 ? ` +${files.length - 4} more` : ""}</span></div>
-      <div class="rb-acts"><button class="btn" id="rbReview">Review</button><button class="btn primary" id="rbApplyAll">Apply all</button><button class="btn ghost" id="rbRejectAll">Reject all</button></div></div>`;
+      <div class="rb-acts"><button class="btn" id="rbReview">Review</button><button class="btn primary" id="rbApplyAll">Apply all</button><button class="btn ghost" id="rbRejectAll">Reject all</button></div>${receiptHtml()}</div>`;
   }
-  bar.innerHTML = html; bar.hidden = !html;
+  bar.innerHTML = html; bar.hidden = !html; bindReceipt(bar);
   if (ap) { $("#rbApprove").onclick = () => decideApproval(true); $("#rbDeny").onclick = () => decideApproval(false); }
   if (pend.length) {
     $("#rbReview").onclick = () => openReview(pend[0].id);
@@ -922,10 +922,12 @@ function renderReviewTab(tab) {
   $("#editor").innerHTML = `<div class="review">
     <div class="rv-list"><div class="rv-head">${pendN ? `${pendN} waiting` : "All reviewed"}<span class="spacer"></span>${pendN ? `<button class="btn sm primary" id="rvApplyAll">Apply all</button>` : ""}</div>
       ${list.map((x) => `<div class="rv-item ${x.id === p.id ? "on" : ""}" data-rv="${x.id}">${fileIcon(x.path)}<div class="rv-name"><span>${esc(base(x.path))}</span><span class="muted">${esc(dirOf(x.path))}</span></div>${diffStat(x.diff).html}<span class="status ${x.status}">${x.status}</span></div>`).join("")}
+      <div class="rv-receipt">${receiptHtml()}</div>
       <div class="hint rv-keys"><kbd>j</kbd>/<kbd>k</kbd> move · <kbd>a</kbd> apply · <kbd>r</kbd> reject</div></div>
     <div class="rv-main"><div class="ed-bar"><span class="crumbs"><b>${esc(p.path)}</b> <span class="muted">#${p.id}</span></span><span class="status ${p.status}">${p.status}</span><span class="muted rv-reason">${esc(p.reason || "")}</span><span class="spacer"></span>${propActions(p)}<button class="btn ghost" id="rvOpen">${icon("file")}Open file</button></div>
-      <div class="ed-scroll">${diffHtml(p.diff)}</div>
+      ${receiptFindings(p.path)}<div class="ed-scroll">${diffHtml(p.diff)}</div>
       <div class="rv-ask"><textarea class="field" id="rvAsk" rows="2" placeholder="Ask for a change to this, e.g. &quot;keep the old name as an alias&quot;"></textarea><button class="btn" id="rvAskBtn">${icon("send")}Send</button></div></div></div>`;
+  bindReceipt($("#editor"));
   $(".rv-list").onclick = (e) => { const it = e.target.closest("[data-rv]"); if (it) { tab.sel = +it.dataset.rv; renderReviewTab(tab); } };
   $("#rvOpen").onclick = () => openFile(p.path);
   $("#rvApplyAll") && ($("#rvApplyAll").onclick = () => bulkProposals("apply"));
@@ -1340,14 +1342,16 @@ function render(ev, replay) {
     case "plan": renderPlan(ev.items); break;
     case "usage": { const u = ev.usage || {}; activity("model", shortModel(ev.model || ""), `in ${fmtTok(u.inputTokens || 0)} · out ${fmtTok(u.outputTokens || 0)}${u.cacheReadInputTokens ? " · cached " + fmtTok(u.cacheReadInputTokens) : ""} · ${ev.seconds}s`); endText(); refreshUsage(); break; }
     case "context": setContext(ev); break;
+    case "verifying": onVerifying(ev); break;
+    case "verification": endText(); onVerification(ev, replay); break;
     case "notice": endText(); add(`<div class="banner notice">${esc(ev.message)}</div>`); break;
     case "error": {
-      endText();
+      endText(); onStreamSettled();
       const b = add(`<div class="banner error">${esc(ev.message)}</div>`);
       if (!replay) { activity("error", "error", ev.message); const last = lastTurnBubble(); if (last) b.insertAdjacentHTML("beforeend", ` <button class="btn sm" data-retry-last>Retry</button>`); }
       break;
     }
-    case "done": endText(); break;
+    case "done": endText(); onStreamSettled(); break;
   }
   if (!replay) scrollEnd();
 }

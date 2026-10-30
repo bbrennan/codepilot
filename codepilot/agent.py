@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from . import (checkpoints, checks, images, mentions, models, modes, prompts, repomap, router, skills, specs, steering,
-               webtools)
+               verification, webtools)
 from .bedrock import BedrockError, make_client
 from .config import Config
 from .context import CLEARED_PREFIX, ContextManager, is_overflow
@@ -191,6 +191,35 @@ class Agent:
             yield {"type": "proposal", "proposal": proposal_view(p, "")}
         yield {"type": "notice", "message": checkpoints.summary(reverted, left)}
         return True
+
+    # -- verification receipts: pending changes tested on a copy before review -------------------------
+
+    def verify(self, session_id: str) -> Iterator[dict]:
+        """Verify the pending changes now (the Verify button)."""
+        self._cancelled.discard(session_id)
+        yield from self._verify(session_id, self._ctx(self.store.get_session(session_id)))
+        yield {"type": "done"}
+
+    def _verify_if_due(self, session_id: str, ctx: ToolContext) -> Iterator[dict]:
+        """At the end of a turn that left changes pending: verify them, if tests may run without asking and they
+        weren't verified as they are now."""
+        sess = self.store.get_session(session_id)
+        if not self.cfg.verify or not sess.auto_approve or session_id in self._cancelled:
+            return
+        current = verification.current_fingerprint(self.store, session_id)
+        latest = self.store.latest_receipt(session_id)
+        if current and not (latest and latest["fingerprint"] == current):
+            yield from self._verify(session_id, ctx)
+
+    def _verify(self, session_id: str, ctx: ToolContext) -> Iterator[dict]:
+        pending = verification.pending_of(self.store, session_id)
+        if not pending:
+            yield {"type": "notice", "message": "No changes are pending, so there's nothing to verify."}
+            return
+        yield {"type": "verifying", "ids": [p.id for p in pending]}
+        receipt = verification.verify_session(self.store, self.cfg, session_id, ctx.root, ctx.cancelled)
+        if receipt:
+            yield {"type": "verification", "receipt": receipt}
 
     def _default_logs_client(self) -> Any:
         if self._logs_client is None:
@@ -377,6 +406,11 @@ class Agent:
         spec = specs.get(root, spec_name) if spec_name and root else None
         if spec:
             lines.append(specs.turn_text(root, spec))
+        receipt = self.store.latest_receipt(sess.id)
+        if receipt and not receipt["told"]:
+            if receipt["fingerprint"] == verification.current_fingerprint(self.store, sess.id):
+                lines.append(verification.describe(receipt, "Verification of your pending changes"))
+            self.store.mark_receipt_told(receipt["id"])  # a stale one is never worth telling
         outcomes = self.store.take_unreported_outcomes(sess.id)
         for p in outcomes:
             note = {"outdated": f"Proposal #{p.id} ({p.path}) is outdated: the file changed, so it can no longer be "
@@ -569,6 +603,9 @@ class Agent:
         if tu["name"] == "run_checks":
             names = ", ".join(c.name for c in checks.detect(root)) if root else ""
             return f"run checks ({inp.get('kind', 'all')}): {names or 'none detected'}"
+        if tu["name"] == "verify_changes":
+            cmd = detect_test_cmd(root, self.cfg) or "no test command"
+            return f"verify pending changes on a copy: {cmd} + analysers"
         return f"{tu['name']} {json.dumps(inp)}"
 
     # -- internals ------------------------------------------------------------------------------
@@ -577,7 +614,8 @@ class Agent:
         root = Path(sess.repo).expanduser().resolve() if sess.repo else None
         return ToolContext(root=root, cfg=self.cfg, store=self.store, session_id=sess.id,
                            logs_client_factory=self._logs_factory,
-                           auto_apply=bool((sess.context_state or {}).get("auto_apply")))
+                           auto_apply=bool((sess.context_state or {}).get("auto_apply")),
+                           cancelled=lambda: sess.id in self._cancelled)
 
     def _system(self, sess: Session, ctx: ToolContext) -> list[dict]:
         root = ctx.root
@@ -696,6 +734,7 @@ class Agent:
             if not tool_uses:
                 if stop == "max_tokens":
                     yield {"type": "notice", "message": "Reply hit the max token limit (CODEPILOT_MAX_TOKENS)."}
+                yield from self._verify_if_due(session_id, ctx)
                 yield self.context_usage(session_id)
                 yield {"type": "done"}
                 return
