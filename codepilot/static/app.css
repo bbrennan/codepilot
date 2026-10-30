@@ -294,7 +294,7 @@ kbd { font: 11px var(--mono); padding: 1px 6px; border: 1px solid var(--line-2);
 .term-host .xterm-viewport::-webkit-scrollbar-thumb { background: var(--bg-4); }
 
 /* ---------- chat ---------- */
-.chat { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--bg-1); overflow: hidden; }
+.chat { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--bg-1); }
 .chat-head { display: flex; align-items: center; gap: 6px; height: 35px; padding: 0 8px 0 14px; border-bottom: 1px solid var(--line); flex: none; }
 .chat-title { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .transcript { flex: 1; overflow: auto; padding: 14px 14px 6px; min-height: 0; }
@@ -361,7 +361,8 @@ a.loc:hover { text-decoration: underline; }
 .composer > .quick { flex: none; }
 .composer > .composer-box { flex: 0 1 auto; min-height: 76px; display: flex; flex-direction: column; } /* the draft scrolls before the box is cut off */
 .composer-box > textarea { flex: 0 1 auto; }
-.composer-box > .attach-tray, .composer-box > .composer-row { flex: none; }
+.composer-box > .composer-row { flex: none; }
+.composer-box > .attach-tray { flex: 0 1 auto; min-height: 0; max-height: 108px; overflow: auto; } /* several images scroll instead of pushing the textarea out */
 .plan { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; margin-bottom: 8px; font-size: 12px; background: var(--bg-2); max-height: 140px; overflow: auto; flex: 0 4 auto; min-height: 34px; } /* gives way before the review bar */
 .plan .it { display: flex; gap: 7px; align-items: baseline; padding: 1px 0; }
 .plan .it.done { color: var(--muted); text-decoration: line-through; }
@@ -486,7 +487,7 @@ a.loc:hover { text-decoration: underline; }
 .btn.primary.danger, #dialogOk.danger { background: var(--err); border-color: var(--err); color: #fff; }
 /* Toasts stack above the status bar, centred on the editor rather than the window, so they don't cover the chat's message box. */
 .toasts { position: fixed; bottom: 36px; left: var(--toast-x, 50%); transform: translateX(-50%); z-index: 60; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; width: max-content; max-width: min(560px, calc(100vw - 32px)); }
-.toast { pointer-events: auto; display: flex; align-items: center; gap: 12px; padding: 7px 14px; border-radius: 8px; font-size: 12.5px; box-shadow: var(--shadow); background: var(--bg-4); border: 1px solid var(--line-2); color: var(--fg); }
+.toast { pointer-events: auto; max-width: 100%; overflow-wrap: anywhere; display: flex; align-items: center; gap: 12px; padding: 7px 14px; border-radius: 8px; font-size: 12.5px; box-shadow: var(--shadow); background: var(--bg-4); border: 1px solid var(--line-2); color: var(--fg); }
 .toast.err { color: var(--err); }
 .toast-act { border: 0; background: transparent; color: var(--accent); font-weight: 650; font-size: 12.5px; cursor: pointer; padding: 0; }
 .row.steer .incl { font: 10.5px var(--mono); padding: 0 6px; border-radius: 999px; border: 1px solid var(--line-2); color: var(--muted); max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

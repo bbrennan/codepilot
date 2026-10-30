@@ -1076,9 +1076,9 @@ function scrollEnd(force) { const t = $("#transcript"); if (force) stickToBottom
 // Only the user scrolling up stops it following the newest output. Scrolls the browser makes on its own (the view
 // shrinking while the message box grows clamps scrollTop) used to switch following off mid-turn.
 let userScrollUntil = 0, userDragging = false;
-for (const ev of ["wheel", "touchmove", "keydown"]) $("#transcript").addEventListener(ev, () => { userScrollUntil = performance.now() + 500; }, { passive: true });
+for (const ev of ["wheel", "touchmove", "keydown", "focusin"]) $("#transcript").addEventListener(ev, () => { userScrollUntil = performance.now() + 500; }, { passive: true });
 $("#transcript").addEventListener("pointerdown", () => { userDragging = true; }); // e.g. dragging the scrollbar
-addEventListener("pointerup", () => { if (userDragging) { userDragging = false; userScrollUntil = performance.now() + 300; } });
+for (const ev of ["pointerup", "pointercancel"]) addEventListener(ev, () => { if (userDragging) { userDragging = false; userScrollUntil = performance.now() + 300; } }); // a cancelled touch pan sends no pointerup
 $("#transcript").addEventListener("scroll", () => {
   const t = $("#transcript");
   if (t.scrollHeight - t.scrollTop - t.clientHeight < 80) stickToBottom = true;
@@ -2564,7 +2564,7 @@ function toast(msg, isErr, action) {
   let box = $(".toasts");
   if (!box) { box = document.createElement("div"); box.className = "toasts"; document.body.appendChild(box); }
   const c = $(".center").getBoundingClientRect(); // over the editor; the whole window when that's hidden or narrow
-  const fits = c.width >= 360;
+  const fits = c.width >= 160; // the editor is narrow at ~1000px windows; centring on the window would cover the message box
   box.style.setProperty("--toast-x", fits ? `${Math.round(c.left + c.width / 2)}px` : "50%"); box.style.maxWidth = fits ? `${Math.round(c.width - 24)}px` : "";
   box.appendChild(el); setTimeout(() => el.remove(), action ? 8000 : 2600);
 }

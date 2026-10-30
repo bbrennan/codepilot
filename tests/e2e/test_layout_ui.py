@@ -90,3 +90,81 @@ def test_hovering_an_explorer_row_does_not_move_the_rows_below(page, server, ses
     rows.first.hover()  # shows its hover buttons
     page.locator("#tree .row:hover .hover-act").first.wait_for()
     assert below.bounding_box()["y"] == y
+
+
+def pile_up(page, tmp_path, n_images=8):
+    """A plan, a long command waiting for approval, a long draft, and several attached images, on a short window."""
+    open_app(page)
+    page.fill("#input", "a long command please")
+    page.press("#input", "Enter")
+    page.locator("#reviewBar .rb-approval").wait_for()
+    page.locator("#plan:not([hidden])").wait_for()
+    (tmp_path / "shot.png").write_bytes(PNG)
+    for _ in range(n_images):
+        page.set_input_files("#imgFile", str(tmp_path / "shot.png"))
+    page.wait_for_function(f"() => document.querySelectorAll('#attachTray img').length >= {n_images}")
+    page.fill("#input", "\n".join(f"draft line {i}" for i in range(20)))
+
+
+def test_the_mention_popup_and_the_attachment_tray_stay_usable_on_a_short_window(page, server, session, tmp_path):
+    page.set_viewport_size({"width": 1024, "height": 520})
+    pile_up(page, tmp_path)
+    assert in_view(page, "#composerBox") and in_view(page, "#rbApprove")
+    tray = page.locator("#attachTray")
+    assert tray.evaluate("e => e.scrollHeight <= e.clientHeight || getComputedStyle(e).overflowY !== 'visible'")
+    page.fill("#input", "@")
+    page.locator(".mention-pop .opt").first.wait_for()
+    hit = page.evaluate("""() => { const r = document.querySelector('.mention-pop .opt').getBoundingClientRect();
+      const el = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return { top: r.top, inPopup: !!el?.closest('.mention-pop') }; }""")
+    assert hit["top"] >= 0 and hit["inPopup"], f"the first suggestion is cut off or covered: {hit}"
+
+
+def start_slow_turn(page):
+    page.set_viewport_size({"width": 1280, "height": 560})  # short enough that the conversation scrolls
+    open_app(page)
+    for _ in range(6):
+        page.fill("#input", "hello")
+        page.press("#input", "Enter")
+        page.wait_for_function("() => document.querySelector('#stopBtn').hidden")
+    page.fill("#input", "be slow")
+    page.press("#input", "Enter")
+    page.locator(".msg.assistant", has_text="Thinking").wait_for()
+    assert page.evaluate("(() => { const t = document.querySelector('#transcript'); return t.scrollHeight > t.clientHeight + 100; })()")
+
+
+def gap(page):
+    return page.evaluate("(() => { const t = document.querySelector('#transcript'); return t.scrollHeight - t.scrollTop - t.clientHeight; })()")
+
+
+def test_a_cancelled_touch_pan_does_not_leave_following_switched_off(page, server, session):
+    start_slow_turn(page)
+    # a cancelled touch pan never delivers pointerup; "dragging" must not stay on and read later scrolls as the user's
+    page.evaluate("""() => { const t = document.querySelector('#transcript');
+      t.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      t.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true })); }""")
+    page.fill("#input", "\n".join(f"a long follow-up, line {i}" for i in range(12)))  # the view shrinks: browser-made scrolls
+    page.wait_for_timeout(600)
+    assert gap(page) < 5, f"following was switched off by browser-made scrolls ({gap(page)}px from the bottom)"
+
+
+def test_focusing_older_content_stops_the_chat_following(page, server, session):
+    start_slow_turn(page)
+    # keyboard focus (or Find) scrolling to older content sends no wheel/touch/key event to the transcript
+    page.evaluate("""() => { const t = document.querySelector('#transcript');
+      t.firstElementChild.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      t.scrollTop = 0; }""")
+    page.wait_for_timeout(600)  # more of the reply streams in
+    assert gap(page) > 40, "the next streamed event dragged the view away from what the user focused"
+
+
+def test_toasts_stay_off_the_message_box_when_the_editor_is_narrow(page, server, session):
+    page.set_viewport_size({"width": 1024, "height": 700})
+    open_app(page)
+    page.evaluate("toast('a fairly long notification that would otherwise be centred across the whole window')")
+    mine = page.locator(".toast", has_text="fairly long notification")
+    mine.wait_for()
+    toast, composer = mine.bounding_box(), page.locator("#composerBox").bounding_box()
+    editor = page.evaluate("(() => { const r = document.querySelector('.center').getBoundingClientRect(); return { l: r.left, r: r.right }; })()")
+    assert toast["x"] >= editor["l"] - 1 and toast["x"] + toast["width"] <= editor["r"] + 1, (toast, editor)
+    assert toast["x"] + toast["width"] <= composer["x"] or toast["y"] + toast["height"] <= composer["y"]
