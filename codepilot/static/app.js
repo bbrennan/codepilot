@@ -2103,8 +2103,8 @@ function renderSpecs() {
   const el = $("#specsView"); if (!el) return;
   const d = state.specs;
   if (!d) { el.innerHTML = `<div class="empty-state">Open a folder to work with specs.</div>`; return; }
-  const row = (x) => `<div class="row spec-row ${x.name === d.active ? "on" : ""}" data-spec-open="${esc(x.name)}" title="${esc(x.folder)}"><span class="ficon">${icon(x.kind === "bugfix" ? "alert" : "list")}</span><span class="name">${esc(x.name)}</span>${x.source !== "codepilot" ? `<span class="incl">${x.source === "speckit" ? "spec kit" : x.source}</span>` : ""}<span class="incl phase-${x.phase}">${x.phase === "implement" ? `${x.progress[0]}/${x.progress[1]}` : esc(phaseLabel(x, x.phase).toLowerCase())}</span></div>`;
-  el.innerHTML = `<div class="hint" style="padding:6px 14px 2px">Plan bigger changes before coding: requirements, then design, then tasks, each reviewed, then build task by task. Kiro-compatible (<span class="mono">.codepilot/specs</span>; Kiro and Spec Kit specs are listed too).</div>
+  const row = (x) => `<div class="row spec-row ${x.name === d.active ? "on" : ""}" data-spec-open="${esc(x.name)}" title="${esc(x.folder)}"><span class="ficon">${icon(x.kind === "bugfix" ? "alert" : "list")}</span><span class="name">${esc(x.name)}</span><span class="incl phase-${x.phase}">${x.phase === "implement" ? `${x.progress[0]}/${x.progress[1]}` : esc(phaseLabel(x, x.phase).toLowerCase())}</span></div>`;
+  el.innerHTML = `<div class="hint" style="padding:6px 14px 2px">Plan bigger changes before coding: requirements, then design, then tasks, each reviewed, then build task by task. Specs live in <span class="mono">.codepilot/specs</span>, in Kiro's file format.</div>
     <div style="display:flex;gap:6px;padding:8px 14px 4px;flex-wrap:wrap"><button class="btn sm primary" id="specNew">${icon("plus")}New spec</button><button class="btn sm" id="specNewBug">${icon("alert")}New bugfix spec</button></div>
     ${(d.specs || []).map(row).join("") || `<div class="hint" style="padding:4px 14px">No specs yet.</div>`}
     ${d.error ? `<div class="banner error">${esc(d.error)}</div>` : ""}`;
@@ -2145,7 +2145,7 @@ async function renderSpecTab(tab) {
   const cur = SPEC_PHASES.indexOf(spec.phase);
   const view = tab.view && SPEC_PHASES.indexOf(tab.view) <= cur ? tab.view : spec.phase;
   const steps = SPEC_PHASES.map((ph, i) => `<button class="sp-step ${i < cur ? "done" : i === cur ? "current" : "todo"} ${ph === view ? "on" : ""}" data-sp-view="${ph}" ${i > cur ? "disabled" : ""}>${i < cur ? icon("check") : `<span class="n">${i + 1}</span>`}${esc(phaseLabel(spec, ph))}</button>`).join(`<span class="sp-sep">›</span>`);
-  const head = `<div class="ed-bar sp-head"><span class="crumbs"><b>${esc(spec.name)}</b> <span class="muted">${spec.kind === "bugfix" ? "bugfix spec" : "spec"}${spec.source !== "codepilot" ? " · " + spec.source : ""}</span></span><div class="sp-steps">${steps}</div><span class="spacer"></span>${spec.name === state.specs.active ? `<span class="incl">active</span>` : ""}</div>`;
+  const head = `<div class="ed-bar sp-head"><span class="crumbs"><b>${esc(spec.name)}</b> <span class="muted">${spec.kind === "bugfix" ? "bugfix spec" : "spec"}</span></span><div class="sp-steps">${steps}</div><span class="spacer"></span>${spec.name === state.specs.active ? `<span class="incl">active</span>` : ""}</div>`;
   let body = "";
   if (view === "implement") {
     const pending = spec.tasks.filter((t) => t.status !== "done");

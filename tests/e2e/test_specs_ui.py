@@ -83,14 +83,13 @@ def test_ask_for_changes_and_edit(page, server, session):
     assert page.locator(".tab.on .label").text_content() == "bugfix.md"
 
 
-def test_kiro_specs_are_listed(page, server, session):
-    d = server.repo / ".kiro/specs/auth-flow"
-    d.mkdir(parents=True)
-    (d / "requirements.md").write_text("# Auth requirements")
+def test_the_specs_view_lists_only_codepilot_specs(page, server, session):
+    for folder, doc in ((".kiro/specs/kiro-thing", "requirements.md"), ("specs/001-speckit-thing", "spec.md"),
+                        (".codepilot/specs/mine", "requirements.md")):
+        (server.repo / folder).mkdir(parents=True)
+        (server.repo / folder / doc).write_text("# Requirements\n")
     open_app(page)
     page.click("[data-view=specs]")
-    row = page.locator(".spec-row", has_text="auth-flow")
-    row.wait_for()
-    assert "kiro" in row.text_content() and "design" in row.text_content()
-    row.click()
-    page.locator(".sp-step.current", has_text="Design").wait_for()
+    page.locator("#specsView [data-spec-open='mine']").wait_for()
+    names = page.locator("#specsView [data-spec-open]").evaluate_all("els => els.map((e) => e.dataset.specOpen)")
+    assert names == ["mine"]
