@@ -67,6 +67,11 @@ class ScriptedLLM:
         elif "slow tool" in user_text:  # a step that takes a while, then a read-only tool: a turn you can steer
             time.sleep(1.5)
             content = [{"toolUse": {"toolUseId": f"t{n}", "name": "read_file", "input": {"path": "agent/core.py"}}}]
+        elif "long command" in user_text:  # a plan, then a 30-line script waiting for approval
+            script = "python - <<'EOF'\n" + "\n".join(f"print('step {i}')" for i in range(30)) + "\nEOF"
+            content = [{"toolUse": {"toolUseId": f"p{n}", "name": "update_plan", "input": {"items": [
+                {"text": f"Step {i} of the plan", "status": "todo"} for i in range(1, 9)]}}},
+                {"toolUse": {"toolUseId": f"t{n}", "name": "run_command", "input": {"command": script}}}]
         elif "run python" in user_text:
             content = [{"toolUse": {"toolUseId": f"t{n}", "name": "run_command",
                                     "input": {"command": "python -c \"print('ran-' + str(6*7))\""}}}]
