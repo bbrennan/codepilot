@@ -179,9 +179,15 @@ decision.
 **Edit or retry:** hover over one of your messages for ✎ **Edit** and ↻ **Retry**. Both rewind the
 conversation to that message: everything after it is removed, then the (edited) message is sent again. A
 message that was queued and read in the middle of a turn is part of that turn, so it has no Edit or Retry
-of its own: edit the message that started the turn instead.
-File changes you already applied stay; undo them in **Changes** if needed. Messages summarised by
-compaction can't be edited. An error in the chat has a **Retry** button too.
+of its own: edit the message that started the turn instead. Messages summarised by compaction can't be edited.
+An error in the chat has a **Retry** button too.
+
+**Undo a turn's file changes.** If changes were applied from that message onwards, Edit and Retry list them and
+offer **Also undo these file changes** (ticked). Untick it to rewind the conversation only. To undo the changes but
+keep the conversation, hover over the message and click ↶ **Undo file changes from here**; codepilot is told what
+you undid with your next message. Either way, a change is undone only if its file still holds exactly what
+codepilot wrote. One you've edited since is listed as "left as is", and so are older changes to that file. Only
+changes codepilot applied are covered: what commands, the terminal or other editors changed isn't undone.
 
 **Notifications:** if you switch to another tab or app, codepilot shows a desktop notification when it
 finishes or needs your approval (your browser asks permission the first time).
@@ -222,7 +228,8 @@ one is also a single line in the chat; click it to see its diff.
 - **Apply** writes it. codepilot then checks the file's syntax (and runs ruff on Python files, if
   installed) and tells the assistant what it found.
 - **Reject** discards it. The assistant is told on your next message.
-- **Undo** (on applied changes) restores the file exactly, as long as it hasn't changed since.
+- **Undo** (on applied changes) restores the file exactly, as long as it hasn't changed since. To undo every
+  change from one message onwards at once, use ↶ on that message (see [Talking to it](#talking-to-it)).
 
 Changes only wait while they can still be applied. One that can't be applied any more stops waiting, and
 the assistant is told:

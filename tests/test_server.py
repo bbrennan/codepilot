@@ -1,4 +1,6 @@
 import json
+import threading
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -272,3 +274,80 @@ def test_stat_reports_folder_and_file_changes(cfg, store, repo):
     second = client.post(f"/api/sessions/{sid}/stat", json=body, headers=hdr).json()
     assert second["dirs"]["agent"] != first["dirs"]["agent"] and second["dirs"]["."] == first["dirs"]["."]
     assert second["files"]["agent/core.py"] != first["files"]["agent/core.py"]
+
+
+def _auto_applied(cfg, store, repo, llm=None):
+    """A session whose first turn auto-applied a fix to agent/core.py; returns (client, sid, mid of that turn)."""
+    llm = llm or FakeLLM([[tool_use("t1", "propose_edit", path="agent/core.py", old_text="a - b", new_text="a + b")],
+                          [{"text": "fixed"}], [{"text": "again"}]])
+    client = TestClient(create_app(replace(cfg, auto_apply_edits=True), store,
+                                   Agent(replace(cfg, auto_apply_edits=True), store, llm=llm)))
+    sid = client.post("/api/sessions", json={"repo": str(repo)}, headers=H).json()["id"]
+    ndjson(client.post(f"/api/sessions/{sid}/chat", json={"message": "fix add"}, headers=H))
+    mid = next(e["mid"] for e in client.get(f"/api/sessions/{sid}").json()["events"] if e["type"] == "user")
+    return client, sid, mid
+
+
+def test_checkpoint_lists_a_turns_changes_and_restore_undoes_them(cfg, store, repo):
+    original = (repo / "agent/core.py").read_text()
+    client, sid, mid = _auto_applied(cfg, store, repo)
+    assert "a + b" in (repo / "agent/core.py").read_text()
+    preview = client.get(f"/api/sessions/{sid}/checkpoint?mid={mid}").json()
+    assert preview == {"changes": [{"id": 1, "path": "agent/core.py", "ok": True, "reason": ""}]}
+    r = client.post(f"/api/sessions/{sid}/restore", json={"ids": [1]}, headers=H).json()
+    assert [p["status"] for p in r["reverted"]] == ["reverted"] and r["left"] == []
+    assert r["message"] == "Undid 1 file change (agent/core.py)."
+    assert (repo / "agent/core.py").read_text() == original
+    assert client.get(f"/api/sessions/{sid}/checkpoint?mid={mid}").json() == {"changes": []}
+    assert len(store.messages(sid)) == 4  # the conversation is untouched
+
+
+def test_checkpoint_and_restore_reject_bad_input(cfg, store, repo):
+    client, sid, _ = _auto_applied(cfg, store, repo)
+    assert client.get(f"/api/sessions/{sid}/checkpoint?mid=x").status_code == 400
+    assert client.get("/api/sessions/nope/checkpoint?mid=1").status_code == 404
+    assert client.post(f"/api/sessions/{sid}/restore", json={"ids": "1"}, headers=H).status_code == 400
+    assert client.post(f"/api/sessions/{sid}/rewind", json={"mid": 1, "message": "x", "restore": ["a"]},
+                       headers=H).status_code == 400
+
+
+def test_rewind_with_restore_undoes_the_changes_first(cfg, store, repo):
+    original = (repo / "agent/core.py").read_text()
+    client, sid, mid = _auto_applied(cfg, store, repo)
+    events = ndjson(client.post(f"/api/sessions/{sid}/rewind", json={"mid": mid, "message": "fix add, again",
+                                                                    "restore": [1]}, headers=H))
+    assert any(e["type"] == "notice" and e["message"].startswith("Undid 1 file change") for e in events)
+    assert (repo / "agent/core.py").read_text() == original and events[-1]["type"] == "done"
+
+
+def test_restore_waits_while_the_session_is_working(cfg, store, repo):
+    gate = threading.Event()
+
+    class GatedLLM(FakeLLM):
+        def stream(self, model, system, messages, tools=None, max_tokens=None):
+            if len(self.calls) >= 2:
+                gate.wait(10)
+            yield from super().stream(model, system, messages, tools, max_tokens)
+
+    llm = GatedLLM([[tool_use("t1", "propose_edit", path="agent/core.py", old_text="a - b", new_text="a + b")],
+                    [{"text": "fixed"}], [{"text": "slow"}]])
+    client, sid, _ = _auto_applied(cfg, store, repo, llm)
+    with client.stream("POST", f"/api/sessions/{sid}/chat", json={"message": "more"}, headers=H) as r:
+        next(r.iter_lines())
+        busy = client.post(f"/api/sessions/{sid}/restore", json={"ids": [1]}, headers=H)
+        gate.set()
+    assert busy.status_code == 409 and "already working" in busy.json()["error"]
+    assert store.get_proposal(1).status == "applied"
+
+
+def test_restore_reports_a_partial_failure(cfg, store, repo):
+    client, sid, _ = _auto_applied(cfg, store, repo)
+    (repo / "agent/core.py").chmod(0o444)
+    try:
+        r = client.post(f"/api/sessions/{sid}/restore", json={"ids": [1]}, headers=H)
+    finally:
+        (repo / "agent/core.py").chmod(0o644)
+    body = r.json()
+    assert r.status_code == 409 and body["error"].startswith("Undid 0 of 1 file changes")
+    assert body["left"] == [{"id": 1, "path": "agent/core.py", "ok": True, "reason": ""}]
+    assert not client.get(f"/api/sessions/{sid}").json()["busy"]  # the session isn't left marked busy
