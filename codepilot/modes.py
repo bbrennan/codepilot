@@ -23,7 +23,7 @@ from pathlib import Path
 
 from . import skills as skills_mod
 
-READ_ONLY_BLOCK = {"propose_edit", "write_scratch", "run_command", "run_tests", "run_checks"}
+READ_ONLY_BLOCK = {"propose_edit", "write_scratch", "run_command", "run_tests", "run_checks", "verify_changes"}
 
 
 @dataclass

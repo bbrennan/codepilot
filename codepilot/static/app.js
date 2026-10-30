@@ -1346,12 +1346,12 @@ function render(ev, replay) {
     case "verification": endText(); onVerification(ev, replay); break;
     case "notice": endText(); add(`<div class="banner notice">${esc(ev.message)}</div>`); break;
     case "error": {
-      endText();
+      endText(); onStreamSettled();
       const b = add(`<div class="banner error">${esc(ev.message)}</div>`);
       if (!replay) { activity("error", "error", ev.message); const last = lastTurnBubble(); if (last) b.insertAdjacentHTML("beforeend", ` <button class="btn sm" data-retry-last>Retry</button>`); }
       break;
     }
-    case "done": endText(); break;
+    case "done": endText(); onStreamSettled(); break;
   }
   if (!replay) scrollEnd();
 }

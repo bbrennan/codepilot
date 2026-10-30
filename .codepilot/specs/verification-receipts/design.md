@@ -141,6 +141,25 @@ def newly_failing(name: str, after: str, after_exit: int, before: str, before_ex
 - **Ask codepilot to fix** sends: "The verification of pending changes #… found these newly failing: … Fix them with
   new proposals." (2.5)
 
+### Hardening from code review (PR #33)
+
+- **Read-only modes:** `verify_changes` is in `modes.READ_ONLY_BLOCK`, so Ask can't run tests through it.
+- **Nested copy:** a workspace that contains the verification folder (e.g. the home folder) is refused before
+  copying, so the fallback copy can't recurse into itself. Copy failures become an `error` receipt, not an exception.
+- **Links:** `relocate_envs` only writes files that resolve inside the copy. A venv that is a symlink to a shared
+  environment is reported (isolation unverified), never rewritten.
+- **The run's environment** (`run_env`, `rebase_argv`):
+  - `PATH` entries and command arguments that point into the workspace (an activated venv,
+    `CODEPILOT_TEST_CMD=/ws/.venv/bin/pytest`) are rebased onto the copy;
+  - each run gets its own `PYTHONPYCACHEPREFIX`, so the baseline can't reuse the changed code's bytecode;
+  - stdin is closed.
+- **Comparison:**
+  - Failures are parsed from the full output; only the stored copy is cut to its tail.
+  - When both runs fail and the output names nothing comparable, the receipt is `inconclusive` (never green).
+  - A baseline that times out makes a `timeout` receipt.
+- **Browser:** an `error` or `done` event clears verification progress, so a run that fails without a receipt never
+  leaves the bar spinning.
+
 ## Data models
 
 `receipts.body` is `Receipt` as JSON. The `verification` event carries the same JSON plus `"id"`. Nothing changes for

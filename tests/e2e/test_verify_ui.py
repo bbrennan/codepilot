@@ -100,3 +100,16 @@ def test_a_failing_receipt_explains_and_offers_a_fix(page, server, session):
     assert "exit 1" in card.text_content() and "was 0 without the changes" in card.text_content()
     line.locator("[data-receipt-fix]").click()
     page.locator(".msg.user", has_text="newly failing").wait_for()
+
+
+def test_an_automatic_verification_that_errors_stops_spinning(page, server, session):
+    open_app(page)
+    send(page, "fix the add bug")  # leaves change #1 waiting
+    wait_idle(page)
+    page.route("**/chat", lambda route: route.fulfill(  # the next turn ends with a verification that fails to run
+        status=200, content_type="application/x-ndjson",
+        body='{"type": "verifying", "ids": [1]}\n{"type": "error", "message": "disk full"}\n{"type": "done"}\n'))
+    send(page, "carry on")
+    page.locator(".banner.error", has_text="disk full").wait_for()
+    receipt_line(page).locator("[data-verify]").wait_for()  # back to "not verified", with the button
+    assert receipt_line(page).locator(".spinner").count() == 0

@@ -245,7 +245,9 @@ the old code. **Verify** in the review bar copies the workspace (instantly on AP
 waiting changes to the copy, and runs your test command and analysers there. The result shows under the changes:
 - **✓ verified** · tests pass · ruff clean;
 - **✗ 2 newly failing**, with **Details** (commands, exit codes, output) and **Ask codepilot to fix**;
-- **✓ no new failures** when something also fails without the changes.
+- **✓ no new failures** when something also fails without the changes;
+- **⚠ inconclusive** when tests fail both with and without the changes and the output doesn't show which failures
+  are new.
 
 Nothing is applied and your folder isn't touched. When the changes waiting for review change, the result is marked
 "changed since" until you verify again. With **auto-run tests** ticked, codepilot verifies by itself when a turn ends

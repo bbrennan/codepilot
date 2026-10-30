@@ -159,7 +159,7 @@ def fake_runner(results):
     """A runner that answers from the copy's files: results maps a command name to fn(copy) -> (exit, output)."""
     calls = []
 
-    def run(argv, cwd, timeout):
+    def run(argv, cwd, timeout, env=None):
         name = "tests" if "pytest" in " ".join(argv) else argv[0].rsplit("/", 1)[-1]
         calls.append((name, (cwd / "agent/core.py").read_text() if (cwd / "agent/core.py").exists() else None))
         return results[name](cwd)
@@ -277,3 +277,107 @@ def test_an_older_database_gets_the_receipts_table(cfg, store):
     reopened = Store(cfg.home)
     sid = reopened.create_session("", "main").id
     assert reopened.add_receipt(sid, {"fingerprint": "f", "status": "pass", "runs": []}) > 0
+
+
+# -- review fixes -------------------------------------------------------------------------------------------------
+
+def test_modes_that_run_nothing_cannot_verify():
+    from codepilot import modes
+    assert "verify_changes" in modes.READ_ONLY_BLOCK
+    ask = next(m for m in modes.BUILTIN if m.name == "ask")
+    assert "verify_changes" in ask.blocked
+
+
+def test_a_workspace_containing_the_verification_folder_is_refused(cfg, store, tmp_path):
+    from dataclasses import replace
+    ws = tmp_path / "home-like"
+    (ws / "proj").mkdir(parents=True)
+    (ws / "proj/a.py").write_text("x = 1\n")
+    sid = store.create_session(str(ws), "main").id
+    change = pending(store, sid, "proj/a.py", "x = 1", "x = 2")
+    copier_calls = []
+    receipt = verification.verify(ws, replace(cfg, home=ws / ".codepilot"), [change],
+                                  workdir=ws / ".codepilot/verify/s", copier=lambda s, d: copier_calls.append(d))
+    assert receipt.status == "error" and "inside the workspace" in receipt.conflict and copier_calls == []
+
+
+def test_a_copy_failure_is_an_error_receipt_not_an_exception(cfg, store, repo, tmp_path):
+    sid = store.create_session(str(repo), "main").id
+    change = pending(store, sid, "agent/core.py", "a - b", "a + b")
+
+    def broken(src, dst):
+        raise OSError("No space left on device")
+
+    receipt = verification.verify(repo, pytest_cfg(cfg), [change], workdir=tmp_path / "w", copier=broken)
+    assert receipt.status == "error" and "couldn't copy the workspace: No space left" in receipt.conflict
+
+
+def test_relocation_never_writes_through_a_link_out_of_the_copy(tmp_path):
+    src, dst, elsewhere = tmp_path / "ws", tmp_path / "copy", tmp_path / "shared-venv"
+    elsewhere.mkdir()
+    _fake_venv(elsewhere, b"")  # makes elsewhere/.venv naming `elsewhere`
+    real = elsewhere / ".venv"
+    (real / "bin/pytest").write_text(f"#!{src}/.venv/bin/python\n")  # names the workspace
+    src.mkdir()
+    (src / ".venv").symlink_to(real)  # the workspace's venv lives outside it
+    verification.clone_tree(src, dst)
+    before = (real / "bin/pytest").read_text()
+    stuck = verification.relocate_envs(src, dst)
+    assert (real / "bin/pytest").read_text() == before  # the shared environment is untouched
+    assert stuck == [".venv (links outside the copy)"]
+
+
+def test_paths_into_the_workspace_are_rebased_onto_the_copy(tmp_path, monkeypatch):
+    ws, copy = tmp_path / "ws", tmp_path / "copy"
+    monkeypatch.setenv("PATH", f"{ws}/.venv/bin:/usr/bin")
+    env = verification.run_env(ws, copy, tmp_path / "pyc")
+    assert env["PATH"].split(":")[0] == f"{copy}/.venv/bin" and "/usr/bin" in env["PATH"]
+    assert env["PYTHONPYCACHEPREFIX"] == str(tmp_path / "pyc") and "VIRTUAL_ENV" not in env
+    assert verification.rebase_argv([f"{ws}/.venv/bin/pytest", "-q", f"{ws}/tests"], ws, copy) == \
+        [f"{copy}/.venv/bin/pytest", "-q", f"{copy}/tests"]
+
+
+def test_each_run_gets_its_own_bytecode_cache(cfg, store, repo, tmp_path):
+    sid = store.create_session(str(repo), "main").id
+    fix = pending(store, sid, "agent/core.py", "a - b", "a + b")
+    caches = []
+
+    def run(argv, cwd, timeout, env=None):
+        caches.append(env["PYTHONPYCACHEPREFIX"])
+        return (1, "FAILED tests/test_core.py::test_add")
+
+    verification.verify(repo, pytest_cfg(cfg), [fix], workdir=tmp_path / "w", runner=run, analysers=False)
+    assert len(caches) == 2 and caches[0] != caches[1]
+
+
+def test_failures_are_compared_on_the_full_output_not_the_tail(cfg, store, repo, tmp_path):
+    sid = store.create_session(str(repo), "main").id
+    fix = pending(store, sid, "agent/core.py", "a - b", "a + b")
+    noise = "x" * 20_000
+    after = "FAILED tests/test_new.py::test_regression\n" + noise + "\nFAILED tests/test_old.py::test_flaky\n"
+
+    def run(argv, cwd, timeout, env=None):
+        changed = "a + b" in (cwd / "agent/core.py").read_text()
+        return (1, after if changed else "FAILED tests/test_old.py::test_flaky\n")
+
+    receipt = verification.verify(repo, pytest_cfg(cfg), [fix], workdir=tmp_path / "w", runner=run, analysers=False)
+    assert receipt.newly_failing == ["tests: tests/test_new.py::test_regression"] and receipt.status == "fail"
+    assert len(receipt.runs[0].output) <= verification.OUTPUT_TAIL
+
+
+def test_failures_that_cannot_be_told_apart_are_inconclusive_not_green(cfg, store, repo, tmp_path):
+    sid = store.create_session(str(repo), "main").id
+    fix = pending(store, sid, "agent/core.py", "a - b", "a + b")
+    run = fake_runner({"tests": lambda cwd: (2, "build failed: undefined: Foo") if "a + b" in
+                       (cwd / "agent/core.py").read_text() else (1, "--- FAIL: TestOld (0.01s)")})
+    receipt = verification.verify(repo, pytest_cfg(cfg), [fix], workdir=tmp_path / "w", runner=run, analysers=False)
+    assert receipt.status == "inconclusive" and receipt.newly_failing == []
+
+
+def test_a_baseline_timeout_is_a_timeout(cfg, store, repo, tmp_path):
+    sid = store.create_session(str(repo), "main").id
+    fix = pending(store, sid, "agent/core.py", "a - b", "a + b")
+    run = fake_runner({"tests": lambda cwd: (1, "FAILED t.py::a") if "a + b" in (cwd / "agent/core.py").read_text()
+                       else (None, "timed out")})
+    receipt = verification.verify(repo, pytest_cfg(cfg), [fix], workdir=tmp_path / "w", runner=run, analysers=False)
+    assert receipt.status == "timeout" and receipt.newly_failing == []
