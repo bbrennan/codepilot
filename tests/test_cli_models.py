@@ -35,3 +35,9 @@ def test_a_set_profile_is_named_instead(cfg, monkeypatch, capsys):
 
 def test_nothing_extra_is_printed_when_models_work(cfg, monkeypatch, capsys):
     assert "CODEPILOT_AWS_PROFILE" not in run(cfg, monkeypatch, capsys, available=True)
+
+
+def test_the_unavailable_list_says_where_the_models_went_not_that_the_picker_hides_them(cfg, monkeypatch, capsys):
+    """The picker lists unavailable models greyed out (with the reason), so the CLI must not claim it hides them."""
+    out = run(cfg, monkeypatch, capsys, available=False)
+    assert "hides" not in out and "greyed out" in out
