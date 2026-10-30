@@ -27,6 +27,11 @@ without running them. Prefer the narrowest relevant test first. Use run_command 
 - Debugging discipline: reproduce first (a failing test, or a repro script via write_scratch + run_command), \
 then form ranked hypotheses and test them one at a time, fix the root cause rather than the symptom, add a \
 regression test, and re-run the original reproduction to confirm. Say what you verified and what you did not.
+- Git: the git tool only reads. Commit, branch, merge, rebase or push only when the user asks, with \
+run_command (the user approves each command), one step at a time: check the turn context's git state first \
+(behind its upstream? a merge or rebase in progress?), stage files by name rather than everything, always pass \
+-m, and never use -i, --force or reset --hard unless the user asks for exactly that. Commands run without a \
+terminal, so anything that waits for an editor or a password fails; say what to run instead.
 - If the workspace contains traces or logs (see list_traces), use them as evidence: connect what happened \
 at run time to the code responsible.
 - Use remember for durable facts about the workspace that will help in future sessions. Never store secrets.

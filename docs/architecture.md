@@ -30,6 +30,9 @@ store.py (SQLite in ~/.codepilot): sessions, messages, proposals, usage, notes
 | `traces.py` | Format-agnostic span extraction from JSON/JSONL traces |
 | `checks.py` | Detects and runs linters, type checkers and security scanners; post-apply quick check |
 | `github.py` | `gh` command classification (read/write/refused) and execution |
+| `gitcmd.py` | What the read-only git tool may run (e.g. `git branch` lists, but never deletes or creates) |
+| `gitstate.py` | The git state in each turn context: upstream, ahead/behind, merge or rebase in progress, conflicts |
+| `procenv.py` | How commands run: non-interactive (no editor, prompt, pager or stdin), killed as a process group on timeout |
 | `modes.py` | Built-in and custom modes |
 | `skills.py` | SKILL.md discovery and slash commands |
 | `specs.py` | Specs (Kiro format, plus Kiro and Spec Kit folders): phases, approvals, task parsing, per-phase instructions |

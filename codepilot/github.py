@@ -8,10 +8,11 @@ anything on GitHub need the user's approval; account/secret/admin commands are r
 from __future__ import annotations
 
 import json
-import os
 import shlex
 import shutil
 import subprocess
+
+from . import procenv
 
 READ = {
     ("pr", "list"), ("pr", "view"), ("pr", "diff"), ("pr", "checks"), ("pr", "status"),
@@ -22,13 +23,15 @@ READ = {
 }
 WRITE = {
     ("pr", "create"), ("pr", "comment"), ("pr", "review"), ("pr", "edit"), ("pr", "ready"), ("pr", "checkout"),
-    ("issue", "create"), ("issue", "comment"), ("issue", "edit"), ("run", "rerun"),
+    ("issue", "create"), ("issue", "comment"), ("issue", "edit"), ("run", "rerun"), ("pr", "merge"), ("pr", "close"),
 }
 API_WRITE_FLAGS = ("-X", "--method", "-f", "-F", "--field", "--raw-field", "--input")
 
 
 def classify(argv: list[str]) -> str | None:
     """'read', 'write', or None (not allowed)."""
+    if "--watch" in argv:  # streams until CI finishes, longer than a tool call may take
+        return None
     if len(argv) >= 2 and (argv[0], argv[1]) in READ:
         return "read"
     if len(argv) >= 2 and (argv[0], argv[1]) in WRITE:
@@ -46,8 +49,8 @@ def classify(argv: list[str]) -> str | None:
 
 
 def env(host: str | None) -> dict:
-    e = dict(os.environ)
-    e.update({"GH_PROMPT_DISABLED": "1", "NO_COLOR": "1", "GH_PAGER": "cat", "GH_NO_UPDATE_NOTIFIER": "1"})
+    e = procenv.env()
+    e.update({"NO_COLOR": "1", "GH_NO_UPDATE_NOTIFIER": "1"})
     if host:
         e["GH_HOST"] = host
     return e
@@ -74,12 +77,10 @@ def status(host: str | None) -> dict:
 
 def run(cwd, args: str, host: str | None, timeout: int = 120) -> tuple[int, str]:
     argv = shlex.split(args)
-    proc = subprocess.run(["gh", *argv], cwd=cwd, capture_output=True, text=True, timeout=timeout, env=env(host),
-                          errors="replace", check=False)
-    out = proc.stdout
-    if proc.stderr.strip():
-        out += ("\n" if out else "") + "[stderr]\n" + proc.stderr
-    return proc.returncode, out
+    code, out, err = procenv.run(["gh", *argv], cwd, timeout, env(host))
+    if err.strip():
+        out += ("\n" if out else "") + "[stderr]\n" + err
+    return code, out
 
 
 def pretty(out: str) -> str:
