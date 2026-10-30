@@ -1,5 +1,26 @@
 # Contributing
 
+## Branching
+
+```
+feature/<topic> ─┐
+fix/<topic> ─────┼─► develop ─► main
+                 ┘   (integration)  (releases only)
+hotfix/<topic> ──────────────────► main, then merged back into develop
+```
+
+- Never commit to `develop` or `main` directly. Branch from `develop`: `feature/**` for new behaviour, `fix/**` for bugs.
+- Open the PR into `develop`; CI (ruff, `node --check`, unit tests, browser tests) must pass. Squash-merge.
+- `main` only moves by merging `develop` for a release (merge commit, so releases stay visible), or by a `hotfix/**` PR,
+  which is merged back into `develop` right after.
+- Commit messages: one imperative line saying what a user gets, like the existing history.
+
+## Test-first
+
+Every change starts with a failing test: write it, watch it fail for the right reason, then make it pass. A bug fix
+includes the regression test that would have caught it. Prefer small seams (a function or class with injected
+dependencies, like `FakeLLM` for the model) over patching internals, so a test needs no network or global state.
+
 ## Dev setup
 
 ```bash
