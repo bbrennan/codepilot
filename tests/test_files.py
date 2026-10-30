@@ -109,3 +109,29 @@ def test_listing_a_symlinked_folder_names_children_under_the_requested_path(fs, 
     assert paths and all(p.startswith("loop/") for p in paths), paths
     deeper = client.get(f"/api/sessions/{sid}/files", params={"path": "loop/loop"}).json()
     assert all(e["path"].startswith("loop/loop/") for e in deeper["entries"])
+
+
+def test_dotdot_and_absolute_requests_keep_canonical_paths(fs, repo, tmp_path):
+    """Echoing the requested path is only right for a plain relative one. `link/..` means the *real* parent of
+    what the link points at, so collapsing it textually would name children that don't exist."""
+    (repo / "outer" / "inner").mkdir(parents=True)
+    (repo / "outer" / "inner" / "deep.txt").write_text("d")
+    (repo / "outer" / "sibling.txt").write_text("s")
+    os.symlink(repo / "outer" / "inner", repo / "link")
+    client, sid = fs.client, fs.sid
+    got = client.get(f"/api/sessions/{sid}/files", params={"path": "link/.."}).json()
+    paths = sorted(e["path"] for e in got["entries"])
+    assert "outer/sibling.txt" in paths and "outer/inner" in paths and not any(p.startswith("link") for p in paths), paths
+    absolute = client.get(f"/api/sessions/{sid}/files", params={"path": str(repo / "outer")}).json()
+    assert sorted(e["path"] for e in absolute["entries"]) == ["outer/inner", "outer/sibling.txt"]
+
+
+def test_opening_a_file_through_a_link_reports_the_path_it_was_opened_by(fs, repo):
+    """Tabs and rename use the path the explorer showed, so the file response must echo it, not the real one."""
+    (repo / "docs2").mkdir()
+    (repo / "docs2" / "note.txt").write_text("hi")
+    os.symlink(repo / "docs2", repo / "alias")
+    got = fs.client.get(f"/api/sessions/{fs.sid}/files", params={"path": "alias/note.txt"}).json()
+    assert got["path"] == "alias/note.txt" and got["content"] == "hi"
+    plain = fs.client.get(f"/api/sessions/{fs.sid}/files", params={"path": "docs2/note.txt"}).json()
+    assert plain["path"] == "docs2/note.txt"

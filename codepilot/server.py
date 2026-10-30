@@ -59,6 +59,18 @@ STATIC = Path(__file__).parent / "static"
 MAX_VIEW_BYTES = 2_000_000
 
 
+def _plain_relative(raw: str) -> str | None:
+    """The requested workspace path if it is a plain relative one ("" for the root), else None.
+
+    "a/b" can be echoed back as the name of what it lists. "link/.." (which means the real parent of what the link
+    points at) and absolute paths can't be named by the text, so those use the canonical path instead."""
+    raw = (raw or ".").strip()
+    parts = [p for p in raw.split("/") if p not in ("", ".")]
+    if raw.startswith("/") or raw.startswith("~") or ".." in parts:
+        return None
+    return "/".join(parts)
+
+
 def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = None) -> Starlette:
     store = store or Store(cfg.home)
     agent = agent or Agent(cfg, store)
@@ -630,19 +642,23 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             base = ctx.resolve(request.query_params.get("path", "."))
         except ToolError as exc:
             return err(str(exc), 404)
+        asked = _plain_relative(request.query_params.get("path", "."))
         if base.is_file():
             if base.stat().st_size > MAX_VIEW_BYTES:
                 return err("File too large to view")
-            return JSONResponse({"path": ctx.rel(base), "content": base.read_text(errors="replace"),
-                                 "mtime": str(base.stat().st_mtime_ns)})
+            # The path it was reached by, so a tab, rename or delete refers to the same path the explorer showed.
+            return JSONResponse({"path": asked if asked not in (None, "") else ctx.rel(base),
+                                 "content": base.read_text(errors="replace"), "mtime": str(base.stat().st_mtime_ns)})
         entries = []
         stamp = dir_stamp(base)
-        asked = os.path.normpath(request.query_params.get("path", ".").strip() or ".").strip("/")
 
         def child_path(p: Path) -> str:
             # Under the path that was asked for, not the resolved one: a link to an ancestor ("loop" -> ".") would
             # otherwise list children whose paths equal their parent's, and the explorer would recurse forever.
-            return p.name if asked in ("", ".") else f"{asked}/{p.name}"
+            # Only for a plain relative path; for `link/..` or an absolute one the canonical path is the right name.
+            if asked is None:
+                return ctx.rel(p)
+            return p.name if asked == "" else f"{asked}/{p.name}"
 
         for p in sorted(base.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
             if p.name in (".git", ".DS_Store"):
