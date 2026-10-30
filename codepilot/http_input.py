@@ -30,7 +30,7 @@ async def json_body(request: Request, optional: bool = False) -> dict:
         return {}
     try:
         data = json.loads(raw)
-    except (ValueError, UnicodeDecodeError):
+    except (ValueError, UnicodeDecodeError, RecursionError):  # RecursionError: absurdly nested arrays
         raise BadInput("The request body isn't valid JSON.") from None
     if not isinstance(data, dict):
         raise BadInput("The request body must be a JSON object.")
@@ -46,8 +46,10 @@ async def _bad_input(request: Request, exc: BadInput) -> JSONResponse:
 
 
 async def _os_error(request: Request, exc: OSError) -> JSONResponse:
-    if exc.errno in (errno.ENAMETOOLONG, errno.ENOTDIR, errno.EISDIR, errno.ENOENT, errno.EINVAL, errno.ELOOP):
-        return _json(f"{exc.strerror or type(exc).__name__}", 400 if exc.errno != errno.ENOENT else 404)
+    # Only what a caller can cause by sending a bad path. ENOENT/EACCES etc. can equally mean the server itself is
+    # broken (e.g. the `git` program is missing), so those stay 500s and are logged.
+    if exc.errno in (errno.ENAMETOOLONG, errno.EINVAL, errno.ELOOP):
+        return _json(f"{exc.strerror or type(exc).__name__}", 400)
     log.exception("unhandled OSError on %s", request.url.path)
     return _json(f"{type(exc).__name__}: {exc.strerror or exc}", 500)
 
