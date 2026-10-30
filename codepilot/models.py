@@ -41,7 +41,7 @@ BEDROCK_CONVERSE_CATALOG = [
 ]
 # Preferred families per tier, best first, for falling back when a configured model isn't enabled.
 TIER_FAMILIES = {"fast": ["haiku", "sonnet"], "main": ["sonnet", "opus"], "hard": ["opus", "fable", "sonnet"]}
-DENIED = re.compile(r"access|not authori[sz]ed|not enabled|not available|don't have|do not have|unsupported|"
+DENIED = re.compile(r"access|not authori[sz]ed|not enabled|not available|don't have|do not have|unsupported (?:region|model)|"
                     r"not found|invalid model|model identifier|use case|subscribe|agreement|onboard", re.IGNORECASE)
 
 
@@ -68,7 +68,7 @@ def _family(model_id: str) -> str:
     return m.group(1) if m else ""
 
 
-CREDENTIALS = re.compile(r"token|credential|signature|security|expired|sso", re.I)
+CREDENTIALS = re.compile(r"security token|expired token|token (?:has )?expired|invalid token|credential|signature|\bsso\b|expired", re.I)
 BUSY = re.compile(r"throttl|too many requests|rate exceeded|overloaded|service unavailable|try again", re.I)
 
 
@@ -170,6 +170,9 @@ def _discover(cfg: Config, refresh: bool, probe: Callable[[Config, str], tuple[b
             pass
     models: list[dict] = []
     if cfg.provider == "bedrock":
+        from . import bedrock
+
+        bedrock.prepare_tls(cfg)  # before the probe threads start: see prepare_tls
         candidates = (lister or bedrock_candidates)(cfg)
         probe = probe or probe_bedrock
         with ThreadPoolExecutor(max_workers=8) as pool:

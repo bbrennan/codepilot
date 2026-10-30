@@ -65,10 +65,11 @@ When a folder opens, codepilot reads:
 
 ## Files and folders
 
-**Markdown files open rendered**, like on GitHub: headings, tables, task lists, links, images, highlighted
-code and **Mermaid diagrams**. **Preview | Source** in the file's toolbar switches views. Links to other
-files in the repo open them, and `#section` links scroll within the document. While editing a Markdown file,
-**Preview** shows your unsaved draft. Image files open as images. Raw HTML in a document is cleaned before
+**Markdown files open as raw text**, like in VS Code, so you can read and **Edit** the source. Right-click
+a file and choose **Open Preview**, or press **Preview** in its toolbar, to see it rendered like on GitHub:
+headings, tables, task lists, links, images, highlighted code and **Mermaid diagrams** (**Source** goes back).
+Links to other files in the repo open them (Markdown ones in preview), and `#section` links scroll within the document. While editing a Markdown file,
+**Preview** shows your unsaved draft. **Drag files or folders from Finder/Explorer into the explorer** to add them to the workspace: onto a folder to put them in it, onto a file to put them beside it, onto empty space for the root. Nothing is replaced without asking, `.git` is off limits, and each file can be up to 100 MB. Image files open as images. Raw HTML in a document is cleaned before
 display: scripts, event handlers, styles and forms are removed, so a document can't run code in codepilot.
 
 You can manage files yourself, as in any IDE. Use the title-bar **File** menu, the **New File** and
@@ -289,7 +290,7 @@ risky areas in parallel, and reports only bugs it could demonstrate.
 
 The **Traces** view (the pulse icon) appears only when the open folder has trace or log files. It lists
 JSON/JSONL trace and log files from folders named `traces/`, `logs/`, `eval_results/` or `results/` (add
-more with `CODEPILOT_TRACE_DIRS`). In codepilot's own repo it shows the demo agent's sample traces. Opening
+more with `CODEPILOT_TRACE_DIRS`). Opening
 one shows:
 
 - record, span and error counts, total duration, and trace/session ids

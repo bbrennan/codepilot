@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from collections.abc import Iterator
 from typing import Any
 
@@ -206,8 +207,7 @@ def make_client(cfg: Config, service: str) -> Any:
     import boto3
     from botocore.config import Config as BotoConfig
 
-    if cfg.system_certs and not cfg.ca_bundle:
-        _use_system_certs()
+    prepare_tls(cfg)
     session = boto3.Session(profile_name=cfg.profile, region_name=cfg.region)
     kwargs: dict[str, Any] = {
         "config": BotoConfig(read_timeout=600, connect_timeout=20, retries={"max_attempts": 6, "mode": "adaptive"}),
@@ -219,21 +219,34 @@ def make_client(cfg: Config, service: str) -> Any:
     return session.client(service, **kwargs)
 
 
+def prepare_tls(cfg: Config) -> None:
+    """Use the OS trust store (unless a CA bundle was given). Call once at startup, from one thread, before any
+    client is built: swapping the SSL implementation while other threads build contexts recurses."""
+    if cfg.system_certs and not cfg.ca_bundle:
+        _use_system_certs()
+
+
 _certs_done = False
+_certs_lock = threading.Lock()
 
 
 def _use_system_certs() -> None:
-    """Corporate TLS inspection: verify against the macOS keychain instead of certifi's bundle."""
-    global _certs_done
-    if _certs_done:
-        return
-    try:
-        import truststore
+    """Corporate TLS inspection: verify against the macOS keychain instead of certifi's bundle.
 
-        truststore.inject_into_ssl()
-    except ImportError:  # pragma: no cover - truststore is a declared dependency
-        log.warning("truststore not installed; using default CA bundle")
-    _certs_done = True
+    Once only, under a lock: model discovery builds clients from several threads at once, and injecting truststore
+    twice makes ssl.SSLContext recurse until "maximum recursion depth exceeded".
+    """
+    global _certs_done
+    with _certs_lock:
+        if _certs_done:
+            return
+        try:
+            import truststore
+
+            truststore.inject_into_ssl()
+        except ImportError:  # pragma: no cover - truststore is a declared dependency
+            log.warning("truststore not installed; using default CA bundle")
+        _certs_done = True
 
 
 class BedrockRouter:
