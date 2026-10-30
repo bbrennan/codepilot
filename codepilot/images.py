@@ -93,7 +93,7 @@ def fetch(url: str, timeout: float = 15.0) -> bytes:
         raise ImageError(str(exc)) from None
     req = urllib.request.Request(url, headers={"User-Agent": "codepilot (image fetch)", "Accept": "image/*"})
     try:
-        with urllib.request.build_opener(webtools.SameHostRedirects).open(req, timeout=timeout) as resp:
+        with webtools.safe_opener().open(req, timeout=timeout) as resp:
             data = resp.read(MAX_BYTES + 1)
     except (OSError, webtools.WebError) as exc:
         raise ImageError(f"couldn't download it: {exc}") from None

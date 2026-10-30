@@ -208,8 +208,8 @@ def test_image_links_never_reach_cloud_metadata_or_follow_cross_site_redirects(m
             opened.append(req.full_url)
             raise OSError("offline")
 
-    import urllib.request
-    monkeypatch.setattr(urllib.request, "build_opener", lambda *handlers: (opened.append([type(h).__name__ if not isinstance(h, type) else h.__name__ for h in handlers]), Opener())[1])
+    from codepilot import webtools
+    monkeypatch.setattr(webtools, "safe_opener", lambda: Opener())
     with pytest.raises(images.ImageError, match="couldn't download"):
         images.fetch("https://example.com/a.png")
-    assert any("SameHost" in str(h) for h in opened[0])  # redirects are limited to the same host
+    assert opened == ["https://example.com/a.png"]  # downloads go through webtools.safe_opener (vetted, same-site)
