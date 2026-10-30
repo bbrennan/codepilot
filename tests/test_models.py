@@ -149,3 +149,14 @@ def test_a_model_that_rejects_the_probe_parameters_is_available_not_denied():
     gone = ClientError({"Error": {"Code": "ValidationException", "Message": "The provided model identifier is invalid."},
                         "ResponseMetadata": {"HTTPStatusCode": 400}}, "Converse")
     assert models._probe_error(gone)[0] is False
+
+
+def test_a_messages_api_400_about_max_tokens_is_available_not_a_credentials_error():
+    """The Anthropic SDK's errors carry status_code but no botocore code; 'token' inside 'max_tokens' once matched
+    the credentials pattern and marked the model unavailable."""
+    class SdkError(Exception):
+        status_code = 400
+
+    assert models._probe_error(SdkError("Error code: 400 - unsupported value for max_tokens"))[0] is True
+    assert models._probe_error(SdkError("Error code: 400 - max_tokens: must be at least 16"))[0] is True
+    assert models._probe_error(SdkError("Error code: 400 - The security token included in the request is expired"))[0] is False

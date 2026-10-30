@@ -20,4 +20,5 @@ def test_unavailable_models_are_listed_disabled_with_their_reason(page, server, 
     off = page.locator("#tier option[value='off:anthropic.claude-haiku-5-5']")
     assert off.count() == 1 and off.is_disabled()
     assert "pending onboarding" in off.get_attribute("title")
+    assert "pending onboarding" in off.text_content()  # also visible text, so keyboard and screen-reader users get it
     assert page.locator("#tier option[value='model:anthropic.claude-sonnet-5-5']").is_enabled()

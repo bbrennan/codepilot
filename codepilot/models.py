@@ -68,7 +68,7 @@ def _family(model_id: str) -> str:
     return m.group(1) if m else ""
 
 
-CREDENTIALS = re.compile(r"token|credential|signature|security|expired|sso", re.I)
+CREDENTIALS = re.compile(r"security token|expired token|token (?:has )?expired|invalid token|credential|signature|\bsso\b|expired", re.I)
 BUSY = re.compile(r"throttl|too many requests|rate exceeded|overloaded|service unavailable|try again", re.I)
 
 

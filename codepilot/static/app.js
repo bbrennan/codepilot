@@ -1575,7 +1575,7 @@ function renderModelSelect() {
   $("#tier").innerHTML = `<optgroup label="Tiers">${autoOpt}${tierOpts}</optgroup>`
     + (newest.length ? `<optgroup label="Models on your account">${newest.map(opt).join("")}</optgroup>` : "")
     + (older.length ? `<optgroup label="Older versions">${older.map(opt).join("")}</optgroup>` : "")
-    + (off ? `<optgroup label="Not available on this account">${unavailable.map((m) => `<option value="off:${esc(m.id)}" disabled title="${esc(m.reason || "")}">${esc(m.label)} · ${esc(m.id)}</option>`).join("")}</optgroup>` : "")
+    + (off ? `<optgroup label="Not available on this account">${unavailable.map((m) => `<option value="off:${esc(m.id)}" disabled title="${esc(m.reason || "")}">${esc(m.label)} — ${esc((m.reason || "not available").slice(0, 70))}</option>`).join("")}</optgroup>` : "")
     + `<option value="refresh" title="${esc(refreshTip)}">${d ? "↻ Refresh model list" : "Find models on my account…"}</option>`;
   syncModelSelect();
 }
