@@ -32,7 +32,7 @@ from starlette.websockets import WebSocket
 from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 
-from . import checks, diagnostics, github, images, mentions, models, modes, skills, specs, steering, traces, version
+from . import checks, diagnostics, github, images, mentions, models, modes, skills, specs, steering, traces, uploads, version
 from .agent import Agent, history_events
 from .config import TIER_CHOICES, TIERS, Config
 from .store import Store
@@ -674,6 +674,29 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                 out["files"][rel] = None
         return out
 
+    async def upload(request: Request) -> Response:
+        """A file dropped into the explorer: the raw body, saved at ?path= (?replace=1 after the user confirmed)."""
+        ctx = ctx_for(request.path_params["sid"])
+        declared = request.headers.get("content-length", "")
+        if declared.isdigit() and int(declared) > uploads.MAX_UPLOAD_BYTES:
+            return err("That file is too large to upload.", 413)
+        chunks, size = [], 0
+        async for chunk in request.stream():  # counted as it arrives: a chunked body has no Content-Length to trust
+            size += len(chunk)
+            if size > uploads.MAX_UPLOAD_BYTES:
+                return err("That file is too large to upload.", 413)
+            chunks.append(chunk)
+        body = b"".join(chunks)
+        try:
+            result = await run_in_threadpool(uploads.store_upload, ctx, request.query_params.get("path", ""), body,
+                                             request.query_params.get("replace") == "1")
+            await run_in_threadpool(retire_stale_proposals, store, ctx.session_id, ctx.root)
+            return JSONResponse(result)
+        except uploads.UploadError as exc:
+            return err(str(exc), exc.status)
+        except OSError as exc:
+            return err(f"{type(exc).__name__}: {exc.strerror or exc}", 400)
+
     async def fs(request: Request) -> Response:
         """The user's own file operations from the explorer and editor (not the assistant's, which go through
         proposals). Paths are workspace-relative and must stay inside it; deletes go to a restorable trash."""
@@ -992,6 +1015,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         Route("/api/sessions/{sid}/find", needs_workspace(find)),
         Route("/api/sessions/{sid}/git", needs_workspace(git_view)),
         Route("/api/sessions/{sid}/fs", needs_workspace(fs), methods=["POST"]),
+        Route("/api/sessions/{sid}/upload", needs_workspace(upload), methods=["PUT"]),
         Route("/api/sessions/{sid}/raw", needs_workspace(raw_file)),
         Route("/api/sessions/{sid}/specs", needs_workspace(spec_list)),
         Route("/api/sessions/{sid}/specs", needs_workspace(spec_create), methods=["POST"]),

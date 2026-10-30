@@ -412,6 +412,68 @@ $("#tree").addEventListener("dragstart", (e) => {
   e.dataTransfer.effectAllowed = "copy";
 });
 
+// ---- files dragged in from the desktop (Finder, Explorer) are added to the workspace
+const isFileDrag = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
+// A file dropped anywhere else would make the browser navigate to it and leave codepilot behind.
+for (const ev of ["dragover", "drop"]) window.addEventListener(ev, (e) => { if (isFileDrag(e)) e.preventDefault(); });
+function dropDir(e) { const r = e.target.closest?.("[data-file],[data-dir]"); return !r ? "" : r.dataset.dir ?? dirOf(r.dataset.file); }
+function markDropTarget(e) {
+  $$("#tree .drop-target").forEach((r) => r.classList.remove("drop-target"));
+  const dir = dropDir(e); (dir ? $(`#tree [data-dir="${CSS.escape(dir)}"]`) : $("#tree"))?.classList.add("drop-target");
+}
+$("#tree").addEventListener("dragover", (e) => { if (!isFileDrag(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = "copy"; markDropTarget(e); });
+$("#tree").addEventListener("dragleave", (e) => { if (!$("#tree").contains(e.relatedTarget)) $$("#tree .drop-target").forEach((r) => r.classList.remove("drop-target")); });
+// Entries must be read before the first await (the browser empties the DataTransfer afterwards).
+async function filesFromDrop(dt) {
+  const picked = [...(dt.items || [])].filter((i) => i.kind === "file").map((i) => ({ entry: i.webkitGetAsEntry?.() || null, file: i.getAsFile() }));
+  const out = [];
+  const walk = async (entry, prefix) => {
+    if (entry.isFile) { out.push({ rel: prefix + entry.name, file: await new Promise((ok, no) => entry.file(ok, no)) }); return; }
+    const reader = entry.createReader();
+    for (let batch = await new Promise((ok, no) => reader.readEntries(ok, no)); batch.length; batch = await new Promise((ok, no) => reader.readEntries(ok, no))) {
+      for (const child of batch) await walk(child, prefix + entry.name + "/");
+    }
+  };
+  for (const { entry, file } of picked) { if (entry) await walk(entry, ""); else if (file) out.push({ rel: file.name, file }); }
+  return out;
+}
+const MAX_UPLOAD = 100 * 1024 * 1024;
+async function putFile(sid, dest, file, replace) {
+  const res = await fetch(`/api/sessions/${sid}/upload?path=${encodeURIComponent(dest)}${replace ? "&replace=1" : ""}`, { method: "PUT", headers: H, body: file });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { const e = new Error(data.error || res.statusText); e.status = res.status; throw e; }
+  return data;
+}
+async function uploadDropped(sid, items, dir) { // sid: the session the files were dropped on, fixed before any await
+  let added = 0; const failed = [];
+  for (const { rel, file } of items) {
+    const dest = dir ? dir + "/" + rel : rel;
+    if (file.size > MAX_UPLOAD) { failed.push(`${rel}: larger than 100 MB`); continue; }
+    try {
+      try { await putFile(sid, dest, file, false); }
+      catch (err) {
+        if (err.status !== 409 || !/already exists/.test(err.message)) throw err;
+        if (!(await confirmDialog(`Replace ${dest}?`, "A file with this name is already in the workspace.", "Replace"))) continue;
+        await putFile(sid, dest, file, true);
+      }
+      added++;
+    } catch (err) { failed.push(`${rel}: ${err.message}`); }
+  }
+  if (state.sid === sid) { // the explorer on screen is still that workspace
+    if (dir) for (let p = dir; p; p = dirOf(p)) state.expanded.add(p);
+    state.tree.clear(); renderTree(); loadGit();
+  }
+  if (added) toast(`Added ${added} file${added > 1 ? "s" : ""}${dir ? " to " + dir : ""}.`);
+  if (failed.length) toast(failed.slice(0, 3).join(" · ") + (failed.length > 3 ? ` · and ${failed.length - 3} more` : ""), true);
+}
+$("#tree").addEventListener("drop", async (e) => {
+  if (!isFileDrag(e)) return;
+  e.preventDefault(); $$("#tree .drop-target").forEach((r) => r.classList.remove("drop-target"));
+  if (!state.sid || !state.workspace) return toast("Open a folder first.", true);
+  const sid = state.sid, dir = dropDir(e), items = await filesFromDrop(e.dataTransfer);
+  if (items.length) await uploadDropped(sid, items, dir);
+});
+
 async function loadWorkspaceInfo() {
   if (!state.sid) return;
   const w = await api(`/api/sessions/${state.sid}/workspace`).catch(() => null);

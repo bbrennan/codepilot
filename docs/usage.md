@@ -69,7 +69,7 @@ When a folder opens, codepilot reads:
 a file and choose **Open Preview**, or press **Preview** in its toolbar, to see it rendered like on GitHub:
 headings, tables, task lists, links, images, highlighted code and **Mermaid diagrams** (**Source** goes back).
 Links to other files in the repo open them (Markdown ones in preview), and `#section` links scroll within the document. While editing a Markdown file,
-**Preview** shows your unsaved draft. Image files open as images. Raw HTML in a document is cleaned before
+**Preview** shows your unsaved draft. **Drag files or folders from Finder/Explorer into the explorer** to add them to the workspace: onto a folder to put them in it, onto a file to put them beside it, onto empty space for the root. Nothing is replaced without asking, `.git` is off limits, and each file can be up to 100 MB. Image files open as images. Raw HTML in a document is cleaned before
 display: scripts, event handlers, styles and forms are removed, so a document can't run code in codepilot.
 
 You can manage files yourself, as in any IDE. Use the title-bar **File** menu, the **New File** and
