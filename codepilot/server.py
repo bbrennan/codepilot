@@ -493,9 +493,9 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             return err("Empty message")
         if tier and tier not in TIER_CHOICES:
             return err(f"tier must be one of {TIER_CHOICES}")
-        restore = data.get("restore")
-        if restore is not None and not _change_ids(restore):
-            return err("restore must be a list of change numbers")
+        restore, keep = data.get("restore"), data.get("keep")
+        if any(v is not None and not _change_ids(v) for v in (restore, keep)):
+            return err("restore and keep must be lists of change numbers")
         try:
             mid = int(data.get("mid"))
             store.get_session(sid)
@@ -503,7 +503,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             return err("mid must be a message id")
         except KeyError:
             return err("No such session", 404)
-        return stream(sid, agent.rewind(sid, mid, text, tier, restore=restore))
+        return stream(sid, agent.rewind(sid, mid, text, tier, restore=restore, keep=keep))
 
     async def checkpoint(request: Request) -> Response:
         """The changes applied from a message onwards, and whether each can still be undone."""
@@ -524,9 +524,10 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
     async def restore(request: Request) -> Response:
         """Undo the changes the user confirmed, keeping the conversation."""
         sid = request.path_params["sid"]
-        ids = (await json_body(request)).get("ids")
-        if not _change_ids(ids):
-            return err("ids must be a list of change numbers")
+        data = await json_body(request)
+        ids, keep = data.get("ids"), data.get("keep", [])
+        if not _change_ids(ids) or not _change_ids(keep):
+            return err("ids and keep must be lists of change numbers")
         try:
             sess = store.get_session(sid)
         except KeyError:
@@ -537,7 +538,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                 return err("This session is already working; wait for it to finish.", 409)
             busy.add(sid)
         try:
-            reverted, left = await run_in_threadpool(checkpoints.restore, root, store, sid, ids)
+            reverted, left = await run_in_threadpool(lambda: checkpoints.restore(root, store, sid, ids, keep=keep))
         except checkpoints.RestoreError as exc:
             return JSONResponse({"error": checkpoints.failure(exc), "left": [_item_json(i) for i in exc.left],
                                  "reverted": [_proposal_json(p, root) for p in exc.reverted]}, status_code=409)

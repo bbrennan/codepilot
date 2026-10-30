@@ -149,9 +149,10 @@ class Agent:
     # -- rewind: edit an earlier message, or retry the last one ---------------------------------
 
     def rewind(self, session_id: str, mid: int, text: str, tier: str | None = None,
-               restore: list[int] | None = None) -> Iterator[dict]:
+               restore: list[int] | None = None, keep: list[int] | None = None) -> Iterator[dict]:
         """Remove a user message and everything after it, then send `text` in its place. `restore`: applied
-        changes the user chose to undo along with it (ids from the checkpoint preview)."""
+        changes the user chose to undo along with it (ids from the checkpoint preview); `keep`: ones the preview
+        listed as left, reported but never undone."""
         if self.store.is_archived(mid):
             yield {"type": "error", "message": "That message was summarised when the conversation was compacted, "
                                                "so it can't be edited. Send a new message instead."}
@@ -160,8 +161,8 @@ class Agent:
         if not target or target["role"] != "user" or not target["content"] or "text" not in target["content"][0]:
             yield {"type": "error", "message": "Only a message that started a turn can be edited or retried."}
             return
-        if restore:
-            done = yield from self._restore(session_id, restore)
+        if restore or keep:
+            done = yield from self._restore(session_id, restore or [], keep or [])
             if not done:
                 return
         since = self.store.message_created(mid)
@@ -175,12 +176,12 @@ class Agent:
         self.store.update_session(session_id, pending=None, context_state=state)
         yield from self.chat(session_id, text, tier)
 
-    def _restore(self, session_id: str, ids: list[int]) -> Generator[dict, None, bool]:
+    def _restore(self, session_id: str, ids: list[int], keep: list[int]) -> Generator[dict, None, bool]:
         """Undo these applied changes; False if that stopped partway (the caller then leaves the chat alone)."""
         sess = self.store.get_session(session_id)
         root = Path(sess.repo).expanduser().resolve()
         try:
-            reverted, left = checkpoints.restore(root, self.store, session_id, ids)
+            reverted, left = checkpoints.restore(root, self.store, session_id, ids, keep=keep)
         except checkpoints.RestoreError as exc:
             for p in exc.reverted:
                 yield {"type": "proposal", "proposal": proposal_view(p, "")}

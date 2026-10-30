@@ -94,7 +94,9 @@ def test_a_file_changed_since_is_listed_and_left_as_is(page, server, session):
     left.wait_for()
     assert "agent/core.py" in left.text_content() and "changed since it was applied" in left.text_content()
     page.click("#dialogOk")
-    page.locator(".banner.notice", has_text="Undid 1 file change").wait_for()
+    notice = page.locator(".banner.notice", has_text="Undid 1 file change")
+    notice.wait_for()
+    assert "left 1 as is: agent/core.py #1 (changed since it was applied)" in notice.text_content()
     assert core.read_text().endswith("# my own edit\n")  # never overwritten
     assert "# 1 + 2" not in (server.repo / "tests/test_core.py").read_text()
 
@@ -117,3 +119,73 @@ def test_when_undoing_fails_the_conversation_is_shown_as_it_still_is(page, serve
     page.locator(".msg.user", has_text="hello again").wait_for()  # redrawn as the server kept it
     assert page.locator(".msg.user", has_text="fix two").count() == 1
     assert "a + b" in core.read_text() and statuses(server, session) == ["applied", "reverted"]
+
+
+def model_calls(server):
+    return [c for c in server.llm.calls if "messages" in c]
+
+
+def test_if_the_changes_cant_be_checked_retry_stops_instead_of_skipping_the_question(page, server, session):
+    two_applied_changes(page, server)
+    calls = len(model_calls(server))
+    page.route("**/checkpoint?*", lambda route: route.fulfill(status=500, json={"error": "database is locked"}))
+    page.expected_errors.append("500 (Internal Server Error)")
+    msg = page.locator(".msg.user", has_text="fix two")
+    msg.hover()
+    msg.locator("[data-act=retry]").click()  # the last message: without changes it would rewind straight away
+    page.locator(".toast.err", has_text="database is locked").wait_for()
+    assert page.locator("#dialog").is_hidden() and len(model_calls(server)) == calls
+    assert statuses(server, session) == ["applied", "applied"]
+
+
+def _held(page, pattern, method):
+    """Hold back `method` requests matching `pattern` until the test lets them go; others pass straight through
+    (hovering a message fetches the same checkpoint with GET, which Retry also uses)."""
+    held = []
+
+    def handle(route):
+        if route.request.method == method and not held:
+            held.append(route)
+        else:
+            route.continue_()
+
+    page.route(pattern, handle)
+    return held
+
+
+def test_switching_sessions_while_the_changes_load_cancels_the_retry(page, server, session):
+    two_applied_changes(page, server)
+    send(page, "hello again")
+    wait_idle(page)
+    before = len(server.store.messages(session.id))
+    first = page.locator(".msg.user", has_text="fix two")
+    first.hover()
+    page.wait_for_function("() => !document.querySelector('.msg.user [data-act=undo]')?.hidden")  # hover check done
+    held = _held(page, "**/checkpoint?*", "GET")
+    with page.expect_request("**/checkpoint?*"):
+        first.locator("[data-act=retry]").click()
+    page.click("#newChatBtn")
+    page.wait_for_function("() => !document.querySelector('.msg.user')")
+    with page.expect_response("**/checkpoint?*"):
+        held[0].continue_()
+    page.wait_for_timeout(300)  # the late answer must not open a dialog for the other session
+    assert page.locator("#dialog").is_hidden() and page.locator(".msg.user").count() == 0
+    assert len(server.store.messages(session.id)) == before  # the original session wasn't rewound either
+
+
+def test_switching_sessions_while_undoing_keeps_the_result_out_of_the_other_session(page, server, session):
+    two_applied_changes(page, server)
+    held = _held(page, "**/restore", "POST")
+    first = page.locator(".msg.user", has_text="fix two")
+    first.hover()
+    first.locator("[data-act=undo]").click()
+    page.locator("#dialogTitle", has_text="Undo file changes from here?").wait_for()
+    with page.expect_request("**/restore"):
+        page.click("#dialogOk")
+    page.click("#newChatBtn")
+    page.wait_for_function("() => !document.querySelector('.msg.user')")
+    with page.expect_response("**/restore"):
+        held[0].continue_()
+    page.wait_for_timeout(300)
+    assert page.locator(".banner.notice").count() == 0  # nothing from the other session lands here
+    assert statuses(server, session) == ["reverted", "reverted"]  # the undo itself still happened

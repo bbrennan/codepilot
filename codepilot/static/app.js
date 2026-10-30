@@ -1220,14 +1220,14 @@ function markTurn(el, mid, text) {
   if (!$(".msg-actions", el)) el.insertAdjacentHTML("beforeend", `<div class="msg-actions"><button data-act="edit" title="Edit and resend (rewinds the conversation to here)">${icon("edit")}</button><button data-act="retry" title="Send again from here">${icon("refresh")}</button><button data-act="undo" title="Undo file changes from here (keeps the conversation)" hidden>${icon("history")}</button></div>`);
 }
 const lastTurnBubble = () => [...$$("#transcript .msg.user[data-mid]")].at(-1) || null;
-function rewindTo(el, text, restore = null) {
+function rewindTo(el, text, undo = null) { // undo: {ids, keep} of file changes to undo with it (checkpoints.js)
   if (!state.sid || state.streams.has(state.sid)) return toast("Wait for codepilot to finish (or press Stop) first.", true);
-  const mid = +el.dataset.mid;
+  const mid = +el.dataset.mid, sid = state.sid;
   while (el.nextElementSibling) el.nextElementSibling.remove();
   el.remove();
   const fresh = add(userMessageHtml(text)); scrollEnd(true);
   state.prompts = (state.prompts || []).concat(text); resetHistory();
-  streamTo(state.sid, `/api/sessions/${state.sid}/rewind`, { mid, message: text, tier: selectedTier(), ...(restore ? { restore } : {}) }).then(() => { if (restore) afterRestoreRewind(fresh, restore); return fresh; });
+  streamTo(sid, `/api/sessions/${sid}/rewind`, { mid, message: text, tier: selectedTier(), ...(undo ? { restore: undo.ids, keep: undo.keep } : {}) }).then(() => { if (undo) afterRestoreRewind(sid, fresh, undo.ids); return fresh; });
 }
 async function editMessage(el) {
   const original = state.msgText.get(el.dataset.mid) ?? $(".body", el).innerText;
@@ -1240,7 +1240,7 @@ async function editMessage(el) {
     const text = ta.value.trim(); if (!text) return;
     const choice = await confirmRewind(el, "edit");
     if (!choice) return;
-    close(); rewindTo(el, text, choice.restore);
+    close(); rewindTo(el, text, choice.undo);
   };
   ta.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); go(); } if (e.key === "Escape") close(); };
   $("[data-edit=cancel]", el).onclick = close; $("[data-edit=send]", el).onclick = go;
@@ -1248,7 +1248,7 @@ async function editMessage(el) {
 async function retryFrom(el) {
   const choice = await confirmRewind(el, "retry");
   if (!choice) return;
-  rewindTo(el, state.msgText.get(el.dataset.mid) ?? $(".body", el).innerText, choice.restore);
+  rewindTo(el, state.msgText.get(el.dataset.mid) ?? $(".body", el).innerText, choice.undo);
 }
 function userHtml(text) {
   return esc(text).replace(/(^|[\s(])@(?:&quot;(.+?)&quot;|([\w.\-/~]+))(?::(\d+)(?:-(\d+))?)?/g, (m, pre, q, p, a) => `${pre}<span class="ref" data-path="${q || p}" ${a ? `data-line="${a}"` : ""}>@${m.slice(pre.length + 1)}</span>`);

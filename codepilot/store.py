@@ -95,6 +95,7 @@ class Proposal:
     before_text: str | None = None
     after_text: str | None = None
     check_text: str | None = None
+    applied_at: float | None = None  # when it was applied: undo goes newest-applied first, not by number
 
 
 def _encode(obj: Any) -> Any:
@@ -147,7 +148,8 @@ class Store:
         """Add columns introduced after a database was created."""
         wanted = {"sessions": [("mode", "TEXT NOT NULL DEFAULT 'act'"), ("context_state", "TEXT"),
                                ("model", "TEXT NOT NULL DEFAULT ''")],
-                  "proposals": [("before_text", "TEXT"), ("after_text", "TEXT"), ("check_text", "TEXT")]}
+                  "proposals": [("before_text", "TEXT"), ("after_text", "TEXT"), ("check_text", "TEXT"),
+                                ("applied_at", "REAL")]}
         with self._lock, self._db:
             for table, cols in wanted.items():
                 have = {r["name"] for r in self._db.execute(f"PRAGMA table_info({table})")}
@@ -311,7 +313,8 @@ class Store:
         if row is None:
             raise KeyError(f"no proposal {pid}")
         return Proposal(row["id"], row["session_id"], row["path"], row["old_text"], row["new_text"],
-                        row["reason"], row["status"], row["before_text"], row["after_text"], row["check_text"])
+                        row["reason"], row["status"], row["before_text"], row["after_text"], row["check_text"],
+                        row["applied_at"])
 
     def list_proposals(self, sid: str) -> list[Proposal]:
         with self._lock:
@@ -341,17 +344,20 @@ class Store:
         return ids
 
     def applied_since(self, sid: str, since: float) -> list[Proposal]:
-        """Applied proposals made at or after `since`, newest first (the same rule as discard_pending_since)."""
+        """Applied proposals made at or after `since` (the same rule as discard_pending_since), most recently
+        applied first. Changes are reviewed in any order, so that's not their number order."""
         with self._lock:
             rows = self._db.execute("SELECT id FROM proposals WHERE session_id = ? AND status = 'applied' "
-                                    "AND created >= ? ORDER BY id DESC", (sid, since)).fetchall()
+                                    "AND created >= ? ORDER BY COALESCE(applied_at, 0) DESC, id DESC",
+                                    (sid, since)).fetchall()
         return [self.get_proposal(r["id"]) for r in rows]
 
     def record_applied(self, pid: int, before: str | None, after: str, check: str = "") -> None:
         """Mark applied, keep before/after text for undo, and any post-apply check findings."""
         with self._lock, self._db:
             self._db.execute("UPDATE proposals SET status = 'applied', reported = 0, before_text = ?, after_text = ?, "
-                             "check_text = ? WHERE id = ?", (before, after, check or None, pid))
+                             "check_text = ?, applied_at = ? WHERE id = ?",
+                             (before, after, check or None, time.time(), pid))
 
     def take_unreported_outcomes(self, sid: str) -> list[Proposal]:
         """Proposals the user has acted on since the model last heard about them."""

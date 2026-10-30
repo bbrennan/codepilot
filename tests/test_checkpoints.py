@@ -123,3 +123,58 @@ def test_restore_reports_what_it_managed_when_a_write_fails(store, repo):
         raise AssertionError("expected RestoreError")
     assert calls == [created.id, first.id]
     assert store.get_proposal(created.id).status == "reverted" and store.get_proposal(first.id).status == "applied"
+
+
+def test_preview_never_reads_outside_the_repository(store, repo, tmp_path):
+    sid = store.create_session(str(repo), "main").id
+    change = applied(store, repo, sid, "agent/core.py", "a - b", "a + b")
+    outside = tmp_path / "outside.py"
+    outside.write_text(change.after_text)  # a naive read through the link would say "can be undone"
+    (repo / "agent/core.py").unlink()
+    (repo / "agent/core.py").symlink_to(outside)
+    reads = []
+    items = checkpoints.preview(repo, [change], read=lambda p: reads.append(p) or p.read_text())
+    assert verdicts(items) == [(change.id, False, "outside the repository")] and reads == []
+
+
+def test_preview_leaves_a_file_it_cannot_read_and_its_older_changes(store, repo):
+    sid = store.create_session(str(repo), "main").id
+    first = applied(store, repo, sid, "agent/core.py", "a - b", "a + b")
+    second = applied(store, repo, sid, "agent/core.py", "a + b", "a * b")
+    other = applied(store, repo, sid, "tests/test_core.py", "== 3", "== 3  # 1 + 2")
+
+    def read(path):
+        if path.name == "core.py":
+            raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+        return path.read_text()
+
+    items = checkpoints.preview(repo, [other, second, first], read=read)
+    assert [(i.proposal.id, i.ok) for i in items] == [(other.id, True), (second.id, False), (first.id, False)]
+    assert items[1].reason.startswith("can't be read") and items[2].reason == checkpoints.BLOCKED
+
+
+def test_changes_are_undone_in_the_reverse_of_the_order_they_were_applied(store, repo):
+    sid = store.create_session(str(repo), "main").id
+    mid = store.add_message(sid, "user", [{"text": "two separate edits to one file"}])
+    original = (repo / "agent/core.py").read_text()
+    rename = store.add_proposal(sid, "agent/core.py", "def add", "def plus", "")
+    fix = store.add_proposal(sid, "agent/core.py", "a - b", "a + b", "")
+    for p in (fix, rename):  # reviewed out of order: #2 applied before #1
+        before, after = apply_proposal(repo, p)
+        store.record_applied(p.id, before, after)
+    found = checkpoints.since(store, sid, mid)
+    assert [p.id for p in found] == [rename.id, fix.id]
+    assert all(i.ok for i in checkpoints.preview(repo, found))
+    reverted, left = checkpoints.restore(repo, store, sid, [fix.id, rename.id])
+    assert [p.id for p in reverted] == [rename.id, fix.id] and left == []
+    assert (repo / "agent/core.py").read_text() == original
+
+
+def test_restore_reports_but_never_undoes_changes_shown_as_left(store, repo):
+    sid = store.create_session(str(repo), "main").id
+    kept = applied(store, repo, sid, "agent/core.py", "a - b", "a + b")
+    undone = applied(store, repo, sid, "tests/test_core.py", "== 3", "== 3  # 1 + 2")
+    reverted, left = checkpoints.restore(repo, store, sid, [undone.id], keep=[kept.id])
+    assert [p.id for p in reverted] == [undone.id] and [i.proposal.id for i in left] == [kept.id]
+    assert store.get_proposal(kept.id).status == "applied" and "a + b" in (repo / "agent/core.py").read_text()
+    assert checkpoints.summary(reverted, left).endswith("left 1 as is: agent/core.py #1 (left as it was listed).")

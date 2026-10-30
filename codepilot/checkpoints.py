@@ -16,6 +16,8 @@ from .tools import ToolError, revert_proposal
 CHANGED = "changed since it was applied"
 BLOCKED = "a newer change to this file can't be undone"
 GONE = "no longer applied"
+OUTSIDE = "outside the repository"
+LISTED = "left as it was listed"
 
 
 @dataclass
@@ -46,16 +48,32 @@ def since(store: Store, sid: str, mid: int) -> list[Proposal]:
     return [] if created is None else store.applied_since(sid, created)
 
 
-def preview(root: Path, proposals: list[Proposal], read=_read) -> list[Item]:
-    """Which of these applied changes (newest first) can be undone now, without writing anything.
+def newest_applied_first(proposals: list[Proposal]) -> list[Proposal]:
+    return sorted(proposals, key=lambda p: (p.applied_at or 0, p.id), reverse=True)
+
+
+def _inside(root: Path, rel: str) -> bool:
+    target = (root / rel).resolve()  # follows symlinks, so a link out of the repository counts as outside
+    return target == root or root in target.parents
+
+
+def preview(root: Path, proposals: list[Proposal], read=_read, hold: frozenset[int] = frozenset()) -> list[Item]:
+    """Which of these applied changes (most recently applied first) can be undone now, without writing anything.
+    `hold`: ids to leave alone whatever their state (the user saw them listed as left).
 
     Per file, the newest change must find exactly what it wrote; undoing it would leave its before-text, which
     the next older change must then find, and so on. Once one can't be undone, older ones to that file can't
     either, since they'd overwrite the newer edit.
     """
+    root = root.resolve()
     expected: dict[str, str | None] = {}
     stuck: set[str] = set()
     items = []
+
+    def leave(p: Proposal, reason: str) -> None:
+        stuck.add(p.path)
+        items.append(Item(p, False, reason))
+
     for p in proposals:
         if p.path in stuck:
             items.append(Item(p, False, BLOCKED))
@@ -63,33 +81,42 @@ def preview(root: Path, proposals: list[Proposal], read=_read) -> list[Item]:
         if p.status != "applied" or p.after_text is None:  # e.g. already undone: it doesn't block older ones
             items.append(Item(p, False, GONE))
             continue
-        current = expected[p.path] if p.path in expected else read(root / p.path)
+        if p.path not in expected and not _inside(root, p.path):
+            leave(p, OUTSIDE)
+            continue
+        try:
+            current = expected[p.path] if p.path in expected else read(root / p.path)
+        except (OSError, UnicodeDecodeError) as exc:
+            leave(p, f"can't be read: {exc}")
+            continue
         if current != p.after_text:
-            stuck.add(p.path)
-            items.append(Item(p, False, CHANGED))
+            leave(p, CHANGED)
+            continue
+        if p.id in hold:
+            leave(p, LISTED)
             continue
         expected[p.path] = p.before_text
         items.append(Item(p, True))
     return items
 
 
-def restore(root: Path, store: Store, sid: str, ids: list[int], revert=revert_proposal
+def restore(root: Path, store: Store, sid: str, ids: list[int], revert=revert_proposal, keep: list[int] = ()
             ) -> tuple[list[Proposal], list[Item]]:
-    """Undo exactly these changes of this session (the ones the user confirmed), newest first.
+    """Undo exactly these changes of this session (the ones the user confirmed), most recently applied first.
+    `keep`: changes the user saw listed as left; they're reported, never undone.
 
     Re-checks the disk first, so a change that can't be undone any more is left, not forced. Returns (undone,
     left); raises RestoreError if a write fails partway.
     """
     proposals = []
-    for pid in set(ids):
+    for pid in set(ids) | set(keep):
         try:
             p = store.get_proposal(pid)
         except KeyError:
             continue
         if p.session_id == sid:
             proposals.append(p)
-    proposals.sort(key=lambda p: p.id, reverse=True)
-    items = preview(root, proposals)
+    items = preview(root, newest_applied_first(proposals), hold=frozenset(keep) - set(ids))
     reverted: list[Proposal] = []
     for n, item in enumerate(items):
         if not item.ok:

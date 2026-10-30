@@ -5,8 +5,9 @@
 Every applied proposal already stores `before_text` and `after_text` (`store.record_applied`). Each proposal and
 each message also has a `created` timestamp. `Store.discard_pending_since` already uses those timestamps to decide
 which proposals belong to rewound turns. A checkpoint is therefore not a snapshot: it is the list of applied proposals
-created at or after the turn's first message. Restoring means reverting that list newest first, using the existing
-guarded `tools.revert_proposal`. No new storage is needed. (Requirements 1, 2)
+created at or after the turn's first message. Restoring means reverting that list in the reverse of the order the
+changes were *applied* (not their numbers: changes are reviewed in any order), using the existing guarded
+`tools.revert_proposal`. The only new storage is an `applied_at` time on proposals. (Requirements 1, 2)
 
 ## Architecture
 
@@ -29,14 +30,17 @@ class Item:
     reason: str = ""    # why not: "changed since it was applied", "a newer change to this file can't be undone"
 
 def since(store: Store, sid: str, mid: int) -> list[Proposal]:
-    """Applied proposals created at or after message `mid`, newest first. [] if mid is unknown."""
+    """Applied proposals created at or after message `mid` of this session, most recently applied first.
+    [] if the session has no such message."""
 
-def preview(root: Path, proposals: list[Proposal], read=Path.read_text) -> list[Item]:
-    """Simulates the reverts per file, newest first, without writing (1.5, 3.2)."""
+def preview(root: Path, proposals: list[Proposal], read=_read, hold=frozenset()) -> list[Item]:
+    """Simulates the reverts per file, most recently applied first, without writing (1.5, 3.2). `hold`: ids to
+    leave alone whatever their state, because the user saw them listed as left."""
 
-def restore(root: Path, store: Store, sid: str, ids: list[int], revert=revert_proposal
+def restore(root: Path, store: Store, sid: str, ids: list[int], revert=revert_proposal, keep=()
             ) -> tuple[list[Proposal], list[Item]]:
     """Reverts the given ids of this session (only those: 3.3; others are ignored) that preview() still marks ok.
+    `keep`: ids the dialog listed as left; they're reported in `left` (so the notice names them, 1.6), never undone.
     Returns (reverted, left). Raises RestoreError(reverted, left, cause) when a write fails partway (3.4)."""
 
 def summary(reverted, left) -> str        # "Undid 2 file changes (a.py, b.py); left 1 as is: …" (1.6)
@@ -44,8 +48,10 @@ def failure(exc: RestoreError) -> str     # "Undid 1 of 2 file changes, then cou
 ```
 
 How `preview` works for each file:
-1. Read the current content once. A missing file is `None`.
-2. Walk that file's changes newest first, tracking the expected content. Each change is `ok` only if the expected
+1. Resolve the path, following symlinks. A path that lands outside the repository is left ("outside the repository")
+   and never read, which is the same boundary `revert_proposal` enforces. Otherwise read the current content once:
+   a missing file is `None`, and a read error leaves that file ("can't be read: …") without failing the others.
+2. Walk that file's changes most recently applied first, tracking the expected content. Each change is `ok` only if the expected
    content equals its `after_text`. When it is ok, the expected content becomes its `before_text` (or `None` if the
    change created the file).
 3. Once one change on a file is not ok, every older change on that file is also not ok (3.2).
@@ -57,9 +63,15 @@ then calls `tools.revert_proposal` for each ok change and `store.set_proposal_st
 
 ### Changes to existing modules (wiring only)
 
-- **`store.py`:** add `applied_since(sid, since) -> list[Proposal]`, one query (`status = 'applied' AND created >= ?
-  ORDER BY id DESC`). It sits next to `discard_pending_since` and follows the same timestamp rule.
-- **`agent.py`:** `Agent.rewind(session_id, mid, text, tier, restore: list[int] | None = None)`.
+- **`store.py`:**
+  - Add `applied_since(sid, since) -> list[Proposal]`, one query (`status = 'applied' AND created >= ? ORDER BY
+    COALESCE(applied_at, 0) DESC, id DESC`). It sits next to `discard_pending_since` and follows the same timestamp
+    rule.
+  - `record_applied` stamps `applied_at`, an additive column. Rows applied before the migration have none, so they
+    sort as oldest, in number order.
+  - `message_created(mid, sid=None)` can be limited to a session, so a message id from another session selects
+    nothing.
+- **`agent.py`:** `Agent.rewind(session_id, mid, text, tier, restore: list[int] | None = None, keep=None)`.
   - When `restore` is set, it calls `checkpoints.restore` first.
   - For each reverted change it yields a `proposal` event with `proposal_view(p, "")`. The browser keeps the diff it
     already has.
@@ -101,7 +113,12 @@ composer.
 
 ## Data models
 
-None new. Proposal status `reverted` already exists, and `STATUS_TIPS.reverted` already says "Undone".
+`proposals.applied_at REAL` (additive migration). Proposal status `reverted` already exists, and
+`STATUS_TIPS.reverted` already says "Undone".
+
+The browser sends `{restore: [ids], keep: [ids]}` with a rewind and `{ids, keep}` to `/restore`. Every await in
+`checkpoints.js` re-checks that the same session and message are still on screen, so a late answer never acts on
+another session. A failed preview request aborts Edit/Retry with an error, rather than counting as "no changes".
 
 ## Error handling
 

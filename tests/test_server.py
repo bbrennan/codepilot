@@ -351,3 +351,16 @@ def test_restore_reports_a_partial_failure(cfg, store, repo):
     assert r.status_code == 409 and body["error"].startswith("Undid 0 of 1 file changes")
     assert body["left"] == [{"id": 1, "path": "agent/core.py", "ok": True, "reason": ""}]
     assert not client.get(f"/api/sessions/{sid}").json()["busy"]  # the session isn't left marked busy
+
+
+def test_restore_and_rewind_report_changes_kept_as_listed(cfg, store, repo):
+    client, sid, mid = _auto_applied(cfg, store, repo)
+    r = client.post(f"/api/sessions/{sid}/restore", json={"ids": [], "keep": [1]}, headers=H).json()
+    assert r["reverted"] == [] and r["left"] == [{"id": 1, "path": "agent/core.py", "ok": False,
+                                                  "reason": "left as it was listed"}]
+    assert r["message"] == "Undid 0 file changes; left 1 as is: agent/core.py #1 (left as it was listed)."
+    events = ndjson(client.post(f"/api/sessions/{sid}/rewind", json={"mid": mid, "message": "again", "restore": [],
+                                                                    "keep": [1]}, headers=H))
+    assert any(e["type"] == "notice" and "left 1 as is" in e["message"] for e in events)
+    assert store.get_proposal(1).status == "applied"
+    assert client.post(f"/api/sessions/{sid}/restore", json={"ids": [], "keep": "1"}, headers=H).status_code == 400
