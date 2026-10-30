@@ -191,3 +191,25 @@ def test_view_image_outside_the_workspace_asks_first(cfg, store, repo, tmp_path)
 def test_the_model_is_told_it_can_see_images():
     from codepilot.prompts import STATIC
     assert "You can see images" in STATIC and "view_image" in STATIC
+
+
+def test_image_links_never_reach_cloud_metadata_or_follow_cross_site_redirects(monkeypatch):
+    import socket
+
+    monkeypatch.setattr(socket, "getaddrinfo", lambda host, *a, **k: [(2, 1, 6, "", ("169.254.169.254", 80))])
+    with pytest.raises(images.ImageError, match="link-local"):
+        images.fetch("http://169.254.169.254/latest/meta-data/")
+
+    opened = []
+    monkeypatch.setattr(socket, "getaddrinfo", lambda host, *a, **k: [(2, 1, 6, "", ("93.184.216.34", 80))])
+
+    class Opener:
+        def open(self, req, timeout=None):
+            opened.append(req.full_url)
+            raise OSError("offline")
+
+    from codepilot import webtools
+    monkeypatch.setattr(webtools, "safe_opener", lambda: Opener())
+    with pytest.raises(images.ImageError, match="couldn't download"):
+        images.fetch("https://example.com/a.png")
+    assert opened == ["https://example.com/a.png"]  # downloads go through webtools.safe_opener (vetted, same-site)
