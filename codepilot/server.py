@@ -72,6 +72,9 @@ def _plain_relative(raw: str) -> str | None:
 
 
 def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = None) -> Starlette:
+    from . import bedrock
+
+    bedrock.prepare_tls(cfg)  # once, before any request thread can build an SSL context
     store = store or Store(cfg.home)
     agent = agent or Agent(cfg, store)
     busy: set[str] = set()
