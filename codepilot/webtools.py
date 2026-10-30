@@ -12,6 +12,7 @@ All three are off with CODEPILOT_WEB=0.
 
 from __future__ import annotations
 
+import http.client
 import ipaddress
 import json
 import re
@@ -107,7 +108,20 @@ def host_of(url: str) -> str:
     return (urllib.parse.urlsplit(url).hostname or "").lower()
 
 
-def _check_target(url: str) -> None:
+METADATA_ADDRESSES = ("169.254.169.254", "fd00:ec2::254")
+
+
+def vet_address(text: str) -> None:
+    """Refuse cloud-metadata and link-local addresses, including an IPv4 one wrapped in IPv6 (::ffff:a.b.c.d)."""
+    ip = ipaddress.ip_address(text.split("%")[0])
+    if ip.version == 6 and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    if ip.is_link_local or str(ip) in METADATA_ADDRESSES:
+        raise WebError("cloud metadata and link-local addresses are never fetched")
+
+
+def check_target(url: str) -> None:
+    """Early, friendly refusal. The real guard is GuardedConnection, which vets the address actually connected to."""
     parts = urllib.parse.urlsplit(url)
     if parts.scheme not in ("http", "https") or not parts.hostname:
         raise WebError("only http and https URLs can be fetched")
@@ -116,21 +130,59 @@ def _check_target(url: str) -> None:
     except socket.gaierror:
         raise WebError(f"can't resolve {parts.hostname}") from None
     for a in addrs:
-        ip = ipaddress.ip_address(a.split("%")[0])
-        if ip.is_link_local or str(ip) in ("169.254.169.254", "fd00:ec2::254"):
-            raise WebError("cloud metadata and link-local addresses are never fetched")
+        vet_address(a)
 
 
-class _SameHost(urllib.request.HTTPRedirectHandler):
+def _connect_vetted(conn) -> socket.socket:
+    """Resolve at connection time and connect to an address that passed vet_address: a hostile DNS server can answer
+    differently for the pre-check and the connection (DNS rebinding), and redirects connect afresh too."""
+    last: OSError | None = None
+    for family, _type, _proto, _canon, addr in socket.getaddrinfo(conn.host, conn.port, type=socket.SOCK_STREAM):
+        vet_address(addr[0])
+        try:
+            return socket.create_connection((addr[0], addr[1]), conn.timeout, conn.source_address)
+        except OSError as exc:
+            last = exc
+    raise last or OSError(f"can't connect to {conn.host}")
+
+
+class GuardedHTTPConnection(http.client.HTTPConnection):
+    def connect(self):
+        self.sock = _connect_vetted(self)
+        self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
+
+class GuardedHTTPSConnection(http.client.HTTPSConnection):
+    def connect(self):
+        sock = _connect_vetted(self)
+        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+
+
+class GuardedHTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req):
+        return self.do_open(GuardedHTTPConnection, req)
+
+
+class GuardedHTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(GuardedHTTPSConnection, req, context=self._context)
+
+
+class SameHostRedirects(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         if host_of(newurl) != host_of(req.full_url):
             raise WebError(f"the page redirects to another site ({newurl}); fetch that URL if you trust it")
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
+def safe_opener() -> urllib.request.OpenerDirector:
+    """An opener for fetching user- or model-supplied URLs: same-site redirects only, vetted connections only."""
+    return urllib.request.build_opener(SameHostRedirects, GuardedHTTPHandler, GuardedHTTPSHandler)
+
+
 def _get(url: str, headers: dict | None = None, timeout: float = TIMEOUT) -> tuple[bytes, str, str]:
-    _check_target(url)
-    opener = urllib.request.build_opener(_SameHost)
+    check_target(url)
+    opener = safe_opener()
     req = urllib.request.Request(url, headers={"User-Agent": UA, **(headers or {})})
     try:
         with opener.open(req, timeout=timeout) as resp:

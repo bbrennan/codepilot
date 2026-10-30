@@ -175,3 +175,48 @@ def test_ollama_recovers_tool_call_printed_as_text(monkeypatch):
     assert final["stop_reason"] == "tool_use"
     assert final["content"] == [{"toolUse": {"toolUseId": final["content"][0]["toolUse"]["toolUseId"],
                                              "name": "read_file", "input": {"path": "a.py"}}}]
+
+
+def test_system_certs_are_injected_exactly_once_even_when_threads_race(monkeypatch):
+    """Model discovery builds clients from 8 threads at once. Injecting truststore twice makes ssl.SSLContext
+    recurse ("maximum recursion depth exceeded"), which hid every model as unavailable."""
+    import threading
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    import truststore
+
+    from codepilot import bedrock
+
+    calls = []
+
+    def slow_inject():
+        calls.append(threading.get_ident())
+        time.sleep(0.05)
+
+    monkeypatch.setattr(truststore, "inject_into_ssl", slow_inject)
+    monkeypatch.setattr(bedrock, "_certs_done", False)
+    with ThreadPoolExecutor(8) as pool:
+        list(pool.map(lambda _: bedrock._use_system_certs(), range(8)))
+    assert len(calls) == 1
+
+
+def test_a_configured_ca_bundle_means_no_client_injects_the_os_trust_store(cfg, monkeypatch):
+    """prepare_tls skips the OS trust store when a CA bundle is set; the Anthropic and OpenAI clients used to inject
+    it anyway, from whatever thread built them, which is the race that recursed."""
+    from dataclasses import replace
+
+    from codepilot import bedrock
+    from codepilot.anthropic_api import AnthropicAPI
+    from codepilot.openai_api import OpenAIAPI
+
+    for with_bundle, expected in ((True, 0), (False, 2)):
+        injected = []
+        monkeypatch.setattr(bedrock, "_use_system_certs", lambda: injected.append(1))
+        c = replace(cfg, system_certs=True, ca_bundle="/tmp/bundle.pem" if with_bundle else None, openai_base_url=None)
+        for make in (lambda: AnthropicAPI(c).client, lambda: OpenAIAPI(c).client):
+            try:
+                make()
+            except Exception:  # noqa: BLE001 - SDK/client setup may fail without keys; only the TLS step matters
+                pass
+        assert len(injected) == expected, (with_bundle, injected)

@@ -126,3 +126,56 @@ def test_web_fetch_asks_first(cfg, store, repo, site):
     events = list(agent.resume(sess.id, approve=True))
     result = next(e for e in events if e["type"] == "tool_result")
     assert "# Runtime guide" in result["output"] and "Invoke an agent" in result["output"]
+
+
+def test_ipv4_mapped_ipv6_metadata_addresses_are_refused(monkeypatch):
+    import pytest
+
+    from codepilot import webtools
+
+    for url in ["http://[::ffff:169.254.169.254]/latest/meta-data/", "http://[::ffff:a9fe:a9fe]/", "http://[fd00:ec2::254]/"]:
+        with pytest.raises(webtools.WebError, match="link-local"):
+            webtools.check_target(url)
+
+
+def test_dns_rebinding_cannot_reach_metadata_between_the_check_and_the_connection(monkeypatch):
+    """The name is looked up again when connecting. A hostile DNS server can answer a public address for the
+    pre-check and the metadata address for the connection, so the address actually connected to is vetted."""
+    import socket
+
+    import pytest
+
+    from codepilot import webtools
+
+    answers = iter(["93.184.216.34", "169.254.169.254", "169.254.169.254"])
+    monkeypatch.setattr(socket, "getaddrinfo", lambda host, port, *a, **k: [(2, 1, 6, "", (next(answers), port or 80))])
+    connected = []
+    monkeypatch.setattr(socket, "create_connection", lambda addr, *a, **k: connected.append(addr) or (_ for _ in ()).throw(OSError("no network in tests")))
+    with pytest.raises(webtools.WebError, match="link-local"):
+        webtools._get("http://rebind.example/latest/meta-data/")
+    assert not [c for c in connected if c[0].startswith("169.254")], connected
+
+
+def test_normal_http_fetching_still_works_through_the_guard():
+    import http.server
+    import threading
+
+    from codepilot import webtools
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"hello through the guard")
+
+        def log_message(self, *a):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        data, ctype, _ = webtools._get(f"http://127.0.0.1:{server.server_port}/x")
+        assert data == b"hello through the guard" and ctype.startswith("text/plain")
+    finally:
+        server.shutdown()
