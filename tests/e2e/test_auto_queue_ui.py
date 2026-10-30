@@ -152,9 +152,11 @@ def test_retry_the_last_message(page, server, session):
     send(page, "hello there")
     wait_idle(page)
     msg = page.locator(".msg.user", has_text="hello there")
+    msg.evaluate("(el) => { el.dataset.original = '1'; }")  # replaced once the rewind starts
     msg.hover()
     msg.locator("[data-act=retry]").click()
-    page.wait_for_function("() => document.querySelectorAll('.msg.assistant').length === 1")
+    page.wait_for_function("() => !document.querySelector('.msg.user[data-original]')"
+                           " && document.querySelectorAll('.msg.assistant').length === 1")
     wait_idle(page)
     assert len(model_calls(server)) == 2 and page.locator(".msg.user", has_text="hello there").count() == 1
     assert len([m for m in server.store.live_messages(session.id) if m["role"] == "user"]) == 1

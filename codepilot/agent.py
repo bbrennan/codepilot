@@ -15,12 +15,14 @@ from collections.abc import Callable, Generator, Iterator
 from pathlib import Path
 from typing import Any
 
-from . import checks, images, mentions, models, modes, prompts, repomap, router, skills, specs, steering, webtools
+from . import (checkpoints, checks, images, mentions, models, modes, prompts, repomap, router, skills, specs, steering,
+               webtools)
 from .bedrock import BedrockError, make_client
 from .config import Config
 from .context import CLEARED_PREFIX, ContextManager, is_overflow
 from .store import Session, Store
-from .tools import SKIP_DIRS, Tool, ToolContext, ToolError, build_tools, detect_test_cmd, execute, trace_roots
+from .tools import (SKIP_DIRS, Tool, ToolContext, ToolError, build_tools, detect_test_cmd, execute, proposal_view,
+                    trace_roots)
 
 UI_OUTPUT_LIMIT = 6000
 EXPLORE_MAX_STEPS = 12
@@ -146,8 +148,11 @@ class Agent:
 
     # -- rewind: edit an earlier message, or retry the last one ---------------------------------
 
-    def rewind(self, session_id: str, mid: int, text: str, tier: str | None = None) -> Iterator[dict]:
-        """Remove a user message and everything after it, then send `text` in its place."""
+    def rewind(self, session_id: str, mid: int, text: str, tier: str | None = None,
+               restore: list[int] | None = None, keep: list[int] | None = None) -> Iterator[dict]:
+        """Remove a user message and everything after it, then send `text` in its place. `restore`: applied
+        changes the user chose to undo along with it (ids from the checkpoint preview); `keep`: ones the preview
+        listed as left, reported but never undone."""
         if self.store.is_archived(mid):
             yield {"type": "error", "message": "That message was summarised when the conversation was compacted, "
                                                "so it can't be edited. Send a new message instead."}
@@ -156,6 +161,10 @@ class Agent:
         if not target or target["role"] != "user" or not target["content"] or "text" not in target["content"][0]:
             yield {"type": "error", "message": "Only a message that started a turn can be edited or retried."}
             return
+        if restore or keep:
+            done = yield from self._restore(session_id, restore or [], keep or [])
+            if not done:
+                return
         since = self.store.message_created(mid)
         self.store.delete_messages_from(session_id, mid)
         if since is not None:
@@ -166,6 +175,22 @@ class Agent:
         state["steering_loaded"] = []
         self.store.update_session(session_id, pending=None, context_state=state)
         yield from self.chat(session_id, text, tier)
+
+    def _restore(self, session_id: str, ids: list[int], keep: list[int]) -> Generator[dict, None, bool]:
+        """Undo these applied changes; False if that stopped partway (the caller then leaves the chat alone)."""
+        sess = self.store.get_session(session_id)
+        root = Path(sess.repo).expanduser().resolve()
+        try:
+            reverted, left = checkpoints.restore(root, self.store, session_id, ids, keep=keep)
+        except checkpoints.RestoreError as exc:
+            for p in exc.reverted:
+                yield {"type": "proposal", "proposal": proposal_view(p, "")}
+            yield {"type": "error", "message": checkpoints.failure(exc)}
+            return False
+        for p in reverted:
+            yield {"type": "proposal", "proposal": proposal_view(p, "")}
+        yield {"type": "notice", "message": checkpoints.summary(reverted, left)}
+        return True
 
     def _default_logs_client(self) -> Any:
         if self._logs_client is None:

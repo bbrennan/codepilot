@@ -8,6 +8,11 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/architecture.md](docs/architec
 - No human review is required. Open the PR and, once CI (`unit`, `e2e`) is green, squash-merge it yourself.
 - `main` only moves by a release merge of `develop`, or by a `hotfix/**` PR into `main` that is merged back into
   `develop` straight after. Never force-push a shared branch.
+- One PR at a time. Land (or close) a PR before opening the next that touches the same files, and never open a
+  batch of PRs off a base that lacks the CI they need. Piling up PRs makes every merge a conflict and a re-test.
+- Copilot reviews are advisory, not a merge gate (only `unit` and `e2e` are required), but they are read: fix what
+  is correct (they caught real security and race bugs), answer what is not. Never bulk-resolve threads.
+- Dependabot is grouped, monthly and one PR per ecosystem (`.github/dependabot.yml`); major bumps are done by hand.
 - Stage files by name (no `git add -A`): untracked work from other branches ends up in the wrong commit.
 - Commit messages: one imperative line stating what the user gets, then the attribution line.
 
@@ -15,7 +20,7 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/architecture.md](docs/architec
 - Write the failing test first and watch it fail for the right reason, then make it pass, then refactor.
 - Bug fix = regression test that fails on the old code. UI behaviour = Playwright test in `tests/e2e/`
   (reproduce timing bugs deterministically, e.g. with `page.route`, never with retries or sleeps).
-- Before opening a PR: `make test`, `make e2e`, `uvx ruff check codepilot tests`, `node --check codepilot/static/app.js`.
+- Before opening a PR: `make test`, `make e2e`, `uvx ruff check codepilot tests`, `node --check` on each `codepilot/static/*.js`.
 - Look at the real UI (the Playwright MCP in `.mcp.json`, or `make e2e` headed) before calling a UI change done.
 
 ## Design (SOLID)

@@ -33,7 +33,8 @@ from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 
 from .http_input import HANDLERS, json_body
-from . import checks, diagnostics, github, images, mentions, models, modes, skills, specs, steering, traces, uploads, version
+from . import (checkpoints, checks, diagnostics, github, images, mentions, models, modes, skills, specs, steering, traces,
+               uploads, version)
 from .agent import Agent, history_events
 from .config import TIER_CHOICES, TIERS, Config
 from .store import Store
@@ -492,6 +493,9 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             return err("Empty message")
         if tier and tier not in TIER_CHOICES:
             return err(f"tier must be one of {TIER_CHOICES}")
+        restore, keep = data.get("restore"), data.get("keep")
+        if any(v is not None and not _change_ids(v) for v in (restore, keep)):
+            return err("restore and keep must be lists of change numbers")
         try:
             mid = int(data.get("mid"))
             store.get_session(sid)
@@ -499,7 +503,50 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             return err("mid must be a message id")
         except KeyError:
             return err("No such session", 404)
-        return stream(sid, agent.rewind(sid, mid, text, tier))
+        return stream(sid, agent.rewind(sid, mid, text, tier, restore=restore, keep=keep))
+
+    async def checkpoint(request: Request) -> Response:
+        """The changes applied from a message onwards, and whether each can still be undone."""
+        sid = request.path_params["sid"]
+        try:
+            mid = int(request.query_params.get("mid", ""))
+            sess = store.get_session(sid)
+        except ValueError:
+            return err("mid must be a message id")
+        except KeyError:
+            return err("No such session", 404)
+        if not sess.repo:
+            return JSONResponse({"changes": []})
+        root = Path(sess.repo).expanduser().resolve()
+        items = await run_in_threadpool(lambda: checkpoints.preview(root, checkpoints.since(store, sid, mid)))
+        return JSONResponse({"changes": [_item_json(i) for i in items]})
+
+    async def restore(request: Request) -> Response:
+        """Undo the changes the user confirmed, keeping the conversation."""
+        sid = request.path_params["sid"]
+        data = await json_body(request)
+        ids, keep = data.get("ids"), data.get("keep", [])
+        if not _change_ids(ids) or not _change_ids(keep):
+            return err("ids and keep must be lists of change numbers")
+        try:
+            sess = store.get_session(sid)
+        except KeyError:
+            return err("No such session", 404)
+        root = Path(sess.repo).expanduser().resolve()
+        with busy_lock:  # no turn may start (or be running) while files are put back
+            if sid in busy:
+                return err("This session is already working; wait for it to finish.", 409)
+            busy.add(sid)
+        try:
+            reverted, left = await run_in_threadpool(lambda: checkpoints.restore(root, store, sid, ids, keep=keep))
+        except checkpoints.RestoreError as exc:
+            return JSONResponse({"error": checkpoints.failure(exc), "left": [_item_json(i) for i in exc.left],
+                                 "reverted": [_proposal_json(p, root) for p in exc.reverted]}, status_code=409)
+        finally:
+            with busy_lock:
+                busy.discard(sid)
+        return JSONResponse({"reverted": [_proposal_json(p, root) for p in reverted],
+                             "left": [_item_json(i) for i in left], "message": checkpoints.summary(reverted, left)})
 
     async def grep(request: Request) -> Response:
         ctx = ctx_for(request.path_params["sid"])
@@ -1034,6 +1081,8 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         Route("/api/sessions/{sid}/queue/{qid}", queue, methods=["DELETE", "PATCH"]),
         Route("/api/sessions/{sid}/follow", follow),
         Route("/api/sessions/{sid}/rewind", rewind, methods=["POST"]),
+        Route("/api/sessions/{sid}/checkpoint", checkpoint),
+        Route("/api/sessions/{sid}/restore", restore, methods=["POST"]),
         Route("/api/sessions/{sid}/compact", compact, methods=["POST"]),
         Route("/api/sessions/{sid}/handoff", handoff, methods=["POST"]),
         Route("/api/sessions/{sid}/grep", needs_workspace(grep)),
@@ -1127,6 +1176,14 @@ def _places(store: Store) -> list[dict]:
             seen.add(sess.repo)
             places.append({"name": Path(sess.repo).name, "path": sess.repo, "recent": True})
     return places[:30]
+
+
+def _change_ids(value) -> bool:
+    return isinstance(value, list) and all(isinstance(i, int) and not isinstance(i, bool) for i in value)
+
+
+def _item_json(item: checkpoints.Item) -> dict:
+    return {"id": item.proposal.id, "path": item.proposal.path, "ok": item.ok, "reason": item.reason}
 
 
 def _proposal_json(prop, root: Path | None = None) -> dict:
