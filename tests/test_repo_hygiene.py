@@ -19,7 +19,7 @@ def test_docs_do_not_advertise_sample_traces():
 
 
 def test_dependabot_is_grouped_limited_and_slow():
-    """An unconfigured Dependabot opened seven PRs at once. It must group updates, keep few PRs open, run
+    """An unconfigured Dependabot opened seven PRs at once. It must group updates, keep one PR open per ecosystem, run
     monthly, and leave major-version jumps (e.g. actions/checkout 4 -> 7) to a person."""
     text = (ROOT / ".github" / "dependabot.yml").read_text()
     ecosystems = text.count("package-ecosystem:")
@@ -28,5 +28,5 @@ def test_dependabot_is_grouped_limited_and_slow():
     assert text.count("groups:") == ecosystems
     assert text.count("version-update:semver-major") == ecosystems
     limits = [int(x) for x in re.findall(r"open-pull-requests-limit:\s*(\d+)", text)]
-    assert len(limits) == ecosystems and all(1 <= n <= 2 for n in limits), limits
+    assert limits == [1] * ecosystems, limits  # exactly one open PR per ecosystem; raising it must fail this
     assert "target-branch: develop" in text
