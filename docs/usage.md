@@ -194,6 +194,14 @@ finishes or needs your approval (your browser asks permission the first time).
 
 **Stop:** the stop button halts a running turn at the next safe point.
 
+**The plan.** For multi-step work codepilot keeps a checklist, pinned above the message box with its progress
+("Plan · 2 of 5 done"). Click its header to fold it to that one line. A plan never just disappears:
+- when every step is done it shows **✓ Plan complete**, and a card with the finished list stays in the chat;
+- when codepilot starts a different plan, or clears it, the old one becomes a **Plan replaced** card at that point,
+  with the steps that weren't done still listed.
+
+After a reload, or after you edit an earlier message, the plan is the one from that point in the conversation.
+
 ## Modes
 
 Pick a mode in the chat header. Each is a focused agent with its own instructions, tools and skills.

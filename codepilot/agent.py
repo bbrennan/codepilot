@@ -15,8 +15,8 @@ from collections.abc import Callable, Generator, Iterator
 from pathlib import Path
 from typing import Any
 
-from . import (checkpoints, checks, gitstate, images, mentions, models, modes, prompts, repomap, router, skills, specs,
-               steering, verification, webtools)
+from . import (checkpoints, checks, gitstate, images, mentions, models, modes, plans, prompts, repomap, router, skills,
+               specs, steering, verification, webtools)
 from .bedrock import BedrockError, make_client
 from .config import Config
 from .context import CLEARED_PREFIX, ContextManager, is_overflow
@@ -171,6 +171,7 @@ class Agent:
             discarded = self.store.discard_pending_since(session_id, since)
             if discarded:
                 yield {"type": "proposals_changed", "ids": discarded}
+        yield plans.current(self.store, session_id)  # the plan as it was at that message
         state = dict(self.store.get_session(session_id).context_state or {})
         state["steering_loaded"] = []
         self.store.update_session(session_id, pending=None, context_state=state)
@@ -794,6 +795,7 @@ class Agent:
         if tu["name"] == "explore":
             output, is_error = yield from self._explore(ctx, tu)
         else:
+            ctx.tool_use_id = tu["toolUseId"]
             output, is_error = execute(self.tools[tu["name"]], ctx, tu["input"])
             docs = [] if is_error else self._file_steering(ctx, tu)
             if docs:
@@ -965,6 +967,7 @@ def history_events(store: Store, session_id: str) -> list[dict]:
     home = store.home
     events: list[dict] = []
     names: dict[str, str] = {}
+    plan = plans.Tracker()  # the same lifecycle as live, so a reload shows what you saw
     live = {mid for mid, _ in store.messages(session_id)}
     for mid, m in store.messages(session_id, include_archived=True):
         # A message that starts a turn (and isn't compacted) can be edited or retried from the UI.
@@ -992,8 +995,8 @@ def history_events(store: Store, session_id: str) -> list[dict]:
                 tu = b["toolUse"]
                 names[tu["toolUseId"]] = tu["name"]
                 events.append({"type": "tool_call", "id": tu["toolUseId"], "name": tu["name"], "input": tu["input"]})
-                if tu["name"] == "update_plan" and isinstance(tu["input"].get("items"), list):
-                    events.append({"type": "plan", "items": tu["input"]["items"]})
+                if tu["name"] == "update_plan":
+                    events.append(plan.push(tu["input"].get("items")))
             elif "image" in b and m["role"] == "user":
                 url = images.save(home, b)
                 if events and events[-1]["type"] == "attached_images":
