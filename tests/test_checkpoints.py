@@ -178,3 +178,14 @@ def test_restore_reports_but_never_undoes_changes_shown_as_left(store, repo):
     assert [p.id for p in reverted] == [undone.id] and [i.proposal.id for i in left] == [kept.id]
     assert store.get_proposal(kept.id).status == "applied" and "a + b" in (repo / "agent/core.py").read_text()
     assert checkpoints.summary(reverted, left).endswith("left 1 as is: agent/core.py #1 (left as it was listed).")
+
+
+def test_restore_works_when_the_workspace_path_goes_through_a_symlink(store, repo, tmp_path):
+    sid = store.create_session(str(repo), "main").id
+    original = (repo / "agent/core.py").read_text()
+    change = applied(store, repo, sid, "agent/core.py", "a - b", "a + b")
+    link = tmp_path / "workspace-link"
+    link.symlink_to(repo)
+    reverted, left = checkpoints.restore(link, store, sid, [change.id])
+    assert [p.id for p in reverted] == [change.id] and left == []
+    assert (repo / "agent/core.py").read_text() == original

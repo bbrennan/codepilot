@@ -1,8 +1,8 @@
 """Turn checkpoints: the changes codepilot applied from a message onwards, and undoing them together.
 
 A checkpoint isn't a snapshot. Every applied proposal keeps its before/after text, so a turn's checkpoint is the
-list of proposals applied at or after the message that started it, and restoring it reverts them newest first
-with the same guard as Undo. Files changed by commands, the terminal or other editors were never tracked.
+list of proposals made at or after the message that started it, and restoring it reverts them in the reverse of
+the order they were applied, with the same guard as Undo. Files changed by commands, the terminal or other editors were never tracked.
 """
 
 from __future__ import annotations
@@ -43,7 +43,8 @@ def _read(path: Path) -> str | None:
 
 
 def since(store: Store, sid: str, mid: int) -> list[Proposal]:
-    """Applied changes made at or after message `mid`, newest first. [] if the session has no such message."""
+    """Applied changes made at or after message `mid`, most recently applied first. [] if the session has no such
+    message."""
     created = store.message_created(mid, sid)
     return [] if created is None else store.applied_since(sid, created)
 
@@ -108,6 +109,7 @@ def restore(root: Path, store: Store, sid: str, ids: list[int], revert=revert_pr
     Re-checks the disk first, so a change that can't be undone any more is left, not forced. Returns (undone,
     left); raises RestoreError if a write fails partway.
     """
+    root = root.resolve()  # revert_proposal checks containment against the real path
     proposals = []
     for pid in set(ids) | set(keep):
         try:
