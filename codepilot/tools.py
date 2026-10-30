@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import checks, github, gitcmd, images, procenv, skills, specs, steering, traces, webtools
+from . import checks, github, gitcmd, images, plans, procenv, skills, specs, steering, traces, webtools
 from .config import Config
 from .store import Store
 
@@ -41,6 +41,8 @@ class ToolContext:
     events: list[dict] = field(default_factory=list)
     auto_apply: bool = False  # this session writes edits immediately (CODEPILOT_AUTO_APPLY does it everywhere)
     cancelled: Callable[[], bool] = lambda: False  # the user pressed Stop (long-running tools check it)
+    tool_use_id: str = ""  # the call being executed
+    plan_updates: list = field(default_factory=list)  # update_plan calls in this loop, results maybe not stored yet
 
     def resolve(self, rel: str | None, must_exist: bool = True) -> Path:
         if self.root is None:
@@ -286,15 +288,10 @@ def open_workspace(ctx: ToolContext, path: str) -> str:
 
 
 def update_plan(ctx: ToolContext, items: list) -> str:
-    clean = []
-    for item in items:
-        if isinstance(item, str):
-            item = {"text": item}
-        status = item.get("status", "todo")
-        clean.append({"text": str(item.get("text", ""))[:300],
-                      "status": status if status in ("todo", "doing", "done") else "todo"})
-    ctx.events.append({"type": "plan", "items": clean})
-    return "Plan updated."
+    event = plans.event_for(ctx.store, ctx.session_id, ctx.tool_use_id, items, ctx.plan_updates)
+    ctx.plan_updates.append((ctx.tool_use_id, items))
+    ctx.events.append(event)
+    return plans.summary(event)
 
 
 def load_skill(ctx: ToolContext, name: str) -> str:

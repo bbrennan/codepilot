@@ -272,7 +272,7 @@ async function openSession(sid) {
   $("#chatTitle").textContent = data.session.title || "New session";
   syncModelSelect(); $("#autoApprove").checked = data.session.auto_approve; $("#autoApply").checked = !!data.auto_apply;
   state.mode = data.session.mode || "build";
-  $("#transcript").innerHTML = ""; state.toolEls.clear(); endText();
+  $("#transcript").innerHTML = ""; state.toolEls.clear(); endText(); resetPlan();
   state.proposals = new Map(data.proposals.map((p) => [p.id, p]));
   state.prompts = data.events.filter((ev) => ev.type === "user").map((ev) => ev.text); resetHistory();
   state.workspace = data.session.repo || "";
@@ -283,7 +283,6 @@ async function openSession(sid) {
   state.approval = null; state.allow = data.allow || []; state.receipt = data.receipt; state.verifying = null;
   if (data.pending) render({ type: "approval_needed", tools: data.pending }, true);
   renderReviewBar();
-  renderPlan(null); for (const ev of data.events) if (ev.type === "plan") renderPlan(ev.items);
   updateBusy();
   setContext(data.context); renderUsage(data.usage); state.summary = data.summary;
   setWorkspace(data.session.repo, prevWorkspace !== (data.session.repo || ""));
@@ -1273,7 +1272,7 @@ function toolEl(ev) {
 function render(ev, replay) {
   switch (ev.type) {
     case "user": {
-      endText();
+      endText(); planOnUserMessage();
       if (ev.text === REVIEW_DONE) { add(`<div class="wait-row approved">${icon("refresh")}<span>Continued after your review</span></div>`); break; }
       for (const id of ev.queued_ids || (ev.queued_id ? [ev.queued_id] : [])) $(`#transcript .msg.queued[data-qid="${id}"]`)?.remove();
       const el = add(userMessageHtml(ev.text));
@@ -1339,7 +1338,7 @@ function render(ev, replay) {
       break;
     }
     case "workspace": setWorkspace(ev.repo, true); loadSessions(); toast(`Opened ${ev.repo}`); break;
-    case "plan": renderPlan(ev.items); break;
+    case "plan": endText(); onPlanEvent(ev); break;
     case "usage": { const u = ev.usage || {}; activity("model", shortModel(ev.model || ""), `in ${fmtTok(u.inputTokens || 0)} · out ${fmtTok(u.outputTokens || 0)}${u.cacheReadInputTokens ? " · cached " + fmtTok(u.cacheReadInputTokens) : ""} · ${ev.seconds}s`); endText(); refreshUsage(); break; }
     case "context": setContext(ev); break;
     case "verifying": onVerifying(ev); break;
@@ -1375,12 +1374,6 @@ function renderProposalCard(p) {
   return add(`<details class="card prop" data-prop="${p.id}"><summary class="hd">${icon("edit")}<span class="path" data-prop-open="${p.id}" title="Open in Review">${esc(p.path)}</span>${diffStat(p.diff).html}<span class="muted">#${p.id}</span><span class="status ${p.status}" title="${esc(STATUS_TIPS[p.status] || "")}">${p.status}</span><span class="spacer"></span>
     <span class="pacts">${propActions(p)}</span></summary>
     ${p.reason ? `<div class="reason">${esc(p.reason)}</div>` : ""}${diffHtml(p.diff)}</details>`);
-}
-function renderPlan(items) {
-  const el = $("#plan");
-  if (!items || !items.length) { el.hidden = true; el.innerHTML = ""; return; }
-  el.hidden = false;
-  el.innerHTML = items.map((i) => `<div class="it ${esc(i.status)}"><span class="box"></span><span>${esc(i.text)}</span></div>`).join("");
 }
 $("#transcript").addEventListener("click", (e) => {
   const act = e.target.closest(".msg.user[data-mid] .msg-actions [data-act]");
