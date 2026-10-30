@@ -680,7 +680,13 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         declared = request.headers.get("content-length", "")
         if declared.isdigit() and int(declared) > uploads.MAX_UPLOAD_BYTES:
             return err("That file is too large to upload.", 413)
-        body = await request.body()
+        chunks, size = [], 0
+        async for chunk in request.stream():  # counted as it arrives: a chunked body has no Content-Length to trust
+            size += len(chunk)
+            if size > uploads.MAX_UPLOAD_BYTES:
+                return err("That file is too large to upload.", 413)
+            chunks.append(chunk)
+        body = b"".join(chunks)
         try:
             result = await run_in_threadpool(uploads.store_upload, ctx, request.query_params.get("path", ""), body,
                                              request.query_params.get("replace") == "1")

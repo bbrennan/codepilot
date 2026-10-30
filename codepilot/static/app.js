@@ -438,29 +438,31 @@ async function filesFromDrop(dt) {
   return out;
 }
 const MAX_UPLOAD = 100 * 1024 * 1024;
-async function putFile(dest, file, replace) {
-  const res = await fetch(`/api/sessions/${state.sid}/upload?path=${encodeURIComponent(dest)}${replace ? "&replace=1" : ""}`, { method: "PUT", headers: H, body: file });
+async function putFile(sid, dest, file, replace) {
+  const res = await fetch(`/api/sessions/${sid}/upload?path=${encodeURIComponent(dest)}${replace ? "&replace=1" : ""}`, { method: "PUT", headers: H, body: file });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) { const e = new Error(data.error || res.statusText); e.status = res.status; throw e; }
   return data;
 }
-async function uploadDropped(items, dir) {
+async function uploadDropped(sid, items, dir) { // sid: the session the files were dropped on, fixed before any await
   let added = 0; const failed = [];
   for (const { rel, file } of items) {
     const dest = dir ? dir + "/" + rel : rel;
     if (file.size > MAX_UPLOAD) { failed.push(`${rel}: larger than 100 MB`); continue; }
     try {
-      try { await putFile(dest, file, false); }
+      try { await putFile(sid, dest, file, false); }
       catch (err) {
         if (err.status !== 409 || !/already exists/.test(err.message)) throw err;
         if (!(await confirmDialog(`Replace ${dest}?`, "A file with this name is already in the workspace.", "Replace"))) continue;
-        await putFile(dest, file, true);
+        await putFile(sid, dest, file, true);
       }
       added++;
     } catch (err) { failed.push(`${rel}: ${err.message}`); }
   }
-  if (dir) for (let p = dir; p; p = dirOf(p)) state.expanded.add(p);
-  state.tree.clear(); renderTree(); loadGit();
+  if (state.sid === sid) { // the explorer on screen is still that workspace
+    if (dir) for (let p = dir; p; p = dirOf(p)) state.expanded.add(p);
+    state.tree.clear(); renderTree(); loadGit();
+  }
   if (added) toast(`Added ${added} file${added > 1 ? "s" : ""}${dir ? " to " + dir : ""}.`);
   if (failed.length) toast(failed.slice(0, 3).join(" · ") + (failed.length > 3 ? ` · and ${failed.length - 3} more` : ""), true);
 }
@@ -468,8 +470,8 @@ $("#tree").addEventListener("drop", async (e) => {
   if (!isFileDrag(e)) return;
   e.preventDefault(); $$("#tree .drop-target").forEach((r) => r.classList.remove("drop-target"));
   if (!state.sid || !state.workspace) return toast("Open a folder first.", true);
-  const dir = dropDir(e), items = await filesFromDrop(e.dataTransfer);
-  if (items.length) await uploadDropped(items, dir);
+  const sid = state.sid, dir = dropDir(e), items = await filesFromDrop(e.dataTransfer);
+  if (items.length) await uploadDropped(sid, items, dir);
 });
 
 async function loadWorkspaceInfo() {

@@ -77,3 +77,71 @@ def test_no_temporary_files_remain(up, repo):
     before = set(os.listdir(repo))
     up("ok.txt", b"1")
     assert set(os.listdir(repo)) - before == {"ok.txt"}
+
+
+def test_a_chunked_body_without_content_length_is_still_capped(up, repo, monkeypatch):
+    monkeypatch.setattr(uploads, "MAX_UPLOAD_BYTES", 100)
+    def chunks():  # a generator body is sent chunked, with no Content-Length
+        for _ in range(50):
+            yield b"x" * 20
+
+    r = up("big.bin", chunks())
+    assert r.status_code == 413 and not (repo / "big.bin").exists()
+
+
+def test_names_with_separators_of_another_platform_are_refused(monkeypatch, repo):
+    import pathlib
+
+    from codepilot.tools import ToolContext
+
+    monkeypatch.setattr(uploads, "PurePath", pathlib.PureWindowsPath)  # as if on Windows
+    ctx = ToolContext(root=repo.resolve(), cfg=None, store=None, session_id="s")
+    for bad in ["..\\escape.txt", "C:\\escape.txt", "C:escape.txt", "sub\\..\\..\\x.txt"]:
+        with pytest.raises(uploads.UploadError):
+            uploads.store_upload(ctx, bad, b"x")
+
+
+def test_git_is_off_limits_through_aliases_and_any_letter_case(up, repo):
+    os.symlink(repo / ".git", repo / "alias")
+    assert up("alias/hooks/pre-commit").status_code == 400
+    assert up(".GIT/config").status_code == 400
+    assert up("sub/.Git/x").status_code == 400
+    assert not (repo / ".git" / "hooks" / "pre-commit").exists()
+
+
+def test_two_racing_uploads_to_one_new_name_never_both_succeed(cfg, repo, monkeypatch):
+    import tempfile
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    from codepilot.tools import ToolContext
+
+    ctx = ToolContext(root=repo.resolve(), cfg=cfg, store=None, session_id="s")
+    gate = threading.Barrier(2, timeout=10)
+    real = tempfile.mkstemp
+
+    def meet_after_the_exists_check(*a, **k):
+        gate.wait()  # both uploads have seen "no such file" before either writes
+        return real(*a, **k)
+
+    monkeypatch.setattr(uploads.tempfile, "mkstemp", meet_after_the_exists_check)
+
+    def go(i):
+        try:
+            return uploads.store_upload(ctx, "race.txt", f"from {i}".encode())["path"]
+        except uploads.UploadError as exc:
+            return exc.status
+
+    with ThreadPoolExecutor(2) as pool:
+        results = list(pool.map(go, [1, 2]))
+    assert sorted(map(str, results)) == ["409", "race.txt"], results
+
+
+def test_replacing_keeps_the_file_mode_and_new_files_are_not_private(up, repo):
+    script = repo / "run.sh"
+    script.write_text("#!/bin/sh\n")
+    script.chmod(0o755)
+    assert up("run.sh", b"#!/bin/sh\necho new\n", replace=True).status_code == 200
+    assert (script.stat().st_mode & 0o777) == 0o755
+    up("fresh.txt", b"x")
+    assert (repo / "fresh.txt").stat().st_mode & 0o044  # group/other can read, like a normal new file

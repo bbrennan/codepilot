@@ -64,3 +64,22 @@ def test_dropping_a_file_anywhere_never_navigates_away_from_codepilot(page, serv
       document.querySelector("#editor").dispatchEvent(ev);
       return ev.defaultPrevented; }""")
     assert prevented and page.url == url
+
+
+def test_files_go_to_the_workspace_they_were_dropped_on_even_if_the_session_changes_midway(page, server, session):
+    from uihelpers import open_app
+    open_app(page)
+    seen = []
+
+    def hold_first(route):
+        seen.append(route.request.url)
+        if len(seen) == 1:
+            page.evaluate("state.sid = 'some-other-session'")  # the user switches session while the first PUT is in flight
+        route.continue_()
+
+    page.route("**/upload?*", hold_first)
+    drop(page, "#tree", ("one.txt", b"1"), ("two.txt", b"2"), ("three.txt", b"3"))
+    page.wait_for_function("() => document.querySelectorAll('.toast').length > 0")
+    page.wait_for_timeout(500)
+    assert len(seen) == 3 and all(f"/api/sessions/{session.id}/upload" in u for u in seen), seen
+    assert all((server.repo / n).exists() for n in ("one.txt", "two.txt", "three.txt"))
