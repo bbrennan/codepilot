@@ -7,9 +7,8 @@ A spec is a folder:
                           tasks.md         "- [ ] 1. Title" / "- [x] 2.1 Sub-task" checklist; "_Requirements: 1.2_"
                                            lines tie tasks to acceptance criteria; "- [-]" is in progress
                           spec.json        codepilot's bookkeeping: kind and approved phase (Kiro ignores it)
-Also listed, and workable: Kiro's .kiro/specs/<name>/ and GitHub Spec Kit's specs/<NNN-name>/
-(spec.md, plan.md, tasks.md). Their phase is inferred from which files exist; codepilot keeps its own
-state for them in .codepilot/specs/.state/.
+Only .codepilot/specs/ is listed. Other tools' spec folders (.kiro/specs/, Spec Kit's specs/) belong to those
+tools and aren't shown, even though the files share Kiro's format.
 """
 
 from __future__ import annotations
@@ -43,33 +42,25 @@ class Task:
 class Spec:
     name: str
     folder: Path
-    source: str  # codepilot | kiro | speckit
     kind: str = "feature"
     approved: str = ""  # the last approved phase
     tasks: list[Task] = field(default_factory=list)
 
     def doc(self, phase: str) -> Path:
-        if self.source == "speckit":
-            return self.folder / {"requirements": "spec.md", "design": "plan.md", "tasks": "tasks.md"}[phase]
         if phase == "requirements" and self.kind == "bugfix":
             return self.folder / "bugfix.md"
         return self.folder / f"{phase}.md"
 
     @property
     def phase(self) -> str:
-        """The phase being worked on: the one after the last approved, or inferred from the files."""
+        """The phase being worked on: the one after the last approved."""
         if self.approved in PHASES:
             return PHASES[min(PHASES.index(self.approved) + 1, len(PHASES) - 1)]
-        if self.source == "codepilot":
-            return "requirements"
-        for phase in ("tasks", "design", "requirements"):
-            if self.doc(phase).is_file():
-                return "implement" if phase == "tasks" else PHASES[PHASES.index(phase) + 1]
         return "requirements"
 
     def info(self, root: Path) -> dict:
         done = sum(t.status == "done" for t in self.tasks)
-        return {"name": self.name, "source": self.source, "kind": self.kind, "phase": self.phase,
+        return {"name": self.name, "kind": self.kind, "phase": self.phase,
                 "approved": self.approved, "folder": str(self.folder.relative_to(root)),
                 "docs": {p: str(self.doc(p).relative_to(root)) for p in PHASES[:3] if self.doc(p).is_file()},
                 "doc_paths": {p: str(self.doc(p).relative_to(root)) for p in PHASES[:3]},
@@ -115,21 +106,14 @@ def set_task_status(path: Path, task_id: str, status: str) -> Task:
     return task
 
 
-def _state_file(root: Path, source: str, name: str, folder: Path) -> Path:
-    if source == "codepilot":
-        return folder / "spec.json"
-    return root / ".codepilot/specs/.state" / f"{source}__{name}.json"
-
-
-def _load(root: Path, folder: Path, source: str) -> Spec:
-    name = folder.name
+def _load(folder: Path) -> Spec:
     state: dict = {}
     try:
-        state = json.loads(_state_file(root, source, name, folder).read_text())
+        state = json.loads((folder / "spec.json").read_text())
     except (OSError, ValueError):
         pass
     kind = state.get("kind") or ("bugfix" if (folder / "bugfix.md").is_file() else "feature")
-    spec = Spec(name=name, folder=folder, source=source, kind=kind, approved=state.get("approved", ""))
+    spec = Spec(name=folder.name, folder=folder, kind=kind, approved=state.get("approved", ""))
     tasks = spec.doc("tasks")
     if tasks.is_file():
         spec.tasks = parse_tasks(tasks.read_text(errors="replace"))
@@ -137,16 +121,10 @@ def _load(root: Path, folder: Path, source: str) -> Spec:
 
 
 def discover(root: Path) -> list[Spec]:
-    found: dict[str, Spec] = {}
-    sources = ((root / "specs", "speckit"), (root / ".kiro/specs", "kiro"), (root / ".codepilot/specs", "codepilot"))
-    for base, source in sources:
-        if not base.is_dir():
-            continue
-        for folder in sorted(p for p in base.iterdir() if p.is_dir() and not p.name.startswith(".")):
-            if source == "speckit" and not (folder / "spec.md").is_file():
-                continue
-            found[folder.name] = _load(root, folder, source)  # a codepilot spec wins a name clash
-    return sorted(found.values(), key=lambda s: s.name)
+    base = root / ".codepilot/specs"
+    if not base.is_dir():
+        return []
+    return [_load(folder) for folder in sorted(p for p in base.iterdir() if p.is_dir() and not p.name.startswith("."))]
 
 
 def get(root: Path, name: str) -> Spec | None:
@@ -163,7 +141,7 @@ def create(root: Path, name: str, kind: str = "feature") -> Spec:
         raise FileExistsError(f"A spec named {name} already exists.")
     folder.mkdir(parents=True)
     (folder / "spec.json").write_text(json.dumps({"kind": kind, "approved": "", "created": time.time()}, indent=1))
-    return _load(root, folder, "codepilot")
+    return _load(folder)
 
 
 def approve(root: Path, spec: Spec, phase: str) -> Spec:
@@ -174,8 +152,7 @@ def approve(root: Path, spec: Spec, phase: str) -> Spec:
         raise ValueError(f"Approve {spec.phase} first.")
     if not spec.doc(phase).is_file():
         raise FileNotFoundError(f"{spec.doc(phase).name} hasn't been written yet.")
-    path = _state_file(root, spec.source, spec.name, spec.folder)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path = spec.folder / "spec.json"
     try:
         state = json.loads(path.read_text())
     except (OSError, ValueError):
@@ -185,7 +162,7 @@ def approve(root: Path, spec: Spec, phase: str) -> Spec:
     if not current or PHASES.index(phase) > PHASES.index(current):
         state["approved"] = phase
     path.write_text(json.dumps(state, indent=1))
-    return _load(root, spec.folder, spec.source)
+    return _load(spec.folder)
 
 
 def slug(text: str) -> str:

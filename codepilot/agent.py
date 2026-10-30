@@ -15,8 +15,8 @@ from collections.abc import Callable, Generator, Iterator
 from pathlib import Path
 from typing import Any
 
-from . import (checkpoints, checks, images, mentions, models, modes, prompts, repomap, router, skills, specs, steering,
-               webtools)
+from . import (checkpoints, checks, gitstate, images, mentions, models, modes, plans, prompts, repomap, router, skills,
+               specs, steering, verification, webtools)
 from .bedrock import BedrockError, make_client
 from .config import Config
 from .context import CLEARED_PREFIX, ContextManager, is_overflow
@@ -171,6 +171,7 @@ class Agent:
             discarded = self.store.discard_pending_since(session_id, since)
             if discarded:
                 yield {"type": "proposals_changed", "ids": discarded}
+        yield plans.current(self.store, session_id)  # the plan as it was at that message
         state = dict(self.store.get_session(session_id).context_state or {})
         state["steering_loaded"] = []
         self.store.update_session(session_id, pending=None, context_state=state)
@@ -191,6 +192,35 @@ class Agent:
             yield {"type": "proposal", "proposal": proposal_view(p, "")}
         yield {"type": "notice", "message": checkpoints.summary(reverted, left)}
         return True
+
+    # -- verification receipts: pending changes tested on a copy before review -------------------------
+
+    def verify(self, session_id: str) -> Iterator[dict]:
+        """Verify the pending changes now (the Verify button)."""
+        self._cancelled.discard(session_id)
+        yield from self._verify(session_id, self._ctx(self.store.get_session(session_id)))
+        yield {"type": "done"}
+
+    def _verify_if_due(self, session_id: str, ctx: ToolContext) -> Iterator[dict]:
+        """At the end of a turn that left changes pending: verify them, if tests may run without asking and they
+        weren't verified as they are now."""
+        sess = self.store.get_session(session_id)
+        if not self.cfg.verify or not sess.auto_approve or session_id in self._cancelled:
+            return
+        current = verification.current_fingerprint(self.store, session_id)
+        latest = self.store.latest_receipt(session_id)
+        if current and not (latest and latest["fingerprint"] == current):
+            yield from self._verify(session_id, ctx)
+
+    def _verify(self, session_id: str, ctx: ToolContext) -> Iterator[dict]:
+        pending = verification.pending_of(self.store, session_id)
+        if not pending:
+            yield {"type": "notice", "message": "No changes are pending, so there's nothing to verify."}
+            return
+        yield {"type": "verifying", "ids": [p.id for p in pending]}
+        receipt = verification.verify_session(self.store, self.cfg, session_id, ctx.root, ctx.cancelled)
+        if receipt:
+            yield {"type": "verification", "receipt": receipt}
 
     def _default_logs_client(self) -> Any:
         if self._logs_client is None:
@@ -363,7 +393,7 @@ class Agent:
             state["mode"] = mode.name
         else:
             lines.append(f"Mode: {mode.label} (unchanged).")
-        git = _git_summary(root)
+        git = gitstate.summary(root)
         if git and git != state.get("git"):
             lines.append("Git:\n" + git)
             state["git"] = git
@@ -377,6 +407,11 @@ class Agent:
         spec = specs.get(root, spec_name) if spec_name and root else None
         if spec:
             lines.append(specs.turn_text(root, spec))
+        receipt = self.store.latest_receipt(sess.id)
+        if receipt and not receipt["told"]:
+            if receipt["fingerprint"] == verification.current_fingerprint(self.store, sess.id):
+                lines.append(verification.describe(receipt, "Verification of your pending changes"))
+            self.store.mark_receipt_told(receipt["id"])  # a stale one is never worth telling
         outcomes = self.store.take_unreported_outcomes(sess.id)
         for p in outcomes:
             note = {"outdated": f"Proposal #{p.id} ({p.path}) is outdated: the file changed, so it can no longer be "
@@ -569,6 +604,9 @@ class Agent:
         if tu["name"] == "run_checks":
             names = ", ".join(c.name for c in checks.detect(root)) if root else ""
             return f"run checks ({inp.get('kind', 'all')}): {names or 'none detected'}"
+        if tu["name"] == "verify_changes":
+            cmd = detect_test_cmd(root, self.cfg) or "no test command"
+            return f"verify pending changes on a copy: {cmd} + analysers"
         return f"{tu['name']} {json.dumps(inp)}"
 
     # -- internals ------------------------------------------------------------------------------
@@ -577,7 +615,8 @@ class Agent:
         root = Path(sess.repo).expanduser().resolve() if sess.repo else None
         return ToolContext(root=root, cfg=self.cfg, store=self.store, session_id=sess.id,
                            logs_client_factory=self._logs_factory,
-                           auto_apply=bool((sess.context_state or {}).get("auto_apply")))
+                           auto_apply=bool((sess.context_state or {}).get("auto_apply")),
+                           cancelled=lambda: sess.id in self._cancelled)
 
     def _system(self, sess: Session, ctx: ToolContext) -> list[dict]:
         root = ctx.root
@@ -696,6 +735,7 @@ class Agent:
             if not tool_uses:
                 if stop == "max_tokens":
                     yield {"type": "notice", "message": "Reply hit the max token limit (CODEPILOT_MAX_TOKENS)."}
+                yield from self._verify_if_due(session_id, ctx)
                 yield self.context_usage(session_id)
                 yield {"type": "done"}
                 return
@@ -755,6 +795,7 @@ class Agent:
         if tu["name"] == "explore":
             output, is_error = yield from self._explore(ctx, tu)
         else:
+            ctx.tool_use_id = tu["toolUseId"]
             output, is_error = execute(self.tools[tu["name"]], ctx, tu["input"])
             docs = [] if is_error else self._file_steering(ctx, tu)
             if docs:
@@ -846,34 +887,6 @@ def _reopens(tu: dict, root: Path | None) -> bool:
         return False
 
 
-def _git_summary(root: Path | None) -> str:
-    """Branch, short status and recent commits: cheap orientation for reviews and debugging."""
-    if root is None or not (root / ".git").exists():
-        return ""
-    import subprocess
-
-    def run(*args: str) -> str:
-        try:
-            proc = subprocess.run(["git", "--no-pager", "-C", str(root), *args], capture_output=True, text=True,
-                                  timeout=10, errors="replace", check=False)
-        except (OSError, subprocess.SubprocessError):
-            return ""
-        return proc.stdout.strip() if proc.returncode == 0 else ""
-
-    branch = run("rev-parse", "--abbrev-ref", "HEAD")
-    status = run("status", "--short").splitlines()
-    log = run("log", "--oneline", "-5")
-    parts = [f"branch {branch or '?'}"]
-    if status:
-        parts.append(f"uncommitted ({len(status)}): " + ", ".join(line[3:] for line in status[:25])
-                     + (" ..." if len(status) > 25 else ""))
-    else:
-        parts.append("working tree clean")
-    if log:
-        parts.append("recent commits:\n" + log)
-    return "\n".join(parts)
-
-
 def render_transcript(messages: list[dict], limit: int = 120_000) -> str:
     lines = []
     for m in messages:
@@ -954,6 +967,7 @@ def history_events(store: Store, session_id: str) -> list[dict]:
     home = store.home
     events: list[dict] = []
     names: dict[str, str] = {}
+    plan, applied = plans.Tracker(), plans.applied_ids(store, session_id)  # the same lifecycle as live
     live = {mid for mid, _ in store.messages(session_id)}
     for mid, m in store.messages(session_id, include_archived=True):
         # A message that starts a turn (and isn't compacted) can be edited or retried from the UI.
@@ -981,8 +995,8 @@ def history_events(store: Store, session_id: str) -> list[dict]:
                 tu = b["toolUse"]
                 names[tu["toolUseId"]] = tu["name"]
                 events.append({"type": "tool_call", "id": tu["toolUseId"], "name": tu["name"], "input": tu["input"]})
-                if tu["name"] == "update_plan" and isinstance(tu["input"].get("items"), list):
-                    events.append({"type": "plan", "items": tu["input"]["items"]})
+                if tu["name"] == "update_plan" and tu["toolUseId"] in applied:
+                    events.append(plan.push(tu["input"].get("items")))
             elif "image" in b and m["role"] == "user":
                 url = images.save(home, b)
                 if events and events[-1]["type"] == "attached_images":

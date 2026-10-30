@@ -226,3 +226,44 @@ def test_unified_diff_without_trailing_newline():
 
     d = unified_diff("x.py", 'p > m', 'p <= m')
     assert d.splitlines()[-2:] == ["-p > m", "+p <= m"]
+
+
+def _git(repo, *args):
+    import subprocess
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, check=True).stdout
+
+
+@pytest.mark.parametrize("args", [
+    "branch -D keep", "branch -d keep", "branch --delete keep", "branch -m keep other", "branch -M x",
+    "branch new-one", "branch -f keep HEAD", "branch -vD keep", "branch --set-upstream-to=origin/x",
+    "branch -u origin/x", "branch --unset-upstream", "branch --edit-description",
+    "stash", "stash drop", "stash pop", "stash clear", "remote add evil https://x", "remote remove origin",
+    "reflog expire --all", "reflog delete HEAD@{0}",
+    "branch --abbrev -D --abbrev keep", "branch -l new-one", "branch --contains -D keep", "branch --sort -D keep",
+    "remote -v remove origin", "remote --verbose set-url origin https://x", "remote -v add evil https://x",
+])
+def test_read_only_git_refuses_anything_that_writes(ctx, repo, args):
+    _git(repo, "commit", "-q", "--allow-empty", "-m", "init")
+    _git(repo, "branch", "keep")
+    _git(repo, "remote", "add", "origin", "https://example.invalid/r.git")
+    with pytest.raises(ToolError, match="read-only|changes|creates|only `git"):  # refused, not a git error
+        git(ctx, args)
+    assert "keep" in _git(repo, "branch") and "example.invalid/r.git" in _git(repo, "remote", "-v")
+    assert "new-one" not in _git(repo, "branch")
+
+
+@pytest.mark.parametrize("args", [
+    "branch", "branch -a", "branch -vv", "branch --show-current", "branch --list 'fe*'", "branch --merged HEAD",
+    "branch --contains HEAD", "stash list", "remote -v", "reflog -5", "rev-list --count HEAD",
+    "merge-base HEAD HEAD",
+])
+def test_read_only_git_still_answers_questions(ctx, repo, args):
+    _git(repo, "commit", "-q", "--allow-empty", "-m", "init")
+    git(ctx, args)  # no ToolError
+
+
+def test_the_agent_is_told_how_git_writes_work():
+    from codepilot import prompts
+    text = " ".join(prompts.STATIC.split())
+    assert "git tool only reads" in text and "only when the user asks" in text
+    assert "stage files by name" in text and "never use -i" in text and "--force" in text

@@ -47,20 +47,24 @@ def test_set_task_status_edits_only_that_checkbox(tmp_path):
         specs.set_task_status(path, "9", "done")
 
 
-def test_discover_codepilot_kiro_and_spec_kit(repo):
+def test_only_codepilot_specs_are_listed(repo):
     created = specs.create(repo, "csv-export")
-    write(repo / ".kiro/specs/auth-flow/requirements.md", "# Req")
-    write(repo / ".kiro/specs/auth-flow/design.md", "# Design")
+    write(repo / ".kiro/specs/auth-flow/requirements.md", "# Req")  # other tools' specs stay theirs
     write(repo / "specs/001-search/spec.md", "# Spec")
-    write(repo / "specs/001-search/plan.md", "# Plan")
     write(repo / "specs/001-search/tasks.md", "- [ ] 1. Index")
-    found = {s.name: s for s in specs.discover(repo)}
-    assert found["csv-export"].source == "codepilot" and found["csv-export"].phase == "requirements"
-    assert found["auth-flow"].source == "kiro" and found["auth-flow"].phase == "tasks"  # inferred from files
-    assert found["001-search"].source == "speckit" and found["001-search"].phase == "implement"
-    assert found["001-search"].doc("design").name == "plan.md" and len(found["001-search"].tasks) == 1
+    write(repo / ".codepilot/specs/ROADMAP.md", "# not a spec")
+    assert [s.name for s in specs.discover(repo)] == ["csv-export"]
+    assert specs.get(repo, "auth-flow") is None and specs.get(repo, "001-search") is None
+    found = specs.get(repo, "csv-export")
+    assert found.phase == "requirements" and found.doc("requirements").name == "requirements.md"
+    assert "source" not in found.info(repo)
     assert created.doc("requirements").name == "requirements.md"
     assert specs.create(repo, "bad-login", "bugfix").doc("requirements").name == "bugfix.md"
+
+
+def test_a_spec_named_like_another_tools_spec_can_be_created(repo):
+    write(repo / ".kiro/specs/auth-flow/requirements.md", "# Req")
+    assert specs.create(repo, "auth-flow").folder == repo / ".codepilot/specs/auth-flow"
 
 
 def test_approvals_go_in_order_and_never_backwards(repo):

@@ -16,7 +16,7 @@
 <p align="center">
   <b>Point it at any folder and ask, in chat, to review code, hunt bugs, fix them, build features, or explain
   why an agent run failed from its traces.</b><br>
-  Every edit is a diff you approve (and can undo). Every command asks first. It never commits or pushes.
+  Every edit is a diff you approve (and can undo). Every command asks first. It never commits or pushes on its own.
 </p>
 
 <p align="center">
@@ -53,7 +53,7 @@ assistant's replies in them are scripted so the demo is reproducible.</sub>
 - **Runs like an app:** `make start` runs it in the background in its own window, and on macOS `make app`
   installs a **Codepilot.app** for the Dock. No terminal to keep open.
 - **Safe by default:** it reads freely, but every edit is a diff you **Apply** (and can **Undo**), and every
-  shell command needs your approval. It never commits or pushes.
+  shell command needs your approval. It never commits or pushes on its own.
 - **Focused modes:** Ask, Plan, Build, Debug, Bug-hunt and Review, each a focused agent. Add your own.
 - **Built for debugging:** it reproduces first (a failing test or a scratch script), tests hypotheses one at
   a time, fixes the root cause, and adds a regression test. Skills such as `diagnose-bug`, `tdd`,
@@ -81,7 +81,7 @@ assistant's replies in them are scripted so the demo is reproducible.</sub>
   any message, ↑ for earlier prompts, and desktop notifications when it's done.
 - **Spec-driven development:** for bigger work, requirements (EARS acceptance criteria), then design, then
   tasks, each reviewed in a Spec tab, then task-by-task implementation. Includes drift checks and mapping
-  eval results to acceptance criteria. It uses Kiro's format, and reads Kiro and Spec Kit specs too.
+  eval results to acceptance criteria. It uses Kiro's format, in `.codepilot/specs/`.
 - **Steering:** standing instructions it always follows, in Kiro's format (`.codepilot/steering/`):
   always on, for matching files, by `#name`, or when relevant. It drafts them from your repo, and reads
   `AGENTS.md`, `CLAUDE.md`, Kiro, Cursor and Copilot instruction files too.

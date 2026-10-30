@@ -272,7 +272,7 @@ async function openSession(sid) {
   $("#chatTitle").textContent = data.session.title || "New session";
   syncModelSelect(); $("#autoApprove").checked = data.session.auto_approve; $("#autoApply").checked = !!data.auto_apply;
   state.mode = data.session.mode || "build";
-  $("#transcript").innerHTML = ""; state.toolEls.clear(); endText();
+  $("#transcript").innerHTML = ""; state.toolEls.clear(); endText(); resetPlan();
   state.proposals = new Map(data.proposals.map((p) => [p.id, p]));
   state.prompts = data.events.filter((ev) => ev.type === "user").map((ev) => ev.text); resetHistory();
   state.workspace = data.session.repo || "";
@@ -280,10 +280,9 @@ async function openSession(sid) {
   for (const ev of data.events) render(ev, true);
   // Changes are redrawn where they were proposed (proposal_ref); anything still waiting that wasn't goes last.
   for (const p of data.proposals) if (p.status === "pending" && !$(`#transcript [data-prop="${p.id}"]`)) renderProposalCard(p);
-  state.approval = null; state.allow = data.allow || [];
+  state.approval = null; state.allow = data.allow || []; state.receipt = data.receipt; state.verifying = null;
   if (data.pending) render({ type: "approval_needed", tools: data.pending }, true);
   renderReviewBar();
-  renderPlan(null); for (const ev of data.events) if (ev.type === "plan") renderPlan(ev.items);
   updateBusy();
   setContext(data.context); renderUsage(data.usage); state.summary = data.summary;
   setWorkspace(data.session.repo, prevWorkspace !== (data.session.repo || ""));
@@ -855,9 +854,9 @@ function renderReviewBar() {
     const tot = pend.reduce((acc, p) => { const st = diffStat(p.diff); acc.a += st.a; acc.d += st.d; return acc; }, { a: 0, d: 0 });
     const files = [...new Set(pend.map((p) => base(p.path)))];
     html += `<div class="rb-row rb-changes">${icon("diff")}<div class="rb-main"><b>${pend.length} change${pend.length > 1 ? "s" : ""} to review</b> <span class="dstat"><span class="a">+${tot.a}</span> <span class="d">−${tot.d}</span></span><span class="rb-files muted">${esc(files.slice(0, 4).join(", "))}${files.length > 4 ? ` +${files.length - 4} more` : ""}</span></div>
-      <div class="rb-acts"><button class="btn" id="rbReview">Review</button><button class="btn primary" id="rbApplyAll">Apply all</button><button class="btn ghost" id="rbRejectAll">Reject all</button></div></div>`;
+      <div class="rb-acts"><button class="btn" id="rbReview">Review</button><button class="btn primary" id="rbApplyAll">Apply all</button><button class="btn ghost" id="rbRejectAll">Reject all</button></div>${receiptHtml()}</div>`;
   }
-  bar.innerHTML = html; bar.hidden = !html;
+  bar.innerHTML = html; bar.hidden = !html; bindReceipt(bar);
   if (ap) { $("#rbApprove").onclick = () => decideApproval(true); $("#rbDeny").onclick = () => decideApproval(false); }
   if (pend.length) {
     $("#rbReview").onclick = () => openReview(pend[0].id);
@@ -922,10 +921,12 @@ function renderReviewTab(tab) {
   $("#editor").innerHTML = `<div class="review">
     <div class="rv-list"><div class="rv-head">${pendN ? `${pendN} waiting` : "All reviewed"}<span class="spacer"></span>${pendN ? `<button class="btn sm primary" id="rvApplyAll">Apply all</button>` : ""}</div>
       ${list.map((x) => `<div class="rv-item ${x.id === p.id ? "on" : ""}" data-rv="${x.id}">${fileIcon(x.path)}<div class="rv-name"><span>${esc(base(x.path))}</span><span class="muted">${esc(dirOf(x.path))}</span></div>${diffStat(x.diff).html}<span class="status ${x.status}">${x.status}</span></div>`).join("")}
+      <div class="rv-receipt">${receiptHtml()}</div>
       <div class="hint rv-keys"><kbd>j</kbd>/<kbd>k</kbd> move · <kbd>a</kbd> apply · <kbd>r</kbd> reject</div></div>
     <div class="rv-main"><div class="ed-bar"><span class="crumbs"><b>${esc(p.path)}</b> <span class="muted">#${p.id}</span></span><span class="status ${p.status}">${p.status}</span><span class="muted rv-reason">${esc(p.reason || "")}</span><span class="spacer"></span>${propActions(p)}<button class="btn ghost" id="rvOpen">${icon("file")}Open file</button></div>
-      <div class="ed-scroll">${diffHtml(p.diff)}</div>
+      ${receiptFindings(p.path)}<div class="ed-scroll">${diffHtml(p.diff)}</div>
       <div class="rv-ask"><textarea class="field" id="rvAsk" rows="2" placeholder="Ask for a change to this, e.g. &quot;keep the old name as an alias&quot;"></textarea><button class="btn" id="rvAskBtn">${icon("send")}Send</button></div></div></div>`;
+  bindReceipt($("#editor"));
   $(".rv-list").onclick = (e) => { const it = e.target.closest("[data-rv]"); if (it) { tab.sel = +it.dataset.rv; renderReviewTab(tab); } };
   $("#rvOpen").onclick = () => openFile(p.path);
   $("#rvApplyAll") && ($("#rvApplyAll").onclick = () => bulkProposals("apply"));
@@ -1141,13 +1142,15 @@ let userScrollUntil = 0, userDragging = false;
 for (const ev of ["wheel", "touchmove", "keydown", "focusin"]) $("#transcript").addEventListener(ev, () => { userScrollUntil = performance.now() + 500; }, { passive: true });
 $("#transcript").addEventListener("pointerdown", () => { userDragging = true; }); // e.g. dragging the scrollbar
 for (const ev of ["pointerup", "pointercancel"]) addEventListener(ev, () => { if (userDragging) { userDragging = false; userScrollUntil = performance.now() + 300; } }); // a cancelled touch pan sends no pointerup
+let viewHeight = 0; // as of the last ResizeObserver run
 $("#transcript").addEventListener("scroll", () => {
   const t = $("#transcript");
+  if (t.clientHeight !== viewHeight) return; // the view just resized: this says nothing about the user, and the observer below is about to settle it
   if (t.scrollHeight - t.scrollTop - t.clientHeight < 80) stickToBottom = true;
   else if (userDragging || performance.now() < userScrollUntil) stickToBottom = false;
 });
 // The composer growing (a long draft, an approval, the plan) makes the transcript shorter: keep the newest line in view.
-new ResizeObserver(() => scrollEnd()).observe($("#transcript"));
+new ResizeObserver(() => { viewHeight = $("#transcript").clientHeight; scrollEnd(); }).observe($("#transcript"));
 // New content goes above the typing dots and any waiting (queued) messages, which stay last without being moved.
 function add(html, last = false) {
   $(".chat-empty")?.remove(); const d = document.createElement("div"); d.innerHTML = html; const el = d.firstElementChild;
@@ -1271,7 +1274,7 @@ function toolEl(ev) {
 function render(ev, replay) {
   switch (ev.type) {
     case "user": {
-      endText();
+      endText(); planOnUserMessage();
       if (ev.text === REVIEW_DONE) { add(`<div class="wait-row approved">${icon("refresh")}<span>Continued after your review</span></div>`); break; }
       for (const id of ev.queued_ids || (ev.queued_id ? [ev.queued_id] : [])) $(`#transcript .msg.queued[data-qid="${id}"]`)?.remove();
       const el = add(userMessageHtml(ev.text));
@@ -1337,17 +1340,19 @@ function render(ev, replay) {
       break;
     }
     case "workspace": setWorkspace(ev.repo, true); loadSessions(); toast(`Opened ${ev.repo}`); break;
-    case "plan": renderPlan(ev.items); break;
+    case "plan": endText(); onPlanEvent(ev); break;
     case "usage": { const u = ev.usage || {}; activity("model", shortModel(ev.model || ""), `in ${fmtTok(u.inputTokens || 0)} · out ${fmtTok(u.outputTokens || 0)}${u.cacheReadInputTokens ? " · cached " + fmtTok(u.cacheReadInputTokens) : ""} · ${ev.seconds}s`); endText(); refreshUsage(); break; }
     case "context": setContext(ev); break;
+    case "verifying": onVerifying(ev); break;
+    case "verification": endText(); onVerification(ev, replay); break;
     case "notice": endText(); add(`<div class="banner notice">${esc(ev.message)}</div>`); break;
     case "error": {
-      endText();
+      endText(); onStreamSettled();
       const b = add(`<div class="banner error">${esc(ev.message)}</div>`);
       if (!replay) { activity("error", "error", ev.message); const last = lastTurnBubble(); if (last) b.insertAdjacentHTML("beforeend", ` <button class="btn sm" data-retry-last>Retry</button>`); }
       break;
     }
-    case "done": endText(); break;
+    case "done": endText(); onStreamSettled(); break;
   }
   if (!replay) scrollEnd();
 }
@@ -1371,12 +1376,6 @@ function renderProposalCard(p) {
   return add(`<details class="card prop" data-prop="${p.id}"><summary class="hd">${icon("edit")}<span class="path" data-prop-open="${p.id}" title="Open in Review">${esc(p.path)}</span>${diffStat(p.diff).html}<span class="muted">#${p.id}</span><span class="status ${p.status}" title="${esc(STATUS_TIPS[p.status] || "")}">${p.status}</span><span class="spacer"></span>
     <span class="pacts">${propActions(p)}</span></summary>
     ${p.reason ? `<div class="reason">${esc(p.reason)}</div>` : ""}${diffHtml(p.diff)}</details>`);
-}
-function renderPlan(items) {
-  const el = $("#plan");
-  if (!items || !items.length) { el.hidden = true; el.innerHTML = ""; return; }
-  el.hidden = false;
-  el.innerHTML = items.map((i) => `<div class="it ${esc(i.status)}"><span class="box"></span><span>${esc(i.text)}</span></div>`).join("");
 }
 $("#transcript").addEventListener("click", (e) => {
   const act = e.target.closest(".msg.user[data-mid] .msg-actions [data-act]");
@@ -2099,8 +2098,8 @@ function renderSpecs() {
   const el = $("#specsView"); if (!el) return;
   const d = state.specs;
   if (!d) { el.innerHTML = `<div class="empty-state">Open a folder to work with specs.</div>`; return; }
-  const row = (x) => `<div class="row spec-row ${x.name === d.active ? "on" : ""}" data-spec-open="${esc(x.name)}" title="${esc(x.folder)}"><span class="ficon">${icon(x.kind === "bugfix" ? "alert" : "list")}</span><span class="name">${esc(x.name)}</span>${x.source !== "codepilot" ? `<span class="incl">${x.source === "speckit" ? "spec kit" : x.source}</span>` : ""}<span class="incl phase-${x.phase}">${x.phase === "implement" ? `${x.progress[0]}/${x.progress[1]}` : esc(phaseLabel(x, x.phase).toLowerCase())}</span></div>`;
-  el.innerHTML = `<div class="hint" style="padding:6px 14px 2px">Plan bigger changes before coding: requirements, then design, then tasks, each reviewed, then build task by task. Kiro-compatible (<span class="mono">.codepilot/specs</span>; Kiro and Spec Kit specs are listed too).</div>
+  const row = (x) => `<div class="row spec-row ${x.name === d.active ? "on" : ""}" data-spec-open="${esc(x.name)}" title="${esc(x.folder)}"><span class="ficon">${icon(x.kind === "bugfix" ? "alert" : "list")}</span><span class="name">${esc(x.name)}</span><span class="incl phase-${x.phase}">${x.phase === "implement" ? `${x.progress[0]}/${x.progress[1]}` : esc(phaseLabel(x, x.phase).toLowerCase())}</span></div>`;
+  el.innerHTML = `<div class="hint" style="padding:6px 14px 2px">Plan bigger changes before coding: requirements, then design, then tasks, each reviewed, then build task by task. Specs live in <span class="mono">.codepilot/specs</span>, in Kiro's file format.</div>
     <div style="display:flex;gap:6px;padding:8px 14px 4px;flex-wrap:wrap"><button class="btn sm primary" id="specNew">${icon("plus")}New spec</button><button class="btn sm" id="specNewBug">${icon("alert")}New bugfix spec</button></div>
     ${(d.specs || []).map(row).join("") || `<div class="hint" style="padding:4px 14px">No specs yet.</div>`}
     ${d.error ? `<div class="banner error">${esc(d.error)}</div>` : ""}`;
@@ -2141,7 +2140,7 @@ async function renderSpecTab(tab) {
   const cur = SPEC_PHASES.indexOf(spec.phase);
   const view = tab.view && SPEC_PHASES.indexOf(tab.view) <= cur ? tab.view : spec.phase;
   const steps = SPEC_PHASES.map((ph, i) => `<button class="sp-step ${i < cur ? "done" : i === cur ? "current" : "todo"} ${ph === view ? "on" : ""}" data-sp-view="${ph}" ${i > cur ? "disabled" : ""}>${i < cur ? icon("check") : `<span class="n">${i + 1}</span>`}${esc(phaseLabel(spec, ph))}</button>`).join(`<span class="sp-sep">›</span>`);
-  const head = `<div class="ed-bar sp-head"><span class="crumbs"><b>${esc(spec.name)}</b> <span class="muted">${spec.kind === "bugfix" ? "bugfix spec" : "spec"}${spec.source !== "codepilot" ? " · " + spec.source : ""}</span></span><div class="sp-steps">${steps}</div><span class="spacer"></span>${spec.name === state.specs.active ? `<span class="incl">active</span>` : ""}</div>`;
+  const head = `<div class="ed-bar sp-head"><span class="crumbs"><b>${esc(spec.name)}</b> <span class="muted">${spec.kind === "bugfix" ? "bugfix spec" : "spec"}</span></span><div class="sp-steps">${steps}</div><span class="spacer"></span>${spec.name === state.specs.active ? `<span class="incl">active</span>` : ""}</div>`;
   let body = "";
   if (view === "implement") {
     const pending = spec.tasks.filter((t) => t.status !== "done");

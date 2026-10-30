@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import checks, github, images, skills, specs, steering, traces, webtools
+from . import checks, github, gitcmd, images, plans, procenv, skills, specs, steering, traces, webtools
 from .config import Config
 from .store import Store
 
@@ -25,8 +25,6 @@ SKIP_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".mypy_cach
              ".ruff_cache", "dist", "build", ".tox", ".idea", ".vscode", "cdk.out", ".aws-sam"}
 TRACE_DIR_NAMES = {"traces", "trace", "logs", "log", ".traces", "journeys", "eval_results", "results"}
 TRACE_SUFFIXES = {".json", ".jsonl", ".ndjson", ".log", ".txt"}
-GIT_READONLY = {"status", "diff", "log", "show", "blame", "branch", "rev-parse", "ls-files", "shortlog"}
-GIT_BANNED_ARGS = ("--output", "--exec", "-c", "--git-dir", "--work-tree", "--ext-diff")
 
 
 class ToolError(Exception):
@@ -42,6 +40,9 @@ class ToolContext:
     logs_client_factory: Callable[[], Any] | None = None
     events: list[dict] = field(default_factory=list)
     auto_apply: bool = False  # this session writes edits immediately (CODEPILOT_AUTO_APPLY does it everywhere)
+    cancelled: Callable[[], bool] = lambda: False  # the user pressed Stop (long-running tools check it)
+    tool_use_id: str = ""  # the call being executed
+    plan_updates: list = field(default_factory=list)  # update_plan calls in this loop, results maybe not stored yet
 
     def resolve(self, rel: str | None, must_exist: bool = True) -> Path:
         if self.root is None:
@@ -209,11 +210,11 @@ def search_code(ctx: ToolContext, pattern: str, path: str = ".", glob: str = "",
 
 def git(ctx: ToolContext, args: str) -> str:
     argv = shlex.split(args)
-    if not argv or argv[0] not in GIT_READONLY:
-        raise ToolError(f"only read-only git subcommands are allowed: {sorted(GIT_READONLY)}")
-    for arg in argv:
-        if arg in GIT_BANNED_ARGS or any(arg.startswith(b + "=") for b in GIT_BANNED_ARGS):
-            raise ToolError(f"git argument {arg!r} is not allowed")
+    try:
+        gitcmd.check_read_only(argv)
+    except gitcmd.NotReadOnly as exc:
+        raise ToolError(f"{exc}. This tool only reads; to change the repository, use run_command (the user "
+                        "approves it)") from None
     proc = subprocess.run(["git", "--no-pager", "-C", str(ctx.root), *argv], capture_output=True, text=True,
                           timeout=120, errors="replace")
     out = proc.stdout + (f"\n[stderr]\n{proc.stderr}" if proc.stderr.strip() else "")
@@ -230,17 +231,14 @@ def _run_command(ctx: ToolContext, argv: list[str] | str, timeout: int, what: st
         if shutil.which(argv[0]) is None:
             raise ToolError(f"{what} command {argv[0]!r} not found on PATH")
         shown = shlex.join(argv)
-    env = dict(os.environ)
-    env.pop("VIRTUAL_ENV", None)  # don't leak codepilot's own venv into the workspace's tooling
     started = time.monotonic()
     try:
-        proc = subprocess.run(argv, cwd=ctx.root, capture_output=True, text=True, timeout=timeout, env=env,
-                              errors="replace")
+        code, out, err = procenv.run(argv, ctx.root, timeout)  # non-interactive: nobody can type into it
     except subprocess.TimeoutExpired:
         raise ToolError(f"{what} timed out after {timeout}s") from None
     took = time.monotonic() - started
-    header = f"$ {shown}\nexit code {proc.returncode} in {took:.1f}s\n"
-    return header + clip(proc.stdout + ("\n[stderr]\n" + proc.stderr if proc.stderr.strip() else ""), tail=True)
+    header = f"$ {shown}\nexit code {code} in {took:.1f}s\n"
+    return header + clip(out + ("\n[stderr]\n" + err if err.strip() else ""), tail=True)
 
 
 def detect_test_cmd(root: Path | None, cfg: Config) -> str:
@@ -290,15 +288,10 @@ def open_workspace(ctx: ToolContext, path: str) -> str:
 
 
 def update_plan(ctx: ToolContext, items: list) -> str:
-    clean = []
-    for item in items:
-        if isinstance(item, str):
-            item = {"text": item}
-        status = item.get("status", "todo")
-        clean.append({"text": str(item.get("text", ""))[:300],
-                      "status": status if status in ("todo", "doing", "done") else "todo"})
-    ctx.events.append({"type": "plan", "items": clean})
-    return "Plan updated."
+    event = plans.event_for(ctx.store, ctx.session_id, ctx.tool_use_id, items, ctx.plan_updates)
+    ctx.plan_updates.append((ctx.tool_use_id, items))
+    ctx.events.append(event)
+    return plans.summary(event)
 
 
 def load_skill(ctx: ToolContext, name: str) -> str:
@@ -321,7 +314,8 @@ def github_cli(ctx: ToolContext, args: str) -> str:
     if kind is None:
         raise ToolError("not an allowed gh command. Read: pr list/view/diff/checks, issue list/view, run list/view "
                         "(--log-failed), repo view, search ..., api <GET endpoint>. With approval: pr create/comment/"
-                        "review/edit/checkout, issue create/comment/edit, run rerun, api writes.")
+                        "review/edit/checkout/merge/close, issue create/comment/edit, run rerun, api writes. "
+                        "--watch isn't available: call `pr checks <n>` again later instead.")
     code, out = github.run(ctx.root or Path.home(), shlex.join(argv), ctx.cfg.github_host)
     if code != 0:
         raise ToolError(clip(out or f"gh exited {code}"))
@@ -515,6 +509,17 @@ def propose_edit(ctx: ToolContext, path: str, old_text: str, new_text: str, reas
         return f"Applied change #{proposal.id} to {rel} (auto-apply is on; the user can undo it).{note}"
     ctx.events.append({"type": "proposal", "proposal": proposal_view(proposal, diff)})
     return f"Proposed change #{proposal.id} to {rel} (pending the user's approval; not yet applied)."
+
+
+def verify_changes(ctx: ToolContext) -> str:
+    from . import verification  # it builds on this module
+
+    receipt = verification.verify_session(ctx.store, ctx.cfg, ctx.session_id, ctx.root, ctx.cancelled)
+    if receipt is None:
+        return "No changes are pending, so there's nothing to verify."
+    ctx.store.mark_receipt_told(receipt["id"])  # the agent reads it here, so the next turn context needn't repeat it
+    ctx.events.append({"type": "verification", "receipt": {**receipt, "told": True}})
+    return verification.describe(receipt)
 
 
 def recall(ctx: ToolContext, query: str, scope: str = "session", limit: int = 6) -> str:
@@ -815,6 +820,11 @@ def build_tools(cfg: Config) -> list[Tool]:
              "number, e.g. '2.1'.", _obj({"task": s, "status": {"type": "string",
                                                                  "enum": ["todo", "in_progress", "done"]}},
                                          ["task", "status"]), update_task, read_only=False),
+        *([Tool("verify_changes", "Test your pending changes (proposed, not yet applied) before the user reviews "
+                "them: they're applied to a temporary copy of the workspace, where the test command and analysers "
+                "run. Returns what passed and what newly fails. Call it before you end a turn that leaves changes "
+                "pending, and fix what newly fails.", _obj({}), verify_changes, needs_approval=True,
+                auto_approvable=True, read_only=False)] if cfg.verify else []),
         Tool("view_image", "Look at an image: a screenshot, diagram or chart, by file path (in the workspace, or "
              "anywhere else such as ~/Desktop, which the user approves) or http/https URL. PNG, JPEG, GIF, WebP or "
              "HEIC; large images are shrunk.", _obj({"source": s}, ["source"]), view_image,

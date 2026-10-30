@@ -194,6 +194,14 @@ finishes or needs your approval (your browser asks permission the first time).
 
 **Stop:** the stop button halts a running turn at the next safe point.
 
+**The plan.** For multi-step work codepilot keeps a checklist, pinned above the message box with its progress
+("Plan · 2 of 5 done"). Click its header to fold it to that one line. A plan never just disappears:
+- when every step is done it shows **✓ Plan complete**, and a card with the finished list stays in the chat;
+- when codepilot starts a different plan, or clears it, the old one becomes a **Plan replaced** card at that point,
+  with the steps that weren't done still listed.
+
+After a reload, or after you edit an earlier message, the plan is the one from that point in the conversation.
+
 ## Modes
 
 Pick a mode in the chat header. Each is a focused agent with its own instructions, tools and skills.
@@ -240,10 +248,29 @@ the assistant is told:
 After a restart, every change appears where it was proposed, with its current status. Only changes still
 waiting show in the review bar.
 
+**Verify before you apply.** Changes waiting for review aren't on disk, so a test run in the workspace would test
+the old code. **Verify** in the review bar copies the workspace (instantly on APFS, as copy-on-write), applies the
+waiting changes to the copy, and runs your test command and analysers there. The result shows under the changes:
+- **✓ verified** · tests pass · ruff clean;
+- **✗ 2 newly failing**, with **Details** (commands, exit codes, output) and **Ask codepilot to fix**;
+- **✓ no new failures** when something also fails without the changes;
+- **⚠ inconclusive** when tests fail both with and without the changes and the output doesn't show which failures
+  are new.
+
+Nothing is applied and your folder isn't touched. When the changes waiting for review change, the result is marked
+"changed since" until you verify again. With **auto-run tests** ticked, codepilot verifies by itself when a turn ends
+with changes waiting, and the assistant can verify its own changes with the `verify_changes` tool before handing
+them to you. It is told the result. A virtualenv in the folder is copied too and pointed at the copy, so the tests
+import the changed code. If that couldn't be done, the result says so instead of passing. Set `CODEPILOT_VERIFY=0`
+to turn it off.
+
 Prefer speed? `CODEPILOT_AUTO_APPLY=1` writes changes immediately; every one can still be undone.
 
-codepilot **never commits, pushes or changes branches**. Use git yourself; the **Changes** view shows the
-working tree diff.
+codepilot **never commits, pushes or changes branches on its own**. Its git tool only reads. When you ask for a
+commit, branch, merge or push, it runs the git command with `run_command`, so you approve each one. Before it does,
+the turn context tells it whether the branch is behind its upstream, and whether a merge or rebase is half done with
+conflicted files. Commands run without a terminal: an editor or password prompt fails at once instead of hanging.
+The **Changes** view shows the working tree diff.
 
 ## Approvals: commands, tests, checks
 
@@ -254,7 +281,7 @@ working tree diff.
 | `run_checks` (linters, type checkers, scanners) | Asks, with the same auto-run switch |
 | `run_command` (any shell command) | Always asks, and shows the exact command |
 | GitHub reads | Run freely |
-| GitHub writes (comment, create PR or issue, re-run CI) | Always ask |
+| GitHub writes (comment, create, merge or close a PR, create an issue, re-run CI) | Always ask |
 | Opening a different folder | Asks |
 
 Approvals appear in the same **review bar** above the message box, with the exact command: **Run**
@@ -372,7 +399,7 @@ For bigger changes, open the **Specs** view (the list icon) → **New spec**, or
 describe what you want. codepilot writes **requirements** (EARS acceptance criteria), then a **design**,
 then **tasks**, and you approve each in the **Spec** tab before the next. Then **Run** tasks one by one or
 **Run all remaining**. **Check spec vs code** and **Verify with evals** keep the spec and the code in
-step. Specs live in `.codepilot/specs/` in Kiro's format; Kiro and Spec Kit specs are listed too. Full
+step. Specs live in `.codepilot/specs/` in Kiro's format; other tools' spec folders aren't listed. Full
 guide: [specs.md](specs.md).
 
 ## Web tools

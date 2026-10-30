@@ -318,6 +318,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             "region": cfg.region if cfg.provider == "bedrock" else None,
             "profile": cfg.profile if cfg.provider == "bedrock" else None,
             "log_groups": cfg.log_groups, "auto_approve_default": cfg.auto_approve_tests, "terminal": cfg.terminal,
+            "verify": cfg.verify,
             "home": str(Path.home()),
             "version": version.STARTED, "stale": version.fingerprint() != version.STARTED,
         })
@@ -397,6 +398,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             "proposals": [_proposal_json(p, root) for p in store.list_proposals(sid)],
             "usage": store.usage(sid),
             "context": agent.context_usage(sid),
+            "receipt": store.latest_receipt(sid),
         })
 
     async def chat(request: Request) -> Response:
@@ -504,6 +506,15 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         except KeyError:
             return err("No such session", 404)
         return stream(sid, agent.rewind(sid, mid, text, tier, restore=restore, keep=keep))
+
+    async def verify(request: Request) -> Response:
+        """Test the pending changes on a copy of the workspace (the Verify button)."""
+        sid = request.path_params["sid"]
+        try:
+            store.get_session(sid)
+        except KeyError:
+            return err("No such session", 404)
+        return stream(sid, agent.verify(sid))
 
     async def checkpoint(request: Request) -> Response:
         """The changes applied from a message onwards, and whether each can still be undone."""
@@ -1082,6 +1093,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         Route("/api/sessions/{sid}/follow", follow),
         Route("/api/sessions/{sid}/rewind", rewind, methods=["POST"]),
         Route("/api/sessions/{sid}/checkpoint", checkpoint),
+        Route("/api/sessions/{sid}/verify", verify, methods=["POST"]),
         Route("/api/sessions/{sid}/restore", restore, methods=["POST"]),
         Route("/api/sessions/{sid}/compact", compact, methods=["POST"]),
         Route("/api/sessions/{sid}/handoff", handoff, methods=["POST"]),
@@ -1113,6 +1125,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
     ]
     @contextlib.asynccontextmanager
     async def lifespan(app):
+        shutil.rmtree(cfg.home / "verify", ignore_errors=True)  # copies left by a crash mid-verification
         yield
         terminals.close_all()  # don't leave shells running after codepilot stops
 

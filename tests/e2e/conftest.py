@@ -41,6 +41,14 @@ SPEC_DOCS = {
 }
 
 
+PLANS = {
+    "start": [{"text": "Write tests", "status": "todo"}, {"text": "Implement export", "status": "todo"}],
+    "progress": [{"text": "Write tests", "status": "done"}, {"text": "Implement export", "status": "doing"}],
+    "finish": [{"text": "Write tests", "status": "done"}, {"text": "Implement export", "status": "done"}],
+    "other": [{"text": "Profile the query", "status": "doing"}, {"text": "Add an index", "status": "todo"}],
+}
+
+
 class ScriptedLLM:
     """A deterministic stand-in for the model, driven by what the user typed."""
 
@@ -64,6 +72,9 @@ class ScriptedLLM:
             doc = phase.group(1)
             content = [{"toolUse": {"toolUseId": f"t{n}", "name": "write_spec",
                                     "input": {"doc": doc, "content": SPEC_DOCS[doc]}}}]
+        elif user_text.strip().startswith("plan ") and user_text.split()[1] in PLANS:  # a checklist through its life
+            content = [{"toolUse": {"toolUseId": f"t{n}", "name": "update_plan",
+                                    "input": {"items": PLANS[user_text.split()[1]]}}}]
         elif "slow tool" in user_text:  # a step that takes a while, then a read-only tool: a turn you can steer
             time.sleep(1.5)
             content = [{"toolUse": {"toolUseId": f"t{n}", "name": "read_file", "input": {"path": "agent/core.py"}}}]
@@ -149,10 +160,11 @@ def server(cfg, store, repo):
         "hard": "anthropic.claude-opus-5-5"})
     _fake_models(cfg)
     llm = ScriptedLLM()
-    app = create_app(cfg, store, Agent(cfg, store, llm=llm))
+    agent = Agent(cfg, store, llm=llm)
+    app = create_app(cfg, store, agent)
     app.state.terminals.shell = "/bin/sh"
     live = LiveServer(app)
-    live.store, live.repo, live.llm, live.cfg = store, repo, llm, cfg
+    live.store, live.repo, live.llm, live.cfg, live.agent = store, repo, llm, cfg, agent
     yield live
     live.stop()
 

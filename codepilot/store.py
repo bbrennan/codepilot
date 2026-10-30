@@ -46,6 +46,15 @@ CREATE TABLE IF NOT EXISTS proposals (
     reported INTEGER NOT NULL DEFAULT 0,
     created REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS receipts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    fingerprint TEXT NOT NULL,
+    status TEXT NOT NULL,
+    body TEXT NOT NULL,
+    told INTEGER NOT NULL DEFAULT 0,
+    created REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -367,6 +376,24 @@ class Store:
                 (sid,)).fetchall()
             self._db.executemany("UPDATE proposals SET reported = 1 WHERE id = ?", [(r["id"],) for r in rows])
         return [self.get_proposal(r["id"]) for r in rows]
+
+    # -- verification receipts (pending changes tested on a copy before review) -----------------
+
+    def add_receipt(self, sid: str, receipt: dict) -> int:
+        with self._lock, self._db:
+            return self._db.execute(
+                "INSERT INTO receipts (session_id, fingerprint, status, body, created) VALUES (?, ?, ?, ?, ?)",
+                (sid, receipt["fingerprint"], receipt["status"], json.dumps(receipt), time.time())).lastrowid
+
+    def latest_receipt(self, sid: str) -> dict | None:
+        with self._lock:
+            row = self._db.execute("SELECT id, body, told FROM receipts WHERE session_id = ? ORDER BY id DESC LIMIT 1",
+                                   (sid,)).fetchone()
+        return {**json.loads(row["body"]), "id": row["id"], "told": bool(row["told"])} if row else None
+
+    def mark_receipt_told(self, rid: int) -> None:
+        with self._lock, self._db:
+            self._db.execute("UPDATE receipts SET told = 1 WHERE id = ?", (rid,))
 
     # -- token usage ----------------------------------------------------------------------------
 
