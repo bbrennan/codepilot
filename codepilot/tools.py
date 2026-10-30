@@ -42,6 +42,7 @@ class ToolContext:
     logs_client_factory: Callable[[], Any] | None = None
     events: list[dict] = field(default_factory=list)
     auto_apply: bool = False  # this session writes edits immediately (CODEPILOT_AUTO_APPLY does it everywhere)
+    cancelled: Callable[[], bool] = lambda: False  # the user pressed Stop (long-running tools check it)
 
     def resolve(self, rel: str | None, must_exist: bool = True) -> Path:
         if self.root is None:
@@ -517,6 +518,17 @@ def propose_edit(ctx: ToolContext, path: str, old_text: str, new_text: str, reas
     return f"Proposed change #{proposal.id} to {rel} (pending the user's approval; not yet applied)."
 
 
+def verify_changes(ctx: ToolContext) -> str:
+    from . import verification  # it builds on this module
+
+    receipt = verification.verify_session(ctx.store, ctx.cfg, ctx.session_id, ctx.root, ctx.cancelled)
+    if receipt is None:
+        return "No changes are pending, so there's nothing to verify."
+    ctx.store.mark_receipt_told(receipt["id"])  # the agent reads it here, so the next turn context needn't repeat it
+    ctx.events.append({"type": "verification", "receipt": {**receipt, "told": True}})
+    return verification.describe(receipt)
+
+
 def recall(ctx: ToolContext, query: str, scope: str = "session", limit: int = 6) -> str:
     hits = ctx.store.search_history(ctx.session_id, query, scope if scope in ("session", "workspace") else "session",
                                     max(1, min(int(limit or 6), 15)))
@@ -815,6 +827,11 @@ def build_tools(cfg: Config) -> list[Tool]:
              "number, e.g. '2.1'.", _obj({"task": s, "status": {"type": "string",
                                                                  "enum": ["todo", "in_progress", "done"]}},
                                          ["task", "status"]), update_task, read_only=False),
+        *([Tool("verify_changes", "Test your pending changes (proposed, not yet applied) before the user reviews "
+                "them: they're applied to a temporary copy of the workspace, where the test command and analysers "
+                "run. Returns what passed and what newly fails. Call it before you end a turn that leaves changes "
+                "pending, and fix what newly fails.", _obj({}), verify_changes, needs_approval=True,
+                auto_approvable=True, read_only=False)] if cfg.verify else []),
         Tool("view_image", "Look at an image: a screenshot, diagram or chart, by file path (in the workspace, or "
              "anywhere else such as ~/Desktop, which the user approves) or http/https URL. PNG, JPEG, GIF, WebP or "
              "HEIC; large images are shrunk.", _obj({"source": s}, ["source"]), view_image,

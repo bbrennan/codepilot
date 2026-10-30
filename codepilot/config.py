@@ -140,6 +140,9 @@ class Config:
     latest_models: bool = True
     brave_api_key: str = ""
     context7_api_key: str = ""
+    # Verification receipts: pending changes are tested on a copy of the workspace before review
+    verify: bool = True
+    verify_timeout: int = 600
 
     @classmethod
     def from_env(cls) -> Config:
@@ -197,6 +200,8 @@ class Config:
             latest_models=_flag("CODEPILOT_LATEST_MODELS", True),
             brave_api_key=_env("BRAVE_API_KEY", "CODEPILOT_BRAVE_API_KEY", default=""),
             context7_api_key=_env("CONTEXT7_API_KEY", default=""),
+            verify=_flag("CODEPILOT_VERIFY", True),
+            verify_timeout=int(_env("CODEPILOT_VERIFY_TIMEOUT", default="600")),
         )
 
     def context_window(self, model: str) -> int:

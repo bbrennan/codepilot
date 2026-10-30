@@ -240,6 +240,20 @@ the assistant is told:
 After a restart, every change appears where it was proposed, with its current status. Only changes still
 waiting show in the review bar.
 
+**Verify before you apply.** Changes waiting for review aren't on disk, so a test run in the workspace would test
+the old code. **Verify** in the review bar copies the workspace (instantly on APFS, as copy-on-write), applies the
+waiting changes to the copy, and runs your test command and analysers there. The result shows under the changes:
+- **✓ verified** · tests pass · ruff clean;
+- **✗ 2 newly failing**, with **Details** (commands, exit codes, output) and **Ask codepilot to fix**;
+- **✓ no new failures** when something also fails without the changes.
+
+Nothing is applied and your folder isn't touched. When the changes waiting for review change, the result is marked
+"changed since" until you verify again. With **auto-run tests** ticked, codepilot verifies by itself when a turn ends
+with changes waiting, and the assistant can verify its own changes with the `verify_changes` tool before handing
+them to you. It is told the result. A virtualenv in the folder is copied too and pointed at the copy, so the tests
+import the changed code. If that couldn't be done, the result says so instead of passing. Set `CODEPILOT_VERIFY=0`
+to turn it off.
+
 Prefer speed? `CODEPILOT_AUTO_APPLY=1` writes changes immediately; every one can still be undone.
 
 codepilot **never commits, pushes or changes branches**. Use git yourself; the **Changes** view shows the
