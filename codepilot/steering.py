@@ -27,6 +27,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .context import DEFAULT_TOKENS_PER_CHAR
+
 MAX_ALWAYS_CHARS = 24_000
 MAX_DOC_CHARS = 20_000
 MAX_FILE_REF_CHARS = 20_000
@@ -70,7 +72,13 @@ class Doc:
         return {"name": self.name, "label": self.label, "scope": self.scope, "source": self.source,
                 "inclusion": self.inclusion, "patterns": self.patterns, "description": self.description,
                 "editable": self.editable, "path": str(self.path), "rel": rel,
-                "content": None if rel else self.path.read_text(errors="replace")[:MAX_DOC_CHARS]}
+                "content": None if rel else self.path.read_text(errors="replace")[:MAX_DOC_CHARS],
+                "tokens": token_estimate(expand(self.body, root)) if self.inclusion == "always" else None}
+
+
+def token_estimate(text: str) -> int:
+    """What a doc costs per message. The context meter's pre-calibration ratio, so the two numbers agree."""
+    return round(len(text) * DEFAULT_TOKENS_PER_CHAR)
 
 
 def front_matter(text: str) -> tuple[dict, str]:
@@ -280,4 +288,18 @@ FOUNDATION_PROMPT = (
     "architectural patterns to follow.\n"
     "Start each with front matter `---\\ninclusion: always\\n---`. Keep each under about 60 lines of concrete, "
     "verifiable statements taken from the code (no generic advice), and say where you weren't sure."
+)
+
+
+CONVENTIONS_PROMPT = (
+    "Draft this workspace's project conventions as a steering doc. First investigate the repo (explore, the README, "
+    "build files, CI config and a few representative modules). Then propose one file with propose_edit: "
+    ".codepilot/steering/conventions.md, starting with front matter `---\\ninclusion: always\\n---`.\n"
+    "Include only what an agent could not work out from the code and standard tooling: non-standard build or test "
+    "steps, forbidden patterns, project constraints and gotchas. Write each rule as one line that ends with the file "
+    "or command that shows it, like `(see Makefile: e2e)`, and keep the whole file to about 25 lines.\n"
+    "Do not write overviews of the product, the stack or the folder layout: this file is sent with every message, "
+    "and overviews cost tokens without making the work better.\n"
+    "If conventions.md already exists, propose additions to it, not a replacement. If you find nothing non-obvious, "
+    "say so and propose nothing."
 )

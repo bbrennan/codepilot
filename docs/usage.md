@@ -121,7 +121,7 @@ model call:
 | `/mode <mode>` | Switch mode by name |
 | `/model auto` · `fast` · `main` · `hard` · `<name>` | Switch the model for this session, e.g. `/model opus` |
 | `/spec [quick] <what to build>` | Start a spec from a description; `quick` plans it in one reviewed pass |
-| `/init` | Draft steering docs (`product.md`, `tech.md`, `structure.md`) from the repo |
+| `/init [foundation]` | Draft a short `conventions.md` of what the code doesn't say; `foundation` drafts Kiro's `product.md`, `tech.md` and `structure.md` instead |
 | `/compact [focus]` | Summarise the conversation to free context |
 | `/retry` · `/undo` | Send your last message again · undo the last applied change |
 | `/remember <fact>` | Add a line to this folder's notes |
@@ -392,7 +392,8 @@ architecture, things it must never do. They're Markdown files in `.codepilot/ste
 commit them) or `~/.codepilot/steering/` (all your workspaces), in Kiro's format.
 
 - Open the **Steering** view (the compass in the activity bar) to see every doc and create new ones.
-  **Generate foundation docs** has codepilot draft `product.md`, `tech.md` and `structure.md` from the repo.
+  **Draft conventions** has codepilot propose a short `conventions.md` from the repo, and the view shows what
+  always-on docs cost per message. Kiro's foundation docs are in the **+** menu.
 - A doc can be **always** on (the default), apply **only to matching files** (`fileMatch`), load when you
   write **`#name`** in chat (`manual`), or load **when relevant** (`auto`).
 - Edits apply from your next message. A **steering: name** chip in the chat shows when a doc loaded.
