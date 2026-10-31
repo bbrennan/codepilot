@@ -952,9 +952,11 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             root = session_root(request.path_params["sid"])
         except KeyError:
             return err("No such session", 404)
-        return JSONResponse({"docs": [d.info(root) for d in steering.discover(root, cfg.home)],
-                             "workspace_dir": ".codepilot/steering" if root else None,
-                             "global_dir": str(cfg.home / "steering"), "foundation_prompt": steering.FOUNDATION_PROMPT})
+        docs = [d.info(root) for d in steering.discover(root, cfg.home)]
+        return JSONResponse({"docs": docs, "workspace_dir": ".codepilot/steering" if root else None,
+                             "global_dir": str(cfg.home / "steering"), "foundation_prompt": steering.FOUNDATION_PROMPT,
+                             "conventions_prompt": steering.CONVENTIONS_PROMPT,
+                             "always_tokens": sum(d["tokens"] or 0 for d in docs)})
 
     async def steering_create(request: Request) -> Response:
         data = await json_body(request)

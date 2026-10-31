@@ -1807,7 +1807,7 @@ function slashCommands() {
     { name: "mode", args: "<mode>", desc: "Switch mode", run: (a) => modeCommand(a.trim().toLowerCase(), "") },
     ...modes,
     { name: "spec", args: "[quick] <what to build>", desc: "Start a spec: requirements, design, tasks, then build", run: specCommand },
-    { name: "init", desc: "Draft steering docs (product, tech, structure) from this repo", run: initCommand },
+    { name: "init", args: "[foundation]", desc: "Draft non-obvious project conventions; /init foundation drafts Kiro foundation docs", run: initCommand },
     { name: "retry", desc: "Send your last message again", run: () => { const el = lastTurnBubble(); el ? retryFrom(el) : toast("Nothing to retry yet.", true); } },
     { name: "undo", desc: "Undo the last change you applied", run: undoCommand },
     { name: "remember", args: "<fact>", desc: "Save a note codepilot reads in every session on this folder", run: rememberCommand },
@@ -1863,11 +1863,12 @@ async function specCommand(arg) {
     setMode("spec"); await loadSpecs(true); openSpec(sp.name); setInput(description); send();
   } catch (err) { toast(err.message, true); }
 }
-async function initCommand() {
+async function initCommand(arg) {
   if (!needFolder()) return;
   const d = await api(`/api/sessions/${state.sid}/steering`).catch(() => null);
-  if (!d?.foundation_prompt) return toast("Open a folder first.", true);
-  setInput(d.foundation_prompt); send();
+  const prompt = arg?.trim().toLowerCase() === "foundation" ? d?.foundation_prompt : d?.conventions_prompt;
+  if (!prompt) return toast("Open a folder first.", true);
+  setInput(prompt); send();
 }
 async function undoCommand() {
   const last = [...state.proposals.values()].filter((p) => p.status === "applied").sort((a, b) => b.id - a.id)[0];
@@ -2242,16 +2243,17 @@ function renderSteering() {
   const el = $("#steeringView"), d = state.steering;
   if (!d) { el.innerHTML = `<div class="empty-state">Start a session to see its steering.</div>`; return; }
   const docs = d.docs.map((x, i) => ({ ...x, i }));
-  const row = (x) => `<div class="row steer" data-steer="${x.i}" title="${esc(x.path)}\n${esc(inclLabel(x))}"><span class="ficon">${icon(x.scope === "global" ? "home" : "compass")}</span><span class="name">${esc(x.name)}</span><span class="incl ${x.inclusion}">${esc(x.inclusion === "fileMatch" ? x.patterns.join(", ") : x.inclusion === "manual" ? "#" + x.name : x.inclusion)}</span></div>`;
+  const row = (x) => `<div class="row steer" data-steer="${x.i}" title="${esc(x.path)}\n${esc(inclLabel(x))}"><span class="ficon">${icon(x.scope === "global" ? "home" : "compass")}</span><span class="name">${esc(x.name)}</span><span class="incl ${x.inclusion}">${esc(x.inclusion === "fileMatch" ? x.patterns.join(", ") : x.inclusion === "manual" ? "#" + x.name : x.inclusion)}</span>${x.tokens != null ? `<span class="incl">≈${x.tokens} tok</span>` : ""}</div>`;
   const group = (title, list, empty) => `<div class="group-head">${title}</div>${list.map(row).join("") || `<div class="hint" style="padding:0 14px">${empty}</div>`}`;
   el.innerHTML = `<div class="hint" style="padding:6px 14px 2px">Standing instructions codepilot follows, in Kiro's format. Each doc is <b>always</b> on (default), loads <b>for matching files</b>, <b>manually</b> when you write <span class="mono">#name</span>, or <b>auto</b> when relevant.</div>
-    <div style="display:flex;gap:6px;padding:8px 14px 2px;flex-wrap:wrap"><button class="btn sm" id="steerNew">${icon("plus")}New steering doc</button>${d.workspace_dir ? `<button class="btn sm" id="steerFoundation" title="Have codepilot study this repo and propose product.md, tech.md and structure.md">${icon("sparkle")}Generate foundation docs</button>` : ""}</div>
+    <div style="display:flex;gap:6px;padding:8px 14px 2px;flex-wrap:wrap"><button class="btn sm" id="steerNew">${icon("plus")}New steering doc</button>${d.workspace_dir ? `<button class="btn sm" id="steerConventions" title="Have codepilot study this repo and propose conventions.md: only what it couldn't work out from the code">${icon("sparkle")}Draft conventions</button>` : ""}</div>
+    <div class="hint" id="steerCost" style="padding:2px 14px">Always-on steering adds ≈${d.always_tokens || 0} tokens to every message (estimate).</div>
     ${d.workspace_dir ? group(`This workspace <span class="muted mono">.codepilot/steering</span>`, docs.filter((x) => x.scope === "workspace" && x.source === "codepilot"), "None yet.") : ""}
     ${group(`All workspaces <span class="muted mono">~/.codepilot/steering</span>`, docs.filter((x) => x.scope === "global" && x.source === "codepilot"), "None yet.")}
     ${group("From other tools", docs.filter((x) => x.source !== "codepilot"), "None found (AGENTS.md, CLAUDE.md, .kiro/steering, .cursor/rules, .github/instructions …).")}
     ${d.error ? `<div class="banner error">${esc(d.error)}</div>` : ""}`;
   $("#steerNew").onclick = (e) => menuBelow(e.currentTarget, newSteeringItems());
-  $("#steerFoundation") && ($("#steerFoundation").onclick = () => { setInput(d.foundation_prompt); send(); });
+  $("#steerConventions") && ($("#steerConventions").onclick = () => { setInput(d.conventions_prompt); send(); });
 }
 $("#steeringView").addEventListener("click", (e) => {
   const r = e.target.closest("[data-steer]"); if (r) openSteering(state.steering.docs[+r.dataset.steer]);
@@ -2265,6 +2267,7 @@ function newSteeringItems() {
     ...(ws ? [item("workspace", "always", "This workspace: always on"), item("workspace", "fileMatch", "This workspace: for matching files…"),
       item("workspace", "manual", "This workspace: manual (#name)"), item("workspace", "auto", "This workspace: auto (when relevant)"), "-"] : []),
     item("global", "always", "All workspaces: always on"), item("global", "manual", "All workspaces: manual (#name)"),
+    ...(ws ? ["-", { label: "Draft Kiro foundation docs", icon: "sparkle", run: () => initCommand("foundation") }] : []),
   ];
 }
 async function newSteering(scope, inclusion) {

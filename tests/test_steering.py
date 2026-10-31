@@ -210,3 +210,49 @@ def test_global_doc_read_and_save_with_change_detection(client, home):
     assert stale.status_code == 409 and (home / "steering/security.md").read_text() == "v2"
     assert client.get("/api/steering/global?name=../../etc/passwd").status_code == 400
     assert client.put("/api/steering/global", json={"name": "x", "content": "y"}).status_code == 403  # CSRF
+
+
+# -- conventions-first /init and the cost of always-on steering ---------------------------------------
+
+
+def test_conventions_prompt_asks_for_non_obvious_rules_with_evidence():
+    p = steering.CONVENTIONS_PROMPT
+    assert ".codepilot/steering/conventions.md" in p and "inclusion: always" in p
+    assert "propose_edit" in p
+    assert "25 lines" in p and "(see " in p  # a line cap, and each rule ends with where it comes from
+    assert "overview" in p.lower()  # says not to write them, and why
+    assert "additions" in p  # an existing conventions.md gets additions, not a replacement
+    assert "nothing" in p.lower()  # and "nothing found" is an acceptable answer
+    for old in ("product.md", "tech.md", "structure.md"):
+        assert old not in p
+
+
+def test_foundation_prompt_is_unchanged():
+    p = steering.FOUNDATION_PROMPT
+    assert all(f".codepilot/steering/{n}.md" in p for n in ("product", "tech", "structure"))
+    assert "about 60 lines" in p and "conventions.md" not in p
+
+
+def test_token_estimate_uses_the_context_meter_ratio():
+    from codepilot import context
+    assert steering.token_estimate("x" * 300) == round(300 * context.DEFAULT_TOKENS_PER_CHAR) == 100
+    assert steering.token_estimate("") == 0
+
+
+def test_info_has_tokens_only_for_always_on_docs(repo, home):
+    write(repo / ".codepilot/steering/a.md", "x" * 300)
+    write(repo / ".codepilot/steering/m.md", fm("inclusion: manual", "y" * 300))
+    docs = {d.name: d.info(repo) for d in steering.discover(repo, home)}
+    assert docs["a"]["tokens"] == 100
+    assert docs["m"]["tokens"] is None
+
+
+def test_list_endpoint_serves_the_prompts_and_the_always_on_total(client, repo, home):
+    write(repo / ".codepilot/steering/a.md", "x" * 300)
+    write(home / "steering/g.md", "z" * 600)
+    write(repo / ".codepilot/steering/m.md", fm("inclusion: manual", "y" * 3000))
+    sid = client.post("/api/sessions", json={"repo": str(repo)}, headers=H).json()["id"]
+    d = client.get(f"/api/sessions/{sid}/steering").json()
+    assert d["conventions_prompt"] == steering.CONVENTIONS_PROMPT
+    assert d["foundation_prompt"] == steering.FOUNDATION_PROMPT
+    assert d["always_tokens"] == 300  # 100 + 200; the manual doc isn't loaded every message
