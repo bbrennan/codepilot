@@ -462,6 +462,7 @@ kind of work, use the [benchmark](benchmark.md).
 (`23.7k tokens · $0.31`); hover for the cost per model and today's total across all sessions. **Memory** and each model
 call in **Activity** show dollars too, and **Run all remaining** gives an estimate from the tasks already run in that
 session. A model with no price shows as `$?` and isn't counted, so it never looks free. Local models show as `local`.
+Deleting a chat doesn't lower today's total: you were still billed for it.
 
 **A daily cap.** Set `CODEPILOT_DAILY_BUDGET=5` (USD). You get a notice at 80%. At the cap the turn stops before its
 next model call, and your message is kept. **Continue anyway today** lifts the cap until midnight, then send a message

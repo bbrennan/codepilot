@@ -107,13 +107,17 @@ day. It's replaced atomically, and the warning and the override share a lock, so
 Every model call goes through `Spend.record`, including summaries and second opinions, which get their usage from an
 `on_usage` callback on `complete()`. `Store.usage` no longer groups by model alone: it groups by model and `local`.
 
+`usage` also loses its foreign key. Deleting a chat doesn't refund it, so its usage has to outlive it for today's total
+and the cap. SQLite can't drop a foreign key, so existing databases rebuild the table once, in one transaction.
+
 ## At the cap
 
 Each kind of model call stops differently, because each can be mid-way through something:
 
 | Call | At the cap |
 |---|---|
-| The main loop | Stops the turn with a `budget` event, and checks again after a summary, which may be what reached it |
+| The main loop | Stops the turn with a `budget` event. It checks after making room, since a summary may reach the cap |
+| A summary | Not started, and nothing is archived. This covers the second pass of `ensure_room` too |
 | `explore` | Returns "Stopped" to the turn, which reports the budget once at its next check |
 | A second opinion | Quietly skipped: the loop stops at its next check anyway |
 | Manual compaction | Shows the budget banner instead, which is how the cap can be lifted |

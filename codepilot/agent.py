@@ -73,8 +73,8 @@ class Agent:
         self._queues: dict[str, list[dict]] = {}  # messages typed while a turn runs, read at the next step
         self._queue_lock = threading.Lock()
         self.spend = spend.Spend(cfg, store)
-        self.ctxm = ContextManager(cfg, store, self.llm, fast_model=lambda: self.tier_model("fast"),
-                                   record_usage=self.spend.record)
+        self.ctxm = ContextManager(cfg, store, self.llm, self._model_call, self.spend.capped,
+                                   fast_model=lambda: self.tier_model("fast"))
 
     def cancel(self, session_id: str) -> list[str]:
         """Ask a running turn to stop at the next safe point. Returns queued messages, so the UI can put them
@@ -509,12 +509,15 @@ class Agent:
         transcript = render_transcript(self.store.live_messages(session_id)[-24:], limit=60_000)
         prompt = (f"{transcript}\n\nThe latest {tu['name']} result:\n{output[-6000:]}\n\n"
                   "Give your advice now.")
+        used: list[dict] = []
+        started = time.monotonic()
         try:
-            advice = self.llm.complete(advisor, prompts.ADVISOR, prompt, max_tokens=1500,
-                                       on_usage=lambda usage: self.spend.record(session_id, advisor, usage))
+            advice = self.llm.complete(advisor, prompts.ADVISOR, prompt, max_tokens=1500, on_usage=used.append)
         except BedrockError as exc:
             yield {"type": "notice", "message": f"Second opinion unavailable: {exc}"}
             return output
+        for usage in used:
+            yield self._model_call(session_id, advisor, usage, started)
         yield {"type": "advisor", "model": advisor, "text": advice}
         return (f"{output}\n\n<advisor model=\"{advisor}\">\n{advice}\n</advisor>\n"
                 "Consider this advice before your next step.")
@@ -707,18 +710,14 @@ class Agent:
         while step < self.cfg.max_steps:
             step += 1
             yield from self._deliver_queue(session_id)
-            if (yield from self._over_budget()):
-                yield self.context_usage(session_id)
-                yield {"type": "done"}
-                return
             changed = yield from self.ctxm.ensure_room(session_id, model, system, specs)
             if changed:
                 self._strip_reasoning(session_id)
                 system = self._session_system(self.store.get_session(session_id), ctx)
-                if (yield from self._over_budget()):  # the summary may have been what reached it
-                    yield self.context_usage(session_id)
-                    yield {"type": "done"}
-                    return
+            if (yield from self._over_budget()):  # after ensure_room: a summary may be what reached it
+                yield self.context_usage(session_id)
+                yield {"type": "done"}
+                return
             final = None
             partial = ""
             started = time.monotonic()
@@ -853,6 +852,10 @@ class Agent:
         return {"type": "usage", "model": model, "usage": usage, "seconds": round(time.monotonic() - started, 1),
                 "cost": self.spend.call(model, usage), "priced": self.spend.priced()}
 
+    def _model_call(self, session_id: str, model: str, usage: dict, started: float) -> dict:
+        self.spend.record(session_id, model, usage)
+        return self._usage_event(model, usage, started)
+
     def _budget_status(self) -> Generator[dict, None, str]:
         """Before a model call: ok or stop, warning once near the daily budget. A warning is only given once."""
         status = self.spend.check()
@@ -927,8 +930,7 @@ class Agent:
                 return f"explore failed: {exc}", True
             content = (final or {}).get("content") or [{"text": "(no response)"}]
             if final and final.get("usage"):
-                self.spend.record(ctx.session_id, model, final["usage"])
-                yield self._usage_event(model, final["usage"], started)
+                yield self._model_call(ctx.session_id, model, final["usage"], started)
             calls = [b["toolUse"] for b in content if "toolUse" in b]
             for c in calls:
                 c.pop("_invalid_input", None)

@@ -17,6 +17,22 @@ from typing import Any
 # Marks a message steered into a running turn: part of that turn, not the start of another.
 QUEUED_PREFIX = "(Sent while you were working) "
 
+# No foreign key on purpose: deleting a chat doesn't refund it, so its usage has to outlive it for today's total and
+# the daily cap.
+USAGE_TABLE = """CREATE TABLE IF NOT EXISTS usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    model TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_read INTEGER NOT NULL DEFAULT 0,
+    cache_write INTEGER NOT NULL DEFAULT 0,
+    created REAL NOT NULL,
+    local INTEGER NOT NULL DEFAULT 0,
+    rewound INTEGER NOT NULL DEFAULT 0
+);
+"""
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
@@ -56,16 +72,6 @@ CREATE TABLE IF NOT EXISTS receipts (
     status TEXT NOT NULL,
     body TEXT NOT NULL,
     told INTEGER NOT NULL DEFAULT 0,
-    created REAL NOT NULL
-);
-CREATE TABLE IF NOT EXISTS usage (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    model TEXT NOT NULL,
-    input_tokens INTEGER NOT NULL DEFAULT 0,
-    output_tokens INTEGER NOT NULL DEFAULT 0,
-    cache_read INTEGER NOT NULL DEFAULT 0,
-    cache_write INTEGER NOT NULL DEFAULT 0,
     created REAL NOT NULL
 );
 """
@@ -154,7 +160,7 @@ class Store:
         self._db = sqlite3.connect(self.home / "codepilot.db", check_same_thread=False)
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA foreign_keys = ON")
-        self._db.executescript(SCHEMA)
+        self._db.executescript(SCHEMA + USAGE_TABLE)
         self._migrate()
 
     def _migrate(self) -> None:
@@ -170,6 +176,18 @@ class Store:
                 for name, decl in cols:
                     if name not in have:
                         self._db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+            if self._db.execute("PRAGMA foreign_key_list(usage)").fetchone():
+                self._drop_usage_cascade()
+
+    def _drop_usage_cascade(self) -> None:
+        """SQLite can't drop a foreign key, so usage is rebuilt, in one transaction so a crash can't lose it."""
+        columns = ("id, session_id, model, input_tokens, output_tokens, cache_read, cache_write, created, local, "
+                   "rewound")
+        self._db.execute("BEGIN")
+        self._db.execute("ALTER TABLE usage RENAME TO usage_cascading")
+        self._db.execute(USAGE_TABLE)
+        self._db.execute(f"INSERT INTO usage ({columns}) SELECT {columns} FROM usage_cascading")
+        self._db.execute("DROP TABLE usage_cascading")
 
     # -- sessions -------------------------------------------------------------------------------
 
@@ -452,11 +470,10 @@ class Store:
                                     "ORDER BY id", (sid,)).fetchall()
         starts = []
         for row in rows:
-            # A new message can land after tool results (a stopped turn resuming), or a steering one mid-turn.
-            content = json.loads(row["content"])
-            text = next((b["text"] for b in content if not b.get("text", "<turn_context>").startswith("<turn_context>")),
-                        None)
-            if text is not None and not text.startswith(QUEUED_PREFIX):
+            # A new message can follow tool results (a stopped turn resuming) or steering, in the same message.
+            texts = [b["text"] for b in json.loads(row["content"]) if "text" in b]
+            text = next((t for t in texts if not t.startswith(("<turn_context>", QUEUED_PREFIX))), None)
+            if text is not None:
                 starts.append((row["id"], row["created"], text))
         return starts
 

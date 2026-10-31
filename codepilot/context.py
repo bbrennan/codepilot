@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from collections.abc import Generator
 from typing import Any
 
@@ -96,12 +97,13 @@ def pick_verbatim(asks: list[str], budget: int = VERBATIM_CHARS) -> list[str]:
 
 
 class ContextManager:
-    def __init__(self, cfg: Config, store: Store, llm: Any, fast_model: Any = None, record_usage: Any = None):
+    def __init__(self, cfg: Config, store: Store, llm: Any, record_call: Any, capped: Any, fast_model: Any = None):
         self.cfg = cfg
         self.store = store
         self.llm = llm
         self.fast_model = fast_model or (lambda: cfg.models["fast"])
-        self.record_usage = record_usage or store.add_usage
+        self.record_call = record_call  # (session, model, usage, started) -> the usage event to show
+        self.capped = capped  # is the daily budget reached? A summary is a model call like any other
 
     # -- budget ------------------------------------------------------------------------------------
 
@@ -214,7 +216,7 @@ class ContextManager:
         else:
             return False
         old = rows[:cut]
-        if not old:
+        if not old or self.capped():
             return False
         sess = self.store.get_session(session_id)
         yield {"type": "notice", "message": f"Compacting memory: summarising {len(old)} earlier messages"
@@ -226,12 +228,13 @@ class ContextManager:
                   f"{'Focus requested by the user: ' + focus + chr(10) + chr(10) if focus else ''}"
                   f"Conversation to fold in:\n{render_transcript([m for _, m in old])}\n\n"
                   "Write the updated summary.")
+        model, used, started = self.fast_model(), [], time.monotonic()
         try:
-            model = self.fast_model()
-            text = self.llm.complete(model, prompts.SUMMARIZE, prompt, max_tokens=3000,
-                                     on_usage=lambda usage: self.record_usage(session_id, model, usage))
+            text = self.llm.complete(model, prompts.SUMMARIZE, prompt, max_tokens=3000, on_usage=used.append)
         except BedrockError as exc:
             text = f"{sess.summary}\n\n(Automatic summary unavailable: {exc})".strip()
+        for usage in used:
+            yield self.record_call(session_id, model, usage, started)
         summary = (text.strip() + ("\n\n" + state if state else "")).strip()
         self.store.update_session(session_id, summary=summary)
         self.store.archive_messages(session_id, [mid for mid, _ in old])

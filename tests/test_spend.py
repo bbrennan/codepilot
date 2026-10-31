@@ -9,6 +9,7 @@ from starlette.testclient import TestClient
 from codepilot.agent import Agent
 from codepilot.server import create_app
 from codepilot.spend import Spend
+from codepilot.store import Store
 
 
 def usage(input=0, output=0):
@@ -336,13 +337,66 @@ def test_the_api_reports_cost_turns_and_takes_an_override(cfg, store, repo):
     assert client.get(f"/api/sessions/{sess.id}/usage").json()["budget"]["overridden"] is True
 
 
+def test_deleting_a_chat_doesnt_refund_it(cfg, store, repo):
+    spend = capped(cfg, store)
+    sid = store.create_session(str(repo), "main").id
+    store.add_usage(sid, SONNET, usage(input=5_000_000))
+    store.delete_session(sid)
+    assert spend.spent_today() == 10.0 and spend.capped()
+
+
+def test_an_existing_database_keeps_its_usage_and_stops_refunding_it(cfg, repo):
+    old = Store(cfg.home)
+    sid = old.create_session(str(repo), "main").id
+    old.add_usage(sid, SONNET, usage(input=7), local=True)
+    old._db.executescript("""
+        ALTER TABLE usage RENAME TO usage_now;
+        CREATE TABLE usage (id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE, model TEXT NOT NULL,
+            input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0,
+            cache_read INTEGER NOT NULL DEFAULT 0, cache_write INTEGER NOT NULL DEFAULT 0, created REAL NOT NULL);
+        INSERT INTO usage (id, session_id, model, input_tokens, created)
+            SELECT id, session_id, model, input_tokens, created FROM usage_now;
+        DROP TABLE usage_now;
+    """)
+    old._db.close()
+    store = Store(cfg.home)
+    assert store.usage(sid)["by_model"][0]["input"] == 7
+    store.delete_session(sid)
+    assert [r["input"] for r in store.usage_since(0)] == [7]
+    store._db.close()
+    assert Store(cfg.home).usage_since(0)[0]["input"] == 7  # migrating twice changes nothing
+
+
+def test_a_summary_isnt_started_at_the_cap(cfg, store, repo):
+    agent = Agent(replace(priced(cfg), daily_budget=10.0), store, llm=FakeLLM([[{"text": "one"}]]))
+    sid = store.create_session(str(repo), "main").id
+    list(agent.chat(sid, "first"))
+    before = len(store.live_messages(sid))
+    store.add_usage(sid, SONNET, usage(input=5_000_000))
+    assert list(agent.ctxm.summarize(sid, keep_turns=0)) == []
+    assert not [c for c in agent.llm.calls if "complete" in c] and len(store.live_messages(sid)) == before
+
+
+def test_a_new_task_after_steering_is_still_a_turn(cfg, store, repo):
+    from codepilot.agent import QUEUED_PREFIX
+    spend = Spend(priced(cfg), store)
+    sid = store.create_session(str(repo), "main").id
+    store.add_message(sid, "user", [{"text": "first"}])
+    store.add_usage(sid, SONNET, usage(input=1_000_000))
+    mid = store.add_message(sid, "user", [{"toolResult": {"toolUseId": "t", "content": []}},
+                                          {"text": QUEUED_PREFIX + "use v2"}, {"text": "next task"}])
+    store.add_usage(sid, SONNET, usage(input=500_000))
+    assert [(t["mid"], t["text"], t["cost"]) for t in spend.turns(sid)][-1] == (mid, "next task", 1.0)
+
+
 def test_summaries_are_counted(cfg, store, repo):
     agent = Agent(price_all(cfg), store, llm=FakeLLM([[{"text": "one"}], [{"text": "two"}], [{"text": "three"}]]))
     sess = store.create_session(str(repo), "main")
     for text in ("first", "second", "third"):
         list(agent.chat(sess.id, text))
     before = sum(r["calls"] for r in store.usage(sess.id)["by_model"])
-    list(agent.compact(sess.id))
+    assert [e["cost"] > 0 for e in agent.compact(sess.id) if e["type"] == "usage"] == [True]
     assert sum(r["calls"] for r in store.usage(sess.id)["by_model"]) == before + 1
 
 
@@ -353,7 +407,8 @@ def test_second_opinions_are_counted_and_skipped_at_the_cap(cfg, store, repo):
     failing = "exit code 1 in 0.1s"
     sess = store.create_session(str(repo), "auto")
     list(agent._after_result(sess.id, tu, failing, False))
-    assert [e["type"] for e in agent._after_result(sess.id, tu, failing, False)] == ["notice", "advisor"]
+    events = list(agent._after_result(sess.id, tu, failing, False))
+    assert [e["type"] for e in events] == ["notice", "usage", "advisor"] and events[1]["model"] == "advisor-model"
     assert [r["model"] for r in store.usage(sess.id)["by_model"]] == ["advisor-model"]
     calls = len(agent.llm.calls)
     sess = store.create_session(str(repo), "auto")
