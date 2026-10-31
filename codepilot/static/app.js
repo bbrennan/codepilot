@@ -1362,6 +1362,7 @@ function render(ev, replay) {
       if (!replay) { activity("error", "error", ev.message); const last = lastTurnBubble(); if (last) b.insertAdjacentHTML("beforeend", ` <button class="btn sm" data-retry-last>Retry</button>`); }
       break;
     }
+    case "spec_reminder": activity("model", "spec", `reminder: task ${ev.task}`); break;
     case "done": endText(); onStreamSettled(); break;
   }
   if (!replay) scrollEnd();
@@ -1805,7 +1806,7 @@ function slashCommands() {
     { name: "model", args: "auto | fast | main | hard | <model>", desc: "Switch the model for this session", run: modelCommand },
     { name: "mode", args: "<mode>", desc: "Switch mode", run: (a) => modeCommand(a.trim().toLowerCase(), "") },
     ...modes,
-    { name: "spec", args: "<what to build>", desc: "Start a spec: requirements, design, tasks, then build", run: specCommand },
+    { name: "spec", args: "[quick] <what to build>", desc: "Start a spec: requirements, design, tasks, then build", run: specCommand },
     { name: "init", desc: "Draft steering docs (product, tech, structure) from this repo", run: initCommand },
     { name: "retry", desc: "Send your last message again", run: () => { const el = lastTurnBubble(); el ? retryFrom(el) : toast("Nothing to retry yet.", true); } },
     { name: "undo", desc: "Undo the last change you applied", run: undoCommand },
@@ -1854,11 +1855,12 @@ function modelCommand(arg) {
 }
 async function specCommand(arg) {
   if (!arg) return newSpec("feature");
+  const { profile, description } = specRequest(arg);
+  if (!description) return newSpec("feature", "quick");
   if (!needFolder()) return;
-  const kind = /\b(bug|broken|fails?|failing|error|crash|regression|wrong)\b/i.test(arg) ? "bugfix" : "feature";
   try {
-    const sp = await api(`/api/sessions/${state.sid}/specs`, { method: "POST", body: { description: arg, kind } });
-    setMode("spec"); await loadSpecs(true); openSpec(sp.name); setInput(arg); send();
+    const sp = await api(`/api/sessions/${state.sid}/specs`, { method: "POST", body: { description, kind: specKindOf(description), profile } });
+    setMode("spec"); await loadSpecs(true); openSpec(sp.name); setInput(description); send();
   } catch (err) { toast(err.message, true); }
 }
 async function initCommand() {
@@ -2108,25 +2110,28 @@ function renderSpecs() {
   const el = $("#specsView"); if (!el) return;
   const d = state.specs;
   if (!d) { el.innerHTML = `<div class="empty-state">Open a folder to work with specs.</div>`; return; }
-  const row = (x) => `<div class="row spec-row ${x.name === d.active ? "on" : ""}" data-spec-open="${esc(x.name)}" title="${esc(x.folder)}"><span class="ficon">${icon(x.kind === "bugfix" ? "alert" : "list")}</span><span class="name">${esc(x.name)}</span><span class="incl phase-${x.phase}">${x.phase === "implement" ? `${x.progress[0]}/${x.progress[1]}` : esc(phaseLabel(x, x.phase).toLowerCase())}</span></div>`;
+  const row = (x) => `<div class="row spec-row ${x.name === d.active ? "on" : ""}" data-spec-open="${esc(x.name)}" title="${esc(x.folder)}"><span class="ficon">${icon(x.kind === "bugfix" ? "alert" : "list")}</span><span class="name">${esc(x.name)}</span>${quickTag(x)}<span class="incl phase-${x.phase}">${x.phase === "implement" ? `${x.progress[0]}/${x.progress[1]}` : esc(isQuick(x) ? "plan" : phaseLabel(x, x.phase).toLowerCase())}</span></div>`;
   el.innerHTML = `<div class="hint" style="padding:6px 14px 2px">Plan bigger changes before coding: requirements, then design, then tasks, each reviewed, then build task by task. Specs live in <span class="mono">.codepilot/specs</span>, in Kiro's file format.</div>
-    <div style="display:flex;gap:6px;padding:8px 14px 4px;flex-wrap:wrap"><button class="btn sm primary" id="specNew">${icon("plus")}New spec</button><button class="btn sm" id="specNewBug">${icon("alert")}New bugfix spec</button></div>
+    <div style="display:flex;gap:6px;padding:8px 14px 4px;flex-wrap:wrap"><button class="btn sm primary" id="specNew">${icon("plus")}New spec</button><button class="btn sm" id="specQuick" title="One review: codepilot drafts requirements, design and tasks together">${icon("sparkle")}Quick spec</button><button class="btn sm" id="specNewBug">${icon("alert")}New bugfix spec</button></div>
     ${(d.specs || []).map(row).join("") || `<div class="hint" style="padding:4px 14px">No specs yet.</div>`}
     ${d.error ? `<div class="banner error">${esc(d.error)}</div>` : ""}`;
   $("#specNew").onclick = () => newSpec("feature");
+  $("#specQuick").onclick = () => newSpec("feature", "quick");
   $("#specNewBug").onclick = () => newSpec("bugfix");
 }
 $("#specsView").addEventListener("click", (e) => { const r = e.target.closest("[data-spec-open]"); if (r) openSpec(r.dataset.specOpen); });
 $("#newSpecBtn").onclick = () => newSpec("feature");
 $("#refreshSpecsBtn").onclick = () => loadSpecs();
-async function newSpec(kind) {
+async function newSpec(kind, profile = "full") {
   if (!needFolder()) return;
-  const desc = await promptDialog(kind === "bugfix" ? "Describe the bug" : "What do you want to build?", "", kind === "bugfix" ? "What happens, what should happen, and how to reproduce it if you know." : "A sentence or two. codepilot drafts the requirements first; you review each step before any code.");
+  const quick = profile === "quick";
+  const desc = await promptDialog(quick ? "What do you want to build or fix?" : kind === "bugfix" ? "Describe the bug" : "What do you want to build?", "", quick ? QUICK_HINT : kind === "bugfix" ? "What happens, what should happen, and how to reproduce it if you know." : "A sentence or two. codepilot drafts the requirements first; you review each step before any code.");
   if (!desc) return;
+  if (quick) kind = specKindOf(desc);
   const name = await promptDialog("Spec name", specSlug(desc), "Lowercase letters, digits and dashes. It becomes .codepilot/specs/<name>/.");
   if (!name) return;
   try {
-    const sp = await api(`/api/sessions/${state.sid}/specs`, { method: "POST", body: { name, kind, description: desc } });
+    const sp = await api(`/api/sessions/${state.sid}/specs`, { method: "POST", body: { name, kind, profile, description: desc } });
     setMode("spec"); state.session && (state.session.mode = "spec");
     await loadSpecs(true); openSpec(sp.name);
     setInput(desc); send();
@@ -2145,11 +2150,13 @@ async function specSay(spec, text) {
   await ensureSpecActive(spec); setInput(text); send(); // while codepilot works, send() queues it for the next step
 }
 async function renderSpecTab(tab) {
+  const render = (tab.render = (tab.render || 0) + 1);
   const spec = findSpec(tab.name);
   if (!spec) { $("#editor").innerHTML = `<div class="empty-state">Spec ${esc(tab.name)} not found. <button class="btn sm" id="spRefresh">Refresh</button></div>`; $("#spRefresh").onclick = () => loadSpecs(); return; }
   const cur = SPEC_PHASES.indexOf(spec.phase);
-  const view = tab.view && SPEC_PHASES.indexOf(tab.view) <= cur ? tab.view : spec.phase;
-  const steps = SPEC_PHASES.map((ph, i) => `<button class="sp-step ${i < cur ? "done" : i === cur ? "current" : "todo"} ${ph === view ? "on" : ""}" data-sp-view="${ph}" ${i > cur ? "disabled" : ""}>${i < cur ? icon("check") : `<span class="n">${i + 1}</span>`}${esc(phaseLabel(spec, ph))}</button>`).join(`<span class="sp-sep">›</span>`);
+  const quick = isQuick(spec);
+  const view = quick ? quickView(spec, tab.view) : tab.view && SPEC_PHASES.indexOf(tab.view) <= cur ? tab.view : spec.phase;
+  const steps = quick ? quickSteps(spec, view) : SPEC_PHASES.map((ph, i) => `<button class="sp-step ${i < cur ? "done" : i === cur ? "current" : "todo"} ${ph === view ? "on" : ""}" data-sp-view="${ph}" ${i > cur ? "disabled" : ""}>${i < cur ? icon("check") : `<span class="n">${i + 1}</span>`}${esc(phaseLabel(spec, ph))}</button>`).join(`<span class="sp-sep">›</span>`);
   const head = `<div class="ed-bar sp-head"><span class="crumbs"><b>${esc(spec.name)}</b> <span class="muted">${spec.kind === "bugfix" ? "bugfix spec" : "spec"}</span></span><div class="sp-steps">${steps}</div><span class="spacer"></span>${spec.name === state.specs.active ? `<span class="incl">active</span>` : ""}</div>`;
   let body = "";
   if (view === "implement") {
@@ -2165,12 +2172,12 @@ async function renderSpecTab(tab) {
     const rel = spec.docs[view];
     let content = null;
     if (rel) { const f = await api(`/api/sessions/${state.sid}/files?path=${encodeURIComponent(rel)}`).catch(() => null); content = f?.content ?? null; }
-    if (state.active !== tab.id) return; // the user moved on while we loaded
+    if (state.active !== tab.id || tab.render !== render) return; // the user moved on while we loaded
     const isCurrent = view === spec.phase;
-    body = `<div class="sp-doc-bar">${rel ? `<span class="mono muted">${esc(rel)}</span>` : ""}<span class="spacer"></span>
+    body = `${quick ? quickDocs(spec, view) : ""}<div class="sp-doc-bar">${rel ? `<span class="mono muted">${esc(rel)}</span>` : ""}<span class="spacer"></span>
         ${rel ? `<button class="btn sm" id="spEdit">${icon("edit")}Edit</button>` : ""}
-        ${isCurrent && rel ? `<button class="btn sm primary" id="spApprove">${icon("check")}Approve ${esc(phaseLabel(spec, view).toLowerCase())} &amp; continue</button>` : ""}</div>
-      <div class="sp-doc md-doc" id="docBody">${content != null ? renderDoc(content, dirOf(rel)) : `<div class="empty-state">${state.streams.has(state.sid) ? '<span class="spinner"></span> codepilot is drafting this…' : `Not written yet.<br><button class="btn sm" id="spWrite">${icon("sparkle")}Ask codepilot to write it</button>`}</div>`}</div>
+        ${quick ? quickActions(spec) : ""}${!quick && isCurrent && rel ? `<button class="btn sm primary" id="spApprove">${icon("check")}Approve ${esc(phaseLabel(spec, view).toLowerCase())} &amp; continue</button>` : ""}</div>
+      ${lengthHint(content)}<div class="sp-doc md-doc" id="docBody">${content != null ? renderDoc(content, dirOf(rel)) : `<div class="empty-state">${state.streams.has(state.sid) ? '<span class="spinner"></span> codepilot is drafting this…' : `Not written yet.<br><button class="btn sm" id="spWrite">${icon("sparkle")}Ask codepilot to write it</button>`}</div>`}</div>
       ${rel ? `<div class="rv-ask"><textarea class="field" id="spAsk" rows="2" placeholder="Ask for changes to the ${esc(phaseLabel(spec, view).toLowerCase())}…"></textarea><button class="btn" id="spAskBtn">${icon("send")}Send</button></div>` : ""}`;
   }
   $("#editor").innerHTML = `<div class="spec-tab">${head}<div class="sp-body">${body}</div></div>`;
@@ -2181,6 +2188,8 @@ async function renderSpecTab(tab) {
   on("#spEditTasks", async () => { const rel = spec.doc_paths.tasks; await openFile(rel); editFile("file:" + rel); });
   on("#spWrite", () => specSay(spec, `Write the ${view} for spec ${spec.name}.`));
   on("#spApprove", () => approveSpec(spec, view));
+  on("#spApprovePlan", () => approveSpec(spec, "tasks"));
+  on("#spToFull", () => switchToFull(spec, tab));
   const ask = () => { const t = $("#spAsk").value.trim(); if (t) specSay(spec, `About the ${phaseLabel(spec, view).toLowerCase()} of spec ${spec.name}: ${t}`); };
   on("#spAskBtn", ask);
   $("#spAsk") && ($("#spAsk").onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(); } });
@@ -2196,6 +2205,8 @@ async function approveSpec(spec, phase) {
     await loadSpecs(true); setMode("spec");
     const tab = state.tabs.find((t) => t.id === "spec:" + spec.name); if (tab) tab.view = null;
     if (phase === "tasks") { toast("Task list approved: run tasks from the Implement step."); renderEditor(); return; }
+    const next = findSpec(spec.name);
+    if (next?.docs[next.phase]) { renderEditor(); return; } // already written (a quick plan under full review): keep it
     specSay(spec, phase === "requirements" ? `${spec.kind === "bugfix" ? "The bug analysis is" : "The requirements are"} approved. Write the design.` : "The design is approved. Write the task list.");
   } catch (err) { toast(err.message, true); }
 }

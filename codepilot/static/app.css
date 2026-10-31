@@ -632,6 +632,8 @@ details.card.prop[open] > summary { border-bottom: 1px solid var(--line); }
 .sp-progress { width: 140px; height: 6px; border-radius: 3px; background: var(--bg-4); overflow: hidden; }
 .sp-progress i { display: block; height: 100%; background: var(--ok); }
 .sp-tip { padding: 6px 16px; }
+.sp-sub { display: flex; gap: 4px; padding: 8px 16px 0; }
+.sp-sub .sp-step { padding: 1px 9px; font-size: 11px; height: 20px; }
 .sp-tasks { padding: 6px 0 20px; }
 .sp-task { display: flex; align-items: flex-start; gap: 8px; padding: 6px 16px 6px calc(16px + var(--depth, 0) * 22px); border-bottom: 1px solid var(--line); font-size: 13px; }
 .sp-task.done .sp-tt > div:first-child { color: var(--muted); text-decoration: line-through; }

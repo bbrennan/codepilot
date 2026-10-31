@@ -120,7 +120,7 @@ model call:
 | `/plan`, `/build`, `/debug`, `/review`, `/ask`, `/bughunt`, `/spec` (and custom modes) | Switch mode; text after it is sent, e.g. `/debug the total is wrong` |
 | `/mode <mode>` | Switch mode by name |
 | `/model auto` · `fast` · `main` · `hard` · `<name>` | Switch the model for this session, e.g. `/model opus` |
-| `/spec <what to build>` | Start a spec from a description |
+| `/spec [quick] <what to build>` | Start a spec from a description; `quick` plans it in one reviewed pass |
 | `/init` | Draft steering docs (`product.md`, `tech.md`, `structure.md`) from the repo |
 | `/compact [focus]` | Summarise the conversation to free context |
 | `/retry` · `/undo` | Send your last message again · undo the last applied change |
@@ -405,8 +405,9 @@ For bigger changes, open the **Specs** view (the list icon) → **New spec**, or
 describe what you want. codepilot writes **requirements** (EARS acceptance criteria), then a **design**,
 then **tasks**, and you approve each in the **Spec** tab before the next. Then **Run** tasks one by one or
 **Run all remaining**. **Check spec vs code** and **Verify with evals** keep the spec and the code in
-step. Specs live in `.codepilot/specs/` in Kiro's format; other tools' spec folders aren't listed. Full
-guide: [specs.md](specs.md).
+step. For a change that needs a plan but not three reviews, **Quick spec** (or `/spec quick ...`) writes all three
+documents at once for one approval. Specs live in `.codepilot/specs/` in Kiro's format; other tools' spec folders aren't
+listed. Full guide: [specs.md](specs.md).
 
 ## Web tools
 

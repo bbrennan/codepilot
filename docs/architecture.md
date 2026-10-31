@@ -35,7 +35,9 @@ store.py (SQLite in ~/.codepilot): sessions, messages, proposals, usage, notes
 | `procenv.py` | How commands run: non-interactive (no editor, prompt, pager or stdin), killed as a process group on timeout |
 | `modes.py` | Built-in and custom modes |
 | `skills.py` | SKILL.md discovery and slash commands |
-| `specs.py` | Specs (Kiro format, plus Kiro and Spec Kit folders): phases, approvals, task parsing, per-phase instructions |
+| `specs.py` | Specs (Kiro format): phases, approvals, task parsing |
+| `spec_profiles.py` | How much review a spec gets (full or quick): what may be written and approved when, and the instructions |
+| `spec_reminder.py` | The task reminder during long implementation turns |
 | `router.py` | Auto model routing: the per-turn rules, and failed-run detection for the second opinion |
 | `steering.py` | Steering docs (Kiro format, plus Cursor, Copilot and other instruction files): discovery, inclusion modes, glob matching, `#[[file:]]` references |
 | `repomap.py` | Symbol map of the workspace (Python via `ast`, others via regex) |

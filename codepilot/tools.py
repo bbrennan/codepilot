@@ -16,7 +16,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import checks, deps_guard, github, gitcmd, images, plans, procenv, skills, specs, steering, traces, webtools
+from . import (checks, deps_guard, github, gitcmd, images, plans, procenv, skills, spec_profiles, specs, steering, traces,
+               webtools)
 from .config import Config
 from .store import Store
 
@@ -555,7 +556,7 @@ def write_spec(ctx: ToolContext, doc: str, content: str) -> str:
     if doc not in specs.PHASES[:3]:
         raise ToolError("doc must be requirements, design or tasks")
     phase = spec.phase
-    if specs.PHASES.index(doc) > specs.PHASES.index(phase):
+    if not spec_profiles.may_write(spec.profile, phase, doc):
         raise ToolError(f"The spec is in the {phase} phase; the user approves it before you write {doc}.")
     path = spec.doc(doc)
     path.write_text(content.rstrip() + "\n")

@@ -1,5 +1,7 @@
 """Spec-driven development: spec files, phases and approvals, the agent's spec tools, and the endpoints."""
 
+import json
+
 import pytest
 from fakes import FakeLLM, tool_use
 from starlette.testclient import TestClient
@@ -7,6 +9,7 @@ from starlette.testclient import TestClient
 from codepilot import specs
 from codepilot.agent import Agent
 from codepilot.server import create_app
+from codepilot.tools import execute
 
 H = {"X-Codepilot": "1"}
 TASKS = """# Implementation plan
@@ -69,7 +72,7 @@ def test_a_spec_named_like_another_tools_spec_can_be_created(repo):
 
 def test_approvals_go_in_order_and_never_backwards(repo):
     spec = specs.create(repo, "csv-export")
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(ValueError, match="hasn't been written"):
         specs.approve(repo, spec, "requirements")  # not written yet
     write(spec.doc("requirements"), "# R")
     with pytest.raises(ValueError):
@@ -185,3 +188,103 @@ def test_spec_endpoints(cfg, store, repo):
     assert ok.json()["phase"] == "design"
     assert client.post(f"/api/sessions/{sid}/specs", json={"name": "csv-export"}, headers=H).status_code == 409
     assert client.post(f"/api/sessions/{sid}/specs/nope/activate", headers=H).status_code == 404
+
+
+def quick_spec(root, docs=("requirements", "design", "tasks")):
+    spec = specs.create(root, "export", profile="quick")
+    for doc in docs:
+        write(spec.doc(doc), TASKS if doc == "tasks" else f"# {doc}\n")
+    return specs.get(root, "export")
+
+
+def test_a_quick_spec_is_stored_in_the_same_format(repo):
+    spec = quick_spec(repo)
+    assert spec.profile == "quick" and spec.info(repo)["profile"] == "quick"
+    assert json.loads((spec.folder / "spec.json").read_text())["profile"] == "quick"
+
+
+@pytest.mark.parametrize("state", ['{"kind": "feature", "approved": ""}', '{"profile": "reckless"}', "not json"])
+def test_a_spec_without_a_valid_profile_is_full(repo, state):
+    write(repo / ".codepilot/specs/old/spec.json", state)
+    assert specs.get(repo, "old").profile == "full"
+
+
+def test_an_unknown_profile_cant_be_created(repo):
+    with pytest.raises(ValueError):
+        specs.create(repo, "export", profile="reckless")
+
+
+def test_approving_a_quick_plan_goes_straight_to_implement(repo):
+    spec = specs.approve(repo, quick_spec(repo), "tasks")
+    assert spec.phase == "implement" and spec.approved == "tasks" and spec.profile == "quick"
+
+
+def test_a_quick_plan_needs_all_three_documents(repo):
+    with pytest.raises(ValueError, match="Write the design and tasks first"):
+        specs.approve(repo, quick_spec(repo, ("requirements",)), "tasks")
+
+
+def test_switching_to_full_keeps_the_documents_and_each_phase_is_approved(repo):
+    spec = specs.set_profile(repo, quick_spec(repo), "full")
+    assert spec.profile == "full" and spec.phase == "requirements" and spec.doc("tasks").is_file()
+    with pytest.raises(ValueError):
+        specs.approve(repo, spec, "tasks")
+    assert specs.approve(repo, spec, "requirements").phase == "design"
+
+
+def test_a_quick_spec_past_planning_cant_switch(repo):
+    spec = specs.approve(repo, quick_spec(repo), "tasks")
+    with pytest.raises(ValueError, match="past planning"):
+        specs.set_profile(repo, spec, "full")
+
+
+def test_a_spec_only_switches_to_full(repo):
+    spec = specs.create(repo, "export")
+    with pytest.raises(ValueError):
+        specs.set_profile(repo, spec, "quick")
+
+
+def test_a_quick_turn_says_so_and_shows_the_plan_so_far(repo):
+    text = specs.turn_text(repo, quick_spec(repo, ("requirements",)))
+    assert 'phase="requirements" profile="quick"' in text and "doc='tasks'" in text and "# requirements" in text
+
+
+def test_a_full_turn_is_unchanged(repo):
+    text = specs.turn_text(repo, specs.create(repo, "export"))
+    assert "profile=" not in text and "Phase 1 of 3" in text
+
+
+def test_write_spec_follows_the_profile(cfg, store, repo):
+    agent = Agent(cfg, store, llm=FakeLLM([]))
+    for name, profile, written in (("quickly", "quick", True), ("fully", "full", False)):
+        specs.create(repo, name, profile=profile)
+        sess = store.create_session(str(repo), "main")
+        store.update_session(sess.id, mode="spec", context_state={"spec": name})
+        out, is_error = execute(agent.tools["write_spec"], agent._ctx(store.get_session(sess.id)),
+                                {"doc": "tasks", "content": "- [ ] 1. T\n"})
+        assert (not is_error) is written and (repo / f".codepilot/specs/{name}/tasks.md").exists() is written
+
+
+def test_spec_mode_starts_a_quick_spec_of_the_detected_kind(cfg, store, repo):
+    for text, name, kind in (("quick add csv export", "csv-export", "feature"),
+                             ("quick the export is broken", "export-is-broken", "bugfix")):
+        sess = store.create_session(str(repo), "main")
+        store.update_session(sess.id, mode="spec")
+        list(Agent(cfg, store, llm=FakeLLM([[{"text": "ok"}]])).chat(sess.id, text))
+        spec = specs.get(repo, name)
+        assert spec.profile == "quick" and spec.kind == kind
+
+
+def test_the_api_starts_quick_specs_and_switches_them(cfg, store, repo):
+    client = TestClient(create_app(cfg, store, Agent(cfg, store, llm=FakeLLM([]))))
+    sid = client.post("/api/sessions", json={"repo": str(repo)}, headers=H).json()["id"]
+    made = client.post(f"/api/sessions/{sid}/specs", json={"name": "export", "profile": "quick"}, headers=H)
+    assert made.status_code == 201 and made.json()["profile"] == "quick"
+    bad = client.post(f"/api/sessions/{sid}/specs", json={"name": "other", "profile": "reckless"}, headers=H)
+    assert bad.status_code == 400
+    url = f"/api/sessions/{sid}/specs/export"
+    assert client.post(f"{url}/approve", json={"phase": "tasks"}, headers=H).status_code == 409
+    assert client.post(f"{url}/profile", json={"profile": "full"}, headers=H).json()["profile"] == "full"
+    write(repo / ".codepilot/specs/quicker/spec.json", '{"profile": "quick", "approved": "tasks"}')
+    refused = client.post(f"/api/sessions/{sid}/specs/quicker/profile", json={"profile": "full"}, headers=H)
+    assert refused.status_code == 409 and "past planning" in refused.json()["error"]

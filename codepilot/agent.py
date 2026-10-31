@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from . import (approval_policy, checkpoints, checks, gitstate, images, mentions, models, modes, plans, prompts, repomap,
-               router, skills, specs, spend, steering, verification, webtools)
+               router, skills, spec_profiles, spec_reminder, specs, spend, steering, verification, webtools)
 from .bedrock import BedrockError, make_client
 from .config import Config
 from .context import CLEARED_PREFIX, ContextManager, is_overflow
@@ -326,12 +326,13 @@ class Agent:
             return None
         kind = "bugfix" if re.search(r"\b(bug|broken|fails?|failing|error|crash|regression|wrong)\b", text, re.I) \
             else "feature"
-        base_name, n = specs.slug(text), 1
+        profile, description = spec_profiles.requested(text)
+        base_name, n = specs.slug(description), 1
         name = base_name
         while specs.get(root, name):
             n += 1
             name = f"{base_name}-{n}"
-        spec = specs.create(root, name, kind)
+        spec = specs.create(root, name, kind, profile)
         state["spec"] = spec.name
         self.store.update_session(session_id, context_state=state)
         return {"type": "spec", "name": spec.name, "created": True, "kind": kind}
@@ -802,6 +803,7 @@ class Agent:
                     "results": results, "awaiting": awaiting, "order": [tu["toolUseId"] for tu in tool_uses]})
                 yield {"type": "approval_needed", "tools": self.approval_view(session_id, awaiting, ctx.root)}
                 return
+            yield from self._remind(session_id, ctx.root, step, results)
             self.store.add_message(session_id, "user", results)
             if session_id in self._cancelled:
                 yield from self._stopped(session_id)
@@ -847,6 +849,18 @@ class Agent:
         if not advice.force_ask and not tool.requires_approval(tu["input"], sess.auto_approve, ctx.root):
             return False
         return not _reopens(tu, ctx.root) and not (advice.offer_rule and self.allowed(session_id, tu))
+
+    def _remind(self, session_id: str, root: Path | None, step: int, results: list[dict]) -> Iterator[dict]:
+        """On a long implementation turn, put the task in progress back in front of the model."""
+        sess = self.store.get_session(session_id)
+        name = (sess.context_state or {}).get("spec")
+        if not spec_reminder.due(step) or sess.mode != "spec" or not name or root is None:
+            return
+        spec = specs.get(root, name)
+        reminder = spec_reminder.text(spec) if spec and spec.phase == "implement" else None
+        if reminder:
+            results[-1]["toolResult"]["content"].append({"text": reminder})
+            yield {"type": "spec_reminder", "task": spec_reminder.current(spec).id}
 
     def _usage_event(self, model: str, usage: dict, started: float) -> dict:
         return {"type": "usage", "model": model, "usage": usage, "seconds": round(time.monotonic() - started, 1),
@@ -1111,7 +1125,8 @@ def history_events(store: Store, session_id: str) -> list[dict]:
                     events.append({"type": "attached_images", "images": [{"url": url, "source": ""}]})
             elif "toolResult" in b:
                 tr = b["toolResult"]
-                out = " ".join(c.get("text", "") for c in tr.get("content", []))
+                out = " ".join(c.get("text", "") for c in tr.get("content", [])
+                               if not c.get("text", "").startswith(spec_reminder.OPEN))
                 tu = {"toolUseId": tr["toolUseId"], "name": names.get(tr["toolUseId"], "")}
                 shown = out if len(out) <= UI_OUTPUT_LIMIT else out[:UI_OUTPUT_LIMIT] + "\n[... truncated in UI]"
                 event = {"type": "tool_result", "id": tu["toolUseId"], "name": tu["name"], "output": shown,
