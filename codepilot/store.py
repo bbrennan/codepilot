@@ -14,6 +14,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+# Marks a message steered into a running turn: part of that turn, not the start of another.
+QUEUED_PREFIX = "(Sent while you were working) "
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
@@ -159,7 +162,8 @@ class Store:
         wanted = {"sessions": [("mode", "TEXT NOT NULL DEFAULT 'act'"), ("context_state", "TEXT"),
                                ("model", "TEXT NOT NULL DEFAULT ''")],
                   "proposals": [("before_text", "TEXT"), ("after_text", "TEXT"), ("check_text", "TEXT"),
-                                ("applied_at", "REAL"), ("advice", "TEXT")]}
+                                ("applied_at", "REAL"), ("advice", "TEXT")],
+                  "usage": [("local", "INTEGER NOT NULL DEFAULT 0"), ("rewound", "INTEGER NOT NULL DEFAULT 0")]}
         with self._lock, self._db:
             for table, cols in wanted.items():
                 have = {r["name"] for r in self._db.execute(f"PRAGMA table_info({table})")}
@@ -263,8 +267,13 @@ class Store:
         return bool(row and row["archived"])
 
     def delete_messages_from(self, sid: str, mid: int) -> int:
-        """Delete a message and everything after it in the session (rewinding the conversation)."""
+        """Delete a message and everything after it in the session (rewinding the conversation).
+
+        Its usage stays, because it was billed, but is marked: it no longer belongs to any turn.
+        """
         with self._lock, self._db:
+            self._db.execute("UPDATE usage SET rewound = 1 WHERE session_id = ? AND created >= "
+                             "(SELECT created FROM messages WHERE id = ?)", (sid, mid))
             return self._db.execute("DELETE FROM messages WHERE session_id = ? AND id >= ?", (sid, mid)).rowcount
 
     def archive_messages(self, sid: str, ids: list[int]) -> None:
@@ -402,37 +411,38 @@ class Store:
 
     # -- token usage ----------------------------------------------------------------------------
 
-    def add_usage(self, sid: str, model: str, usage: dict) -> None:
+    def add_usage(self, sid: str, model: str, usage: dict, local: bool = False) -> None:
         with self._lock, self._db:
             self._db.execute(
                 "INSERT INTO usage (session_id, model, input_tokens, output_tokens, cache_read, cache_write,"
-                " created) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                " created, local) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (sid, model, usage.get("inputTokens", 0), usage.get("outputTokens", 0),
-                 usage.get("cacheReadInputTokens", 0), usage.get("cacheWriteInputTokens", 0), time.time()),
+                 usage.get("cacheReadInputTokens", 0), usage.get("cacheWriteInputTokens", 0), time.time(), int(local)),
             )
 
     def usage(self, sid: str) -> dict:
         with self._lock:
             rows = self._db.execute(
-                "SELECT model, COUNT(*) AS calls, SUM(input_tokens) AS input, SUM(output_tokens) AS output, "
+                "SELECT model, local, COUNT(*) AS calls, SUM(input_tokens) AS input, SUM(output_tokens) AS output, "
                 "SUM(cache_read) AS cache_read, SUM(cache_write) AS cache_write FROM usage WHERE session_id = ? "
-                "GROUP BY model", (sid,)).fetchall()
+                "GROUP BY model, local", (sid,)).fetchall()
         return {"by_model": [dict(r) for r in rows]}
 
     def usage_since(self, since: float) -> list[dict]:
         """Usage by model across all sessions."""
         with self._lock:
             rows = self._db.execute(
-                "SELECT model, COUNT(*) AS calls, SUM(input_tokens) AS input, SUM(output_tokens) AS output, "
+                "SELECT model, local, COUNT(*) AS calls, SUM(input_tokens) AS input, SUM(output_tokens) AS output, "
                 "SUM(cache_read) AS cache_read, SUM(cache_write) AS cache_write FROM usage WHERE created >= ? "
-                "GROUP BY model", (since,)).fetchall()
+                "GROUP BY model, local", (since,)).fetchall()
         return [dict(r) for r in rows]
 
     def usage_rows(self, sid: str) -> list[dict]:
-        """One row per model call."""
+        """One row per model call, leaving out rewound turns: their times now fall inside the turn before."""
         with self._lock:
-            rows = self._db.execute("SELECT model, input_tokens AS input, output_tokens AS output, cache_read, "
-                                    "cache_write, created FROM usage WHERE session_id = ? ORDER BY id", (sid,)).fetchall()
+            rows = self._db.execute("SELECT model, local, input_tokens AS input, output_tokens AS output, cache_read, "
+                                    "cache_write, created FROM usage WHERE session_id = ? AND rewound = 0 ORDER BY id",
+                                    (sid,)).fetchall()
         return [dict(r) for r in rows]
 
     def turn_starts(self, sid: str) -> list[tuple[int, float, str]]:
@@ -442,9 +452,12 @@ class Store:
                                     "ORDER BY id", (sid,)).fetchall()
         starts = []
         for row in rows:
+            # A new message can land after tool results (a stopped turn resuming), or a steering one mid-turn.
             content = json.loads(row["content"])
-            if content and "text" in content[0]:
-                starts.append((row["id"], row["created"], content[0]["text"]))
+            text = next((b["text"] for b in content if not b.get("text", "<turn_context>").startswith("<turn_context>")),
+                        None)
+            if text is not None and not text.startswith(QUEUED_PREFIX):
+                starts.append((row["id"], row["created"], text))
         return starts
 
     # -- per-repo notes (memory that outlives a session) ---------------------------------------

@@ -1104,7 +1104,7 @@ function renderUsage(u) {
   const tot = rows.reduce((a, r) => a + (r.input || 0) + (r.output || 0), 0);
   $("#sbTokens").textContent = `${fmtTok(tot)} tokens${costText(u)}`; $("#sbTokens").title = costTip(u);
   const el = $("#usageTable"); if (!el) return;
-  el.innerHTML = (rows.length ? rows.map((r) => `<div class="mono" style="font-size:11.5px">${esc(shortModel(r.model))}: ${r.calls} calls · in ${fmtTok(r.input)} · out ${fmtTok(r.output)}${r.cache_read ? ` · cache ${fmtTok(r.cache_read)}` : ""}${costCell(r)}</div>`).join("") : "—") + costFooter(u);
+  el.innerHTML = (rows.length ? rows.map((r) => `<div class="mono" style="font-size:11.5px">${esc(shortModel(r.model))}: ${r.calls} calls · in ${fmtTok(r.input)} · out ${fmtTok(r.output)}${r.cache_read ? ` · cache ${fmtTok(r.cache_read)}` : ""}${costCell(r, u)}</div>`).join("") : "—") + costFooter(u);
 }
 const ctxPct = (c) => (c && c.budget ? Math.min(100, Math.round((c.tokens / c.budget) * 100)) : 0);
 const ctxClass = (c) => { const p = ctxPct(c) / 100; return !c ? "" : p >= c.compact_at ? "high" : p >= c.prune_at ? "mid" : ""; };

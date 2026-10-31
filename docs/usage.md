@@ -465,7 +465,9 @@ session. A model with no price shows as `$?` and isn't counted, so it never look
 
 **A daily cap.** Set `CODEPILOT_DAILY_BUDGET=5` (USD). You get a notice at 80%. At the cap the turn stops before its
 next model call, and your message is kept. **Continue anyway today** lifts the cap until midnight, then send a message
-to carry on. Usage with no price doesn't count towards the cap.
+to carry on. Usage with no price doesn't count towards the cap, and the notice and banner name it. The cap covers every
+model call: `explore`, memory summaries and second opinions too. At the cap, **Compact now** shows the same banner, and
+**Continue in new session** waits, since it needs a summary.
 
 ## The terminal
 

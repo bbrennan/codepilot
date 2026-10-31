@@ -107,3 +107,32 @@ def test_run_all_remaining_just_runs_when_there_is_no_estimate(page, server, ses
     _spec_with_tasks(page, server)  # no prices, so no estimate
     page.click("#spAll")
     page.wait_for_function("() => document.querySelectorAll('.sp-task.done').length === 3")
+
+
+def test_switching_sessions_during_the_estimate_cancels_the_run(page, server, session):
+    _spec_with_tasks(page, server)  # no prices: the path that used to run without looking
+    held = []
+    page.route("**/turn-costs", lambda route: held.append(route))
+    calls = len(server.llm.calls)
+    with page.expect_request("**/turn-costs"):
+        page.click("#spAll")
+    page.click("#newChatBtn")
+    page.wait_for_function("() => !document.querySelector('.msg.user')")
+    with page.expect_response("**/turn-costs"):
+        held[0].continue_()
+    page.wait_for_timeout(300)
+    assert len(server.llm.calls) == calls and page.locator(".msg.user").count() == 0
+
+
+def test_a_missing_price_shows_as_unknown_everywhere(page, server, session):
+    server.cfg.home.mkdir(parents=True, exist_ok=True)
+    (server.cfg.home / "prices.toml").write_text('["some-other-model"]\ninput = 1.0\n')
+    open_app(page)
+    send(page, "hello")
+    page.wait_for_function("() => document.querySelector('#sbTokens').textContent.includes('$?')")
+    assert "· $?" in page.locator(".act", has_text="anthropic.claude-sonnet-5-5").last.text_content()
+    page.click("[data-view=memory]")
+    table = page.locator("#usageTable")
+    table.locator("text=Today").wait_for()
+    text = table.text_content()
+    assert "· $?" in text and "$?" in text.split("Today")[1] and "no price for" in text

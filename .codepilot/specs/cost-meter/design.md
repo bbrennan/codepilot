@@ -39,10 +39,13 @@ view, per-turn costs and the daily cap live together rather than in two modules.
 class Spend:
     def __init__(self, cfg, store, today=datetime.now)
     def view(self, sid) -> dict         # by_model (with cost), cost, today, budget, prices {path, loaded, error}
+    def record(self, sid, model, usage) -> None
     def call(self, model, usage) -> float | None
-    def turns(self, sid) -> list[dict]  # [{mid, text, cost}]; cost None if part of the turn has no price
+    def turns(self, sid) -> list[dict]  # [{mid, text, cost}]; cost None if it made no calls or part has no price
     def check(self) -> str              # ok | warn (first time past 80% today) | stop
+    def capped(self) -> bool            # as check, but asking uses up no warning
     def spent_today(self) -> float
+    def unpriced_today(self) -> list[str]
     def override_today(self) -> None
 ```
 
@@ -92,7 +95,29 @@ next to a model call costs nothing, and a stale total could let a tight cap over
 ## Data models
 
 `~/.codepilot/budget.json`: `{"date": "YYYY-MM-DD", "override": bool, "warned": bool}`. Any other date counts as a new
-day. Nothing changes in SQLite.
+day. It's replaced atomically, and the warning and the override share a lock, so neither can undo the other.
+
+`usage` gains two additive columns:
+
+- `local`: stamped when the call is recorded. Pricing by today's provider would make last week's cloud spend free after
+  a switch to Ollama, and earlier local calls look unpriced after switching back.
+- `rewound`: set when a rewind deletes the turn. The cost stays in the session and daily totals because it was billed,
+  but it leaves turn costs, since those rows' times would otherwise fall inside the turn before.
+
+Every model call goes through `Spend.record`, including summaries and second opinions, which get their usage from an
+`on_usage` callback on `complete()`. `Store.usage` no longer groups by model alone: it groups by model and `local`.
+
+## At the cap
+
+Each kind of model call stops differently, because each can be mid-way through something:
+
+| Call | At the cap |
+|---|---|
+| The main loop | Stops the turn with a `budget` event, and checks again after a summary, which may be what reached it |
+| `explore` | Returns "Stopped" to the turn, which reports the budget once at its next check |
+| A second opinion | Quietly skipped: the loop stops at its next check anyway |
+| Manual compaction | Shows the budget banner instead, which is how the cap can be lifted |
+| Continue in new session | Refused with a 409: it needs a summary, and without one the session's work would be lost |
 
 ## Error handling
 

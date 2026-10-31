@@ -96,11 +96,12 @@ def pick_verbatim(asks: list[str], budget: int = VERBATIM_CHARS) -> list[str]:
 
 
 class ContextManager:
-    def __init__(self, cfg: Config, store: Store, llm: Any, fast_model: Any = None):
+    def __init__(self, cfg: Config, store: Store, llm: Any, fast_model: Any = None, record_usage: Any = None):
         self.cfg = cfg
         self.store = store
         self.llm = llm
         self.fast_model = fast_model or (lambda: cfg.models["fast"])
+        self.record_usage = record_usage or store.add_usage
 
     # -- budget ------------------------------------------------------------------------------------
 
@@ -226,7 +227,9 @@ class ContextManager:
                   f"Conversation to fold in:\n{render_transcript([m for _, m in old])}\n\n"
                   "Write the updated summary.")
         try:
-            text = self.llm.complete(self.fast_model(), prompts.SUMMARIZE, prompt, max_tokens=3000)
+            model = self.fast_model()
+            text = self.llm.complete(model, prompts.SUMMARIZE, prompt, max_tokens=3000,
+                                     on_usage=lambda usage: self.record_usage(session_id, model, usage))
         except BedrockError as exc:
             text = f"{sess.summary}\n\n(Automatic summary unavailable: {exc})".strip()
         summary = (text.strip() + ("\n\n" + state if state else "")).strip()

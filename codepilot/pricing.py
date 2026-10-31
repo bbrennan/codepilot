@@ -7,6 +7,7 @@ leaves out a model would read as cheaper than it is, so callers say which ones a
 
 from __future__ import annotations
 
+import math
 import tomllib
 from pathlib import Path
 
@@ -15,12 +16,25 @@ KINDS = ("input", "output", "cache_read", "cache_write")
 
 def load(path: Path) -> dict:
     """{} if there's no file. Raises ValueError, naming the file, if it can't be read."""
+    name = Path(path).name
     try:
-        return tomllib.loads(Path(path).read_text())
+        prices = tomllib.loads(Path(path).read_text())
     except FileNotFoundError:
         return {}
-    except (OSError, tomllib.TOMLDecodeError) as exc:
-        raise ValueError(f"{Path(path).name}: {exc}") from None
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"{name}: {exc}") from None
+    for model, rates in prices.items():
+        if not isinstance(rates, dict):
+            raise ValueError(f"{name}: {model} should be a table of prices")
+        for kind in KINDS:
+            if kind in rates and not _is_rate(rates[kind]):
+                raise ValueError(f"{name}: {model}.{kind} should be a number, zero or more")
+    return prices
+
+
+def _is_rate(value: object) -> bool:
+    # bool is an int to Python, and nan or inf would pass a sum then break the JSON that carries it.
+    return isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value) and value >= 0
 
 
 def price_for(model: str, prices: dict | None) -> dict | None:
@@ -32,8 +46,11 @@ def price_for(model: str, prices: dict | None) -> dict | None:
 
 
 def cost(row: dict, prices: dict | None, local: bool = False) -> float | None:
-    """Dollars for a row of token counts (its model, and input, output, cache_read, cache_write). None: no price."""
-    if local:
+    """Dollars for a row of token counts (its model, and input, output, cache_read, cache_write). None: no price.
+
+    A row says itself whether a local model served it: the provider today says nothing about last week's calls.
+    """
+    if local or row.get("local"):
         return 0.0
     price = price_for(row["model"], prices)
     if price is None:

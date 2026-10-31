@@ -57,3 +57,17 @@ def test_summarise_totals_priced_models_and_names_the_rest():
 
 def test_summarise_of_nothing():
     assert pricing.summarise([], PRICES) == {"total": 0.0, "unpriced": [], "by_model": []}
+
+
+@pytest.mark.parametrize("text", ['rate = 2.0\n', '["m"]\ninput = "2.0"\n', '["m"]\ninput = nan\n',
+                                  '["m"]\ninput = inf\n', '["m"]\ninput = -1.0\n', '["m"]\ninput = true\n'])
+def test_load_refuses_prices_that_arent_prices(tmp_path, text):
+    f = tmp_path / "prices.toml"
+    f.write_text(text)
+    with pytest.raises(ValueError, match="prices.toml"):
+        pricing.load(f)
+
+
+def test_a_row_remembers_it_was_local_whatever_the_current_provider():
+    assert pricing.cost(row("gpt-9", input=5, local=1), PRICES) == 0.0
+    assert pricing.cost(row(input=1_000_000, local=0), PRICES) == 2.0

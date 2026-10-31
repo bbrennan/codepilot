@@ -20,7 +20,7 @@ from . import (approval_policy, checkpoints, checks, gitstate, images, mentions,
 from .bedrock import BedrockError, make_client
 from .config import Config
 from .context import CLEARED_PREFIX, ContextManager, is_overflow
-from .store import Session, Store
+from .store import QUEUED_PREFIX, Session, Store
 from .tools import (SKIP_DIRS, Tool, ToolContext, ToolError, build_tools, detect_test_cmd, execute, proposal_view,
                     trace_roots)
 
@@ -72,8 +72,9 @@ class Agent:
         self._cancelled: set[str] = set()
         self._queues: dict[str, list[dict]] = {}  # messages typed while a turn runs, read at the next step
         self._queue_lock = threading.Lock()
-        self.ctxm = ContextManager(cfg, store, self.llm, fast_model=lambda: self.tier_model("fast"))
         self.spend = spend.Spend(cfg, store)
+        self.ctxm = ContextManager(cfg, store, self.llm, fast_model=lambda: self.tier_model("fast"),
+                                   record_usage=self.spend.record)
 
     def cancel(self, session_id: str) -> list[str]:
         """Ask a running turn to stop at the next safe point. Returns queued messages, so the UI can put them
@@ -498,7 +499,7 @@ class Agent:
             return output
         turn = self._turn_flag(session_id, failures=1)
         sess = self.store.get_session(session_id)
-        if sess.tier != "auto" or sess.model or turn["failures"] < 2 or turn["advised"]:
+        if sess.tier != "auto" or sess.model or turn["failures"] < 2 or turn["advised"] or self.spend.capped():
             return output
         advisor = self.auto_model("hard")
         if advisor == self._model_for(sess):
@@ -509,7 +510,8 @@ class Agent:
         prompt = (f"{transcript}\n\nThe latest {tu['name']} result:\n{output[-6000:]}\n\n"
                   "Give your advice now.")
         try:
-            advice = self.llm.complete(advisor, prompts.ADVISOR, prompt, max_tokens=1500)
+            advice = self.llm.complete(advisor, prompts.ADVISOR, prompt, max_tokens=1500,
+                                       on_usage=lambda usage: self.spend.record(session_id, advisor, usage))
         except BedrockError as exc:
             yield {"type": "notice", "message": f"Second opinion unavailable: {exc}"}
             return output
@@ -526,6 +528,10 @@ class Agent:
 
     def compact(self, session_id: str, focus: str = "") -> Iterator[dict]:
         """Manual compaction (/compact [focus] or the Compact button)."""
+        if (yield from self._over_budget()):  # a summary is a model call too
+            yield self.context_usage(session_id)
+            yield {"type": "done"}
+            return
         changed = yield from self.ctxm.compact_now(session_id, focus)
         if changed:
             self._strip_reasoning(session_id)
@@ -709,6 +715,10 @@ class Agent:
             if changed:
                 self._strip_reasoning(session_id)
                 system = self._session_system(self.store.get_session(session_id), ctx)
+                if (yield from self._over_budget()):  # the summary may have been what reached it
+                    yield self.context_usage(session_id)
+                    yield {"type": "done"}
+                    return
             final = None
             partial = ""
             started = time.monotonic()
@@ -750,10 +760,9 @@ class Agent:
             self.store.add_message(session_id, "assistant", content)
             usage = (final or {}).get("usage") or {}
             if usage:
-                self.store.add_usage(session_id, model, usage)
+                self.spend.record(session_id, model, usage)
                 self.ctxm.record(session_id, system, specs, sent, usage)
-            yield {"type": "usage", "model": model, "usage": usage, "seconds": round(time.monotonic() - started, 1),
-                   "cost": self.spend.call(model, usage)}
+            yield self._usage_event(model, usage, started)
             stop = (final or {}).get("stop_reason")
             if not tool_uses:
                 if stop == "max_tokens":
@@ -840,15 +849,27 @@ class Agent:
             return False
         return not _reopens(tu, ctx.root) and not (advice.offer_rule and self.allowed(session_id, tu))
 
-    def _over_budget(self) -> Generator[dict, None, bool]:
-        """Before a model call: warn near the daily budget, and report if it's reached."""
+    def _usage_event(self, model: str, usage: dict, started: float) -> dict:
+        return {"type": "usage", "model": model, "usage": usage, "seconds": round(time.monotonic() - started, 1),
+                "cost": self.spend.call(model, usage), "priced": self.spend.priced()}
+
+    def _budget_status(self) -> Generator[dict, None, str]:
+        """Before a model call: ok or stop, warning once near the daily budget. A warning is only given once."""
         status = self.spend.check()
         if status == "warn":
+            unpriced = self.spend.unpriced_today()
             yield {"type": "notice", "message": f"Today's cost has passed {WARN_PERCENT}% of the daily budget "
-                                                f"(${self.cfg.daily_budget:g}, CODEPILOT_DAILY_BUDGET)."}
-        if status != "stop":
+                                                f"(${self.cfg.daily_budget:g}, CODEPILOT_DAILY_BUDGET)."
+                                                + (f" Not counted, for lack of a price: {', '.join(unpriced)}."
+                                                   if unpriced else "")}
+        return status
+
+    def _over_budget(self) -> Generator[dict, None, bool]:
+        """As _budget_status, and report it if the budget is reached."""
+        if (yield from self._budget_status()) != "stop":
             return False
-        yield {"type": "budget", "spent": round(self.spend.spent_today(), 4), "limit": self.cfg.daily_budget}
+        yield {"type": "budget", "spent": round(self.spend.spent_today(), 4), "limit": self.cfg.daily_budget,
+               "unpriced": self.spend.unpriced_today()}
         return True
 
     def _stopped(self, session_id: str) -> Iterator[dict]:
@@ -891,12 +912,13 @@ class Agent:
         for step in range(EXPLORE_MAX_STEPS):
             if ctx.session_id in self._cancelled:
                 return "Cancelled: the user stopped this turn.", True
-            if self.spend.check() == "stop":
+            if (yield from self._budget_status()) == "stop":  # the turn reports it, once, at its next check
                 return "Stopped: the daily budget has been reached.", True
             if step == EXPLORE_MAX_STEPS - 1:
                 messages[-1]["content"].append({"text": "Step limit reached: write your final report now."})
             _shrink_local(messages, self.ctxm.budget(model) // 2, self.ctxm.ratio(ctx.session_id))
             final = None
+            started = time.monotonic()
             try:
                 for event in self.llm.stream(model, system, messages, specs):
                     if event["type"] == "message":
@@ -905,7 +927,8 @@ class Agent:
                 return f"explore failed: {exc}", True
             content = (final or {}).get("content") or [{"text": "(no response)"}]
             if final and final.get("usage"):
-                self.store.add_usage(ctx.session_id, model, final["usage"])
+                self.spend.record(ctx.session_id, model, final["usage"])
+                yield self._usage_event(model, final["usage"], started)
             calls = [b["toolUse"] for b in content if "toolUse" in b]
             for c in calls:
                 c.pop("_invalid_input", None)
@@ -992,7 +1015,6 @@ def _tool_result(tool_use_id: str, output: str, is_error: bool) -> dict:
                            "status": "error" if is_error else "success"}}
 
 
-QUEUED_PREFIX = "(Sent while you were working) "
 SHELL_CHAINING = re.compile(r"[;&|`$<>\n\\]")
 # Programs whose next word says what runs ("npm test" vs "npm publish"), so a rule keeps that word too.
 RUNNERS = {"npm", "npx", "pnpm", "yarn", "bun", "uv", "uvx", "poetry", "pipenv", "make", "go", "cargo", "bundle",

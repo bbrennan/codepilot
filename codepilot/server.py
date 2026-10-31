@@ -462,6 +462,8 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         with busy_lock:
             if sid in busy:
                 return err("This session is busy; wait for it to finish.", 409)
+        if agent.spend.capped():  # the summary it needs is a model call, and without one the session's work is lost
+            return err("The daily budget is reached. Press Compact now to lift it, then carry the session over.", 409)
         try:
             new_id = await run_in_threadpool(agent.handoff, sid)
         except KeyError:
