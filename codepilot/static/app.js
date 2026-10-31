@@ -921,11 +921,11 @@ function renderReviewTab(tab) {
   const pendN = list.filter((x) => x.status === "pending").length;
   $("#editor").innerHTML = `<div class="review">
     <div class="rv-list"><div class="rv-head">${pendN ? `${pendN} waiting` : "All reviewed"}<span class="spacer"></span>${pendN ? `<button class="btn sm primary" id="rvApplyAll">Apply all</button>` : ""}</div>
-      ${list.map((x) => `<div class="rv-item ${x.id === p.id ? "on" : ""}" data-rv="${x.id}">${fileIcon(x.path)}<div class="rv-name"><span>${esc(base(x.path))}</span><span class="muted">${esc(dirOf(x.path))}</span></div>${diffStat(x.diff).html}<span class="status ${x.status}">${x.status}</span></div>`).join("")}
+      ${list.map((x) => `<div class="rv-item ${x.id === p.id ? "on" : ""}" data-rv="${x.id}">${fileIcon(x.path)}<div class="rv-name"><span>${esc(base(x.path))}</span><span class="muted">${esc(dirOf(x.path))}</span></div>${depMark(x)}${diffStat(x.diff).html}<span class="status ${x.status}">${x.status}</span></div>`).join("")}
       <div class="rv-receipt">${receiptHtml()}</div>
       <div class="hint rv-keys"><kbd>j</kbd>/<kbd>k</kbd> move · <kbd>a</kbd> apply · <kbd>r</kbd> reject</div></div>
     <div class="rv-main"><div class="ed-bar"><span class="crumbs"><b>${esc(p.path)}</b> <span class="muted">#${p.id}</span></span><span class="status ${p.status}">${p.status}</span><span class="muted rv-reason">${esc(p.reason || "")}</span><span class="spacer"></span>${propActions(p)}<button class="btn ghost" id="rvOpen">${icon("file")}Open file</button></div>
-      ${receiptFindings(p.path)}<div class="ed-scroll">${diffHtml(p.diff)}</div>
+      ${depAdvice(p)}${receiptFindings(p.path)}<div class="ed-scroll">${diffHtml(p.diff)}</div>
       <div class="rv-ask"><textarea class="field" id="rvAsk" rows="2" placeholder="Ask for a change to this, e.g. &quot;keep the old name as an alias&quot;"></textarea><button class="btn" id="rvAskBtn">${icon("send")}Send</button></div></div></div>`;
   bindReceipt($("#editor"));
   $(".rv-list").onclick = (e) => { const it = e.target.closest("[data-rv]"); if (it) { tab.sel = +it.dataset.rv; renderReviewTab(tab); } };
@@ -1382,7 +1382,7 @@ function diffStat(diff) {
 }
 function renderProposalCard(p) {
   // Compact in the chat: one line with its status; the diff is a click away, and review happens in the bar/tab.
-  return add(`<details class="card prop" data-prop="${p.id}"><summary class="hd">${icon("edit")}<span class="path" data-prop-open="${p.id}" title="Open in Review">${esc(p.path)}</span>${diffStat(p.diff).html}<span class="muted">#${p.id}</span><span class="status ${p.status}" title="${esc(STATUS_TIPS[p.status] || "")}">${p.status}</span><span class="spacer"></span>
+  return add(`<details class="card prop" data-prop="${p.id}"><summary class="hd">${icon("edit")}<span class="path" data-prop-open="${p.id}" title="Open in Review">${esc(p.path)}</span>${depMark(p)}${diffStat(p.diff).html}<span class="muted">#${p.id}</span><span class="status ${p.status}" title="${esc(STATUS_TIPS[p.status] || "")}">${p.status}</span><span class="spacer"></span>
     <span class="pacts">${propActions(p)}</span></summary>
     ${p.reason ? `<div class="reason">${esc(p.reason)}</div>` : ""}${diffHtml(p.diff)}</details>`);
 }

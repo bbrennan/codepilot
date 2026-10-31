@@ -394,7 +394,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             "busy": sid in busy,
             "summary": sess.summary,
             "events": history_events(store, sid),
-            "pending": sess.pending and agent.approval_view(sid, sess.pending["awaiting"], root),
+            "pending": sess.pending and await run_in_threadpool(agent.approval_view, sid, sess.pending["awaiting"], root),
             "allow": (sess.context_state or {}).get("allow", []),
             "taint": (sess.context_state or {}).get("taint", []),
             "auto_apply": bool((sess.context_state or {}).get("auto_apply")) or cfg.auto_apply_edits,

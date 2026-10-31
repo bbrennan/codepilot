@@ -340,6 +340,14 @@ a.loc:hover { text-decoration: underline; }
 .card .pacts { display: inline-flex; gap: 6px; flex: none; }
 .card .reason { padding: 6px 10px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); }
 .card .diff { max-height: 280px; overflow: auto; padding: 4px 0; }
+.dep-mark { color: var(--warn); display: inline-flex; flex: none; }
+.dep-mark .i { width: 13px; height: 13px; }
+.dep-advice { padding: 6px 12px; border-bottom: 1px solid var(--line); font-size: 12px; display: grid; gap: 3px; }
+.dep { display: flex; align-items: center; gap: 6px; }
+.dep .i { width: 13px; height: 13px; flex: none; }
+.dep.danger { color: var(--err); }
+.dep.caution { color: var(--warn); }
+.dep.info { color: var(--muted); }
 .rb-warn { display: flex; align-items: center; gap: 5px; margin-top: 4px; font-size: 12px; }
 .rb-warn .i { width: 13px; height: 13px; flex: none; }
 .rb-warn.danger { color: var(--err); font-weight: 600; }

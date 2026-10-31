@@ -11,13 +11,10 @@ import re
 import shlex
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
-from . import github, webtools
+from . import deps_guard, github, shellparse, webtools
 
-PUNCTUATION = "();<>|&\n"
-SEPARATORS = set(";|&()\n")
-PREFIXES = {"sudo", "command", "time", "nohup", "env", "exec", "nice", "xargs"}  # run the command after them
 SHELLS = {"sh", "bash", "zsh", "dash"}
 RUNS_STDIN = SHELLS | {"python", "python3", "perl", "ruby", "node"}
 
@@ -40,59 +37,6 @@ RULES = [(name, re.compile(pattern, flags)) for name, pattern, flags in (
     ("changes permissions recursively", r"^(chmod|chown)\b.*\s(-\w*R\w*|--recursive)\b", 0),
     (RM_RECURSIVE, r"^find\b.*\s-delete\b", 0),
 )]
-
-
-def _segments(command: str) -> list[tuple[list[str], bool]]:
-    """The simple commands in a command line, each with whether its input is piped from the one before.
-    Raises ValueError on input a shell couldn't parse either (an unbalanced quote)."""
-    lexer = shlex.shlex(command.replace("`", ";"), posix=True, punctuation_chars=PUNCTUATION)
-    lexer.whitespace, lexer.commenters = " \t\r", ""
-    lexer.whitespace_split = True
-    segments, current, piped = [], [], False
-    for token in lexer:
-        if set(token) <= set(PUNCTUATION) and set(token) & SEPARATORS:  # redirections stay with their command
-            if current:
-                segments.append((current, piped))
-            current, piped = [], token == "|"
-        elif not set(token) <= set(PUNCTUATION):
-            current.append(token)
-    if current:
-        segments.append((current, piped))
-    return segments
-
-
-def _commands(tokens: list[str]) -> list[list[str]]:
-    """What this simple command runs, with the program as a bare name (so /bin/rm is rm).
-
-    Behind a wrapper (sudo, env, uv run, ...) that's every place the wrapped command could start: their options take
-    values that differ per wrapper and per version, and an extra warning costs less than a missed rm -rf. One pass
-    over the positions, not recursion: a long chain of wrappers must not multiply the work.
-    """
-    commands, starts, seen = [], [0], set()
-    while starts:
-        i = starts.pop()
-        if i in seen:
-            continue
-        seen.add(i)
-        while i < len(tokens) and re.match(r"^\w+=", tokens[i]):
-            i += 1
-        if i >= len(tokens):
-            continue
-        program = PurePosixPath(tokens[i]).name
-        skip = 2 if program in ("uv", "poetry") and tokens[i + 1:i + 2] == ["run"] else 1 if program in PREFIXES else 0
-        if skip:
-            starts += [j for j in range(i + skip, len(tokens)) if j not in seen and not tokens[j].startswith("-")]
-        else:
-            commands.append(i)
-    return [_named(tokens[i:]) for i in sorted(set(commands))]
-
-
-def _named(tokens: list[str]) -> list[str]:
-    tokens = [PurePosixPath(tokens[0]).name, *tokens[1:]]
-    if tokens[0] == "git":
-        while len(tokens) > 2 and tokens[1] in ("-C", "-c", "--no-pager"):
-            del tokens[1:3 if tokens[1] != "--no-pager" else 2]
-    return tokens
 
 
 def _rm(tokens: list[str]) -> str | None:
@@ -154,13 +98,13 @@ def destructive(command: str, depth: int = 0) -> list[str]:
         return ["is nested too deeply to check"]
     found: list[str] = []
     try:
-        segments = _segments(command)
+        segments = shellparse.segments(command)
     except ValueError:
         found += _scan_text(command)  # when in doubt, warn rather than stay quiet
         segments = []
     previous: set[str] = set()
     for tokens, piped in segments:
-        commands = _commands(tokens)
+        commands = shellparse.commands(tokens)
         for one in commands:
             found += _check(one, depth)
         names = {c[0] for c in commands}
@@ -234,6 +178,7 @@ class View:
     taint: list[dict]  # external content this session has read
     root: Path | None
     in_explore: bool = False
+    deps_check: bool = False
 
 
 def destructive_advisor(tu: dict, view: View) -> Advice | None:
@@ -277,8 +222,23 @@ def taint_advisor(tu: dict, view: View) -> Advice | None:
         {"level": "caution", "text": f"Asking because this session read external content ({named})."}])
 
 
+def packages_advisor(tu: dict, view: View) -> Advice | None:
+    """What the registry says about anything this command installs. A package that's missing or new always asks: an
+    "always allow" rule for `uv add` was given for a package someone looked at, not for this one."""
+    if tu["name"] != "run_command" or not view.deps_check:
+        return None
+    pairs = deps_guard.installs(str(tu["input"].get("command", "")))
+    if not pairs:
+        return None
+    lines = deps_guard.check(pairs)
+    risky = any(line["level"] in ("danger", "caution") for line in lines)
+    warnings = [{"level": line["level"], "text": f"{line['name']}: {line['text']}" if line["name"] else line["text"]}
+                for line in lines]
+    return Advice(force_ask=risky, offer_rule=not risky, warnings=warnings)
+
+
 Advisor = Callable[[dict, View], "Advice | None"]
-ADVISORS: list[Advisor] = [destructive_advisor, taint_advisor]
+ADVISORS: list[Advisor] = [destructive_advisor, taint_advisor, packages_advisor]
 
 
 def advise(tu: dict, view: View) -> Advice:

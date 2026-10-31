@@ -159,6 +159,24 @@ a download piped to a shell, and so on) get a red warning naming what they do, i
 "Always allow" never covers them, even with a rule saved earlier. The check reads the command text, so it can't see
 what a script does.
 
+## Packages
+
+Code models recommend packages that don't exist, and repeat the same invented names, so attackers register them
+("slopsquatting"). Before you approve an install, or review a change that adds a dependency, codepilot looks the name up
+on PyPI, npm or crates.io:
+- **not found** (red): possibly an invented name, or a private package;
+- **new** (amber): first published under 90 days ago, or with 2 releases or fewer;
+- anything else is a quiet line, such as "on PyPI since 2014 · 213 releases".
+
+A package that's missing or new always asks, even under an "always allow" rule. If a proposed change adds a package
+that doesn't exist, the assistant is told at once, so it can correct the name. It covers install commands (`pip`, `uv`,
+`poetry`, `pipx`, `npm`, `pnpm`, `yarn`, `bun`, `cargo`) and `pyproject.toml`, `requirements*.txt`, `package.json` and
+`Cargo.toml`.
+
+Only the package name leaves your machine. Lookups time out after 5 seconds, and a failed one never blocks anything.
+Nothing is refused: a private package is "not found" too, and that's your call. It doesn't check for known
+vulnerabilities (`run_checks` and scanners do) or for typos of popular names. `CODEPILOT_DEPS_CHECK=0` turns it off.
+
 ## Benchmark runs
 
 `codepilot bench` auto-approves tests and a short allowlist of read/test commands, and auto-applies edits,
