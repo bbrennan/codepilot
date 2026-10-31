@@ -85,3 +85,19 @@ def test_paths_and_skills_still_go_to_the_model(page, server, session):
     page.locator(".msg.user", has_text="/Users/me/app.py fails").wait_for()
     page.wait_for_function("() => document.querySelector('#stopBtn').hidden")
     assert len(model_calls(server)) == 1
+
+
+def sent_prompt(page, server, needle):
+    page.locator(".msg.user", has_text=needle).wait_for()
+    page.wait_for_function("() => document.querySelector('#stopBtn').hidden")
+    return str(model_calls(server)[-1]["messages"][-1])
+
+
+def test_init_drafts_conventions_and_init_foundation_drafts_kiro_docs(page, server, session):
+    open_app(page)
+    run(page, "/init")
+    sent = sent_prompt(page, server, "conventions.md")
+    assert "Do not write overviews" in sent and "product.md" not in sent
+    run(page, "/init foundation")
+    sent = sent_prompt(page, server, "product.md")
+    assert "structure.md" in sent and "conventions.md" not in sent

@@ -73,10 +73,17 @@ workspace can be included.
   tests can freeze time."
 - **Keep always-on docs short.** They're sent with every request; together, aim for a page or two.
   Move area-specific rules to `fileMatch` docs and long guides to `auto` or `manual` ones.
-- **Start from the code:** in the Steering view, **Generate foundation docs** has codepilot study the repo
-  and propose `product.md` (what it is and for whom), `tech.md` (stack, commands, constraints) and
-  `structure.md` (layout and conventions), as reviewable diffs. These are the same three files Kiro
-  generates.
+- **Write down only what the code doesn't say.** In the Steering view, **Draft conventions** (or `/init`) has
+  codepilot study the repo and propose one short `conventions.md`, as a reviewable diff: non-standard build or test
+  steps, forbidden patterns, constraints and gotchas, one line each, naming the file or command that shows it. It
+  leaves out overviews of the product, stack and layout, and proposes nothing if it finds nothing non-obvious. If
+  `conventions.md` exists, it proposes additions.
+- **Why not overviews?** An ETH Zurich study of AGENTS.md-style context files (ICLR 2026) found they generally didn't
+  improve task success and added over 20% to inference cost; overviews in particular didn't help, while
+  non-standard practices were worth writing down. The study used only Python benchmarks, so treat it as
+  suggestive. Either way, an always-on doc is paid for on every message.
+- **Kiro foundation docs, on request:** **Draft Kiro foundation docs** (the Steering view's **+** menu) or
+  `/init foundation` proposes `product.md`, `tech.md` and `structure.md`, the same three files Kiro generates.
 - **Keep them current.** When codepilot learns a convention, ask it to "add that to steering". It proposes
   the edit like any other change.
 
@@ -88,7 +95,9 @@ Click the compass in the activity bar. It shows:
 - each doc's mode as a badge (`always`, its file pattern, `#name`, `auto`);
 - **New steering doc**, which asks where it goes and what mode, creates it from a template and opens it in
   the editor;
-- **Generate foundation docs** (see above).
+- **Draft conventions** (see above), and how many tokens always-on docs add to each message, in total and per doc
+  (`≈340 tok`). It's an estimate, from the same characters-per-token ratio as the context meter. Only always-on
+  docs have a number, because the others aren't sent every time.
 
 Click a doc to open it. Workspace and global docs are editable (**Edit**, then **Save** or ⌘S); other
 tools' files open read-only. Changes apply from your next message, not just in new sessions.

@@ -110,8 +110,25 @@ def test_hash_menu_attaches_a_manual_doc_and_shows_a_chip(page, server, session)
     assert "Bump the version" not in page.locator("#transcript").text_content()
 
 
-def test_generate_foundation_docs_asks_codepilot(page, server, session):
+def test_draft_conventions_button_and_kiro_foundation_menu_item(page, server, session):
     open_app(page)
     page.click("[data-view=steering]")
-    page.click("#steerFoundation")
+    assert "Generate foundation docs" not in page.locator("#steeringView").text_content()
+    page.click("#steerConventions")
+    page.locator(".msg.user", has_text=".codepilot/steering/conventions.md").wait_for()
+    page.wait_for_function("() => document.querySelector('#stopBtn').hidden")
+    page.click("#newSteeringBtn")
+    menu(page, "Draft Kiro foundation docs")
     page.locator(".msg.user", has_text=".codepilot/steering/product.md").wait_for()
+
+
+def test_view_shows_what_always_on_steering_costs_per_message(page, server, session):
+    write(server.repo / ".codepilot/steering/style.md", "x" * 900)  # 300 tokens by the context meter's estimate
+    write(server.repo / ".codepilot/steering/manual.md", "---\ninclusion: manual\n---\n" + "y" * 900)
+    open_app(page)
+    page.click("[data-view=steering]")
+    page.locator("#steeringView .row.steer").first.wait_for()
+    assert "≈300 tok" in page.locator("#steeringView .row.steer", has_text="style").text_content()
+    assert "tok" not in page.locator("#steeringView .row.steer", has_text="manual").text_content()
+    total = page.locator("#steerCost").text_content()
+    assert "≈300 tokens" in total and "estimate" in total
