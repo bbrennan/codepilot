@@ -141,11 +141,13 @@ the machine (`web_fetch`, `web_search`, `library_docs`, CloudWatch logs, GitHub 
 header shows an **external content** chip and, for the rest of the session:
 - "always allow" rules are paused, and no new ones are offered;
 - every command, GitHub write and fetch asks, saying why;
-- `web_search`, `library_docs` and images by URL, which normally don't ask, now do, because the query or URL itself can
-  carry data out. The `explore` sub-agent can't ask, so it is refused them.
+- `web_search`, `library_docs`, `gh search`, `gh api` and images by URL, which normally don't ask, now do, because the
+  query or URL itself can carry data out. The `explore` sub-agent can't ask, so it is refused them;
+- the assistant is told, with the content itself, to treat it as data and not to follow instructions in it.
 
 The workspace's own test command and analysers still run under the auto-run switch, because the model doesn't choose
-what they run. Compaction doesn't end this: the content may still steer the model. A new session does, and so does
+what they run. If it passes arguments to the tests, that asks too: pytest runs whatever file it's pointed at.
+Compaction doesn't end this: the content may still steer the model. A new session does, and so does
 **Clear…** on the chip, which is for when you've checked what was read.
 
 This limits what an injection can do without you. It doesn't detect injections, and it doesn't cover content already

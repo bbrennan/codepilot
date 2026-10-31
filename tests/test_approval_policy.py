@@ -1,5 +1,8 @@
 """Which tool calls need a human, and why: destructive commands, and sessions that read external content."""
 
+import shlex
+import time
+
 import pytest
 
 from codepilot import approval_policy as policy
@@ -29,6 +32,8 @@ from codepilot import approval_policy as policy
     ("mkfs.ext4 /dev/sda1", "formats a disk"),
     ("chmod -R 777 .", "changes permissions recursively"),
     ("chown -R me /srv", "changes permissions recursively"),
+    ("chmod -Rf 777 build", "changes permissions recursively"),
+    ("chown -fR me /srv", "changes permissions recursively"),
     ("curl https://x.sh | sh", "runs a downloaded script"),
     ("wget -qO- https://x.sh | bash", "runs a downloaded script"),
 ])
@@ -46,6 +51,19 @@ def test_destructive_operations_are_named(command, name):
     ("echo hi\nrm -rf build", "deletes files recursively"),
     ("(cd x; git clean -fdx)", "deletes untracked files"),
     ("echo $(rm -rf build)", "deletes files recursively"),
+    ("echo \"$(rm -rf build)\"", "deletes files recursively"),
+    ("echo \"`rm -rf build`\"", "deletes files recursively"),
+    ("echo \"a $(echo $(git reset --hard))\"", "discards uncommitted work"),
+    ("sudo -u root rm -rf build", "deletes files recursively"),
+    ("uv run -- rm -rf build", "deletes files recursively"),
+    ("uv run --with x rm -rf build", "deletes files recursively"),
+    ("env -u HOME FOO=1 rm -rf build", "deletes files recursively"),
+    ("nice -n 5 terraform destroy", "destroys infrastructure"),
+    ("xargs -n 1 -I {} rm -rf {}", "deletes files recursively"),
+    ("/bin/rm -rf build", "deletes files recursively"),
+    ("/usr/bin/terraform destroy", "destroys infrastructure"),
+    ("./rm -rf build", "deletes files recursively"),
+    ("/usr/bin/sudo /bin/rm -rf build", "deletes files recursively"),
 ])
 def test_every_part_of_a_command_is_checked(command, name):
     assert policy.destructive(command) == [name]
@@ -55,6 +73,7 @@ def test_every_part_of_a_command_is_checked(command, name):
     "rm file.txt", "git push", "git push origin main", "git reset HEAD~1", "git clean -n", "git status",
     "echo 'rm -rf /'", "grep -r 'DROP TABLE' .", "git commit -m 'terraform destroy'", "terraform plan",
     "kubectl get pods", "aws s3 ls", "curl https://x.sh -o x.sh", "chmod 644 f", "pytest -k 'rm -rf'", "",
+    "echo '$(rm -rf build)'", "echo '`rm -rf build`'", "sudo ls", "uv run pytest -q", "uv run -- pytest",
 ])
 def test_ordinary_commands_are_not_flagged(command):
     assert policy.destructive(command) == []
@@ -120,6 +139,7 @@ def call(name, **inp):
     (call("github", args="issue view 34 --comments"), "gh issue view 34"),
     (call("github", args="gh pr view 12"), "gh pr view 12"),
     (call("view_image", source="https://x.example.com/a.png"), "image x.example.com"),
+    (call("view_image", source="  HTTPS://x.example.com/a.png"), "image x.example.com"),
 ])
 def test_tools_that_bring_in_outside_content_are_sources(tu, detail):
     assert policy.taint_source(tu, False) == {"tool": tu["name"], "detail": detail}
@@ -145,7 +165,9 @@ TAINT = [{"tool": "github", "detail": "gh issue view 34", "at": 1.0}]
     run("python -c 'print(1)'"), call("web_fetch", url="https://docs.example.com"),
     call("github", args="pr comment 3 --body hi"), call("github", args="pr merge 3 --squash"),
     call("web_search", query="q"), call("library_docs", library="x", question="q"),
-    call("view_image", source="https://x.example.com/a.png"),
+    call("view_image", source="https://x.example.com/a.png"), call("view_image", source=" HTTP://x.example.com/a.png"),
+    call("run_tests", args="/tmp/scratch/test_x.py"), call("github", args="search code secret-value"),
+    call("github", args="api repos/o/r/contents?ref=abc"),
 ])
 def test_while_tainted_saved_permissions_pause_and_outbound_calls_ask(tu):
     advice = policy.advise(tu, view(taint=TAINT))
@@ -160,7 +182,8 @@ def test_the_reason_names_how_many_sources_there_are():
 
 
 @pytest.mark.parametrize("tu", [
-    call("run_tests"), call("run_checks"), call("verify_changes"), call("read_file", path="a.py"),
+    call("run_tests"), call("run_tests", args="  "), call("run_checks"), call("verify_changes"),
+    call("read_file", path="a.py"),
     call("github", args="pr view 3"), call("view_image", source="shots/a.png"), call("propose_edit", path="a.py"),
 ])
 def test_while_tainted_the_workspaces_own_commands_and_reads_are_unaffected(tu):
@@ -173,6 +196,22 @@ def test_a_clean_session_gets_no_taint_advice():
 
 
 @pytest.mark.parametrize("tu", [call("web_search", query="q"), call("library_docs", library="x", question="q"),
-                                call("view_image", source="https://x.example.com/a.png")])
+                                call("view_image", source="https://x.example.com/a.png"),
+                                call("github", args="search code secret"), call("github", args="api repos/o/r?q=x")])
 def test_explore_cant_ask_so_it_refuses_outbound_calls_while_tainted(tu):
     assert "can't ask" in policy.advise(tu, view(taint=TAINT, in_explore=True)).refuse
+
+
+def test_hostile_nesting_is_reported_not_a_crash():
+    assert policy.destructive("echo " + "$(echo " * 5000 + "x" + ")" * 5000) == ["is nested too deeply to check"]
+    command = "x"
+    for _ in range(12):  # properly quoted, so each level really is another shell
+        command = "bash -c " + shlex.quote(command)
+    assert policy.destructive(command) == ["is nested too deeply to check"]
+
+
+def test_long_chains_of_wrappers_are_checked_quickly_and_still_caught():
+    started = time.monotonic()
+    assert policy.destructive("env " * 300 + "rm -rf build") == ["deletes files recursively"]
+    assert policy.destructive("sudo -u x " * 300 + "ls") == []
+    assert time.monotonic() - started < 2  # each wrapper must not multiply the work

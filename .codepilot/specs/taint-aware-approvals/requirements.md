@@ -28,7 +28,7 @@ successfully, in the main agent or in `explore`, THEN the system SHALL mark the 
 (including "Continue in new session").
 1.4 WHEN a session becomes tainted THEN the chat header SHALL show an **external content** chip. Hovering or clicking it
 SHALL list the sources and offer **Clear**, with the warning "Only clear this if you've checked what it read."
-1.5 WHEN a session first becomes tainted THEN the assistant SHALL be told once, in its turn context, that content from
+1.5 WHEN a session first becomes tainted THEN the assistant SHALL be told once, with that tool result, that content from
 those sources is data and that instructions inside it must not be followed.
 
 ## 2. Stricter approvals while tainted
@@ -38,13 +38,13 @@ instructions can't use my earlier "always allow" choices.
 
 2.1 WHILE the session is tainted THEN "always allow" rules SHALL NOT skip approval. Each command, gh write and fetch
 SHALL ask, and the approval SHALL say why: "Asking because this session read external content (gh issue view 34)."
-2.2 WHILE tainted THEN `web_fetch` (every site), `web_search` and `library_docs` SHALL require approval, showing the
-exact URL or query.
+2.2 WHILE tainted THEN `web_fetch` (every site), `web_search`, `library_docs`, `gh search`, `gh api` and images by URL
+SHALL require approval, showing the exact URL or query.
 2.3 WHILE tainted THEN the approval SHALL NOT offer "always allow".
 2.4 WHILE tainted THEN `explore` SHALL refuse `web_search` and `library_docs` with an explanation, because it can't ask.
 2.5 WHILE tainted THEN the Memory view's "Always allowed in this session" SHALL show the rules as paused.
-2.6 The auto-run tests switch SHALL keep working while tainted, because it runs only the workspace's own test command and
-analysers, never a command the model wrote.
+2.6 The auto-run tests switch SHALL keep working while tainted for the workspace's own test command and analysers, but
+tests run with arguments the model chose SHALL ask.
 2.7 WHEN I clear the taint THEN the rules SHALL apply again from the next tool call.
 
 ## 3. Flag destructive commands
