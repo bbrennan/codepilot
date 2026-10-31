@@ -281,6 +281,7 @@ async function openSession(sid) {
   // Changes are redrawn where they were proposed (proposal_ref); anything still waiting that wasn't goes last.
   for (const p of data.proposals) if (p.status === "pending" && !$(`#transcript [data-prop="${p.id}"]`)) renderProposalCard(p);
   state.approval = null; state.allow = data.allow || []; state.receipt = data.receipt; state.verifying = null;
+  state.taint = data.taint || []; renderTaintChip();
   if (data.pending) render({ type: "approval_needed", tools: data.pending }, true);
   renderReviewBar();
   updateBusy();
@@ -847,7 +848,7 @@ function renderReviewBar() {
     const rule = ap.tools.length === 1 ? ap.tools[0].allow : null;
     // The buttons sit on the title line so the command gets the full width (and scrolls if it's long).
     html += `<div class="rb-row rb-approval">${icon("alert")}<div class="rb-main"><div class="rb-head"><b>Run ${ap.tools.length > 1 ? "these" : "this"}?</b><span class="spacer"></span>
-      <div class="rb-acts"><button class="btn primary" id="rbApprove" title="${mod}Enter">${icon("check")}Run <kbd>${mod}⏎</kbd></button><button class="btn" id="rbDeny">Deny</button></div></div>${ap.tools.map((t) => `<code class="rb-cmd">${esc(t.command)}</code>`).join("")}
+      <div class="rb-acts"><button class="btn primary" id="rbApprove" title="${mod}Enter">${icon("check")}Run <kbd>${mod}⏎</kbd></button><button class="btn" id="rbDeny">Deny</button></div></div>${ap.tools.map((t) => `<code class="rb-cmd">${esc(t.command)}</code>${warningLines(t)}`).join("")}
       ${rule ? `<label class="toggle rb-allow" title="Run commands starting with this without asking, for the rest of this session. Commands that chain or redirect (;, &&, |, >) always ask."><input type="checkbox" id="rbAllow"><span>always allow <code>${esc(rule.prefix)}</code> in this session</span></label>` : ""}</div></div>`;
   }
   if (pend.length) {
@@ -920,11 +921,11 @@ function renderReviewTab(tab) {
   const pendN = list.filter((x) => x.status === "pending").length;
   $("#editor").innerHTML = `<div class="review">
     <div class="rv-list"><div class="rv-head">${pendN ? `${pendN} waiting` : "All reviewed"}<span class="spacer"></span>${pendN ? `<button class="btn sm primary" id="rvApplyAll">Apply all</button>` : ""}</div>
-      ${list.map((x) => `<div class="rv-item ${x.id === p.id ? "on" : ""}" data-rv="${x.id}">${fileIcon(x.path)}<div class="rv-name"><span>${esc(base(x.path))}</span><span class="muted">${esc(dirOf(x.path))}</span></div>${diffStat(x.diff).html}<span class="status ${x.status}">${x.status}</span></div>`).join("")}
+      ${list.map((x) => `<div class="rv-item ${x.id === p.id ? "on" : ""}" data-rv="${x.id}">${fileIcon(x.path)}<div class="rv-name"><span>${esc(base(x.path))}</span><span class="muted">${esc(dirOf(x.path))}</span></div>${depMark(x)}${diffStat(x.diff).html}<span class="status ${x.status}">${x.status}</span></div>`).join("")}
       <div class="rv-receipt">${receiptHtml()}</div>
       <div class="hint rv-keys"><kbd>j</kbd>/<kbd>k</kbd> move · <kbd>a</kbd> apply · <kbd>r</kbd> reject</div></div>
     <div class="rv-main"><div class="ed-bar"><span class="crumbs"><b>${esc(p.path)}</b> <span class="muted">#${p.id}</span></span><span class="status ${p.status}">${p.status}</span><span class="muted rv-reason">${esc(p.reason || "")}</span><span class="spacer"></span>${propActions(p)}<button class="btn ghost" id="rvOpen">${icon("file")}Open file</button></div>
-      ${receiptFindings(p.path)}<div class="ed-scroll">${diffHtml(p.diff)}</div>
+      ${depAdvice(p)}${receiptFindings(p.path)}<div class="ed-scroll">${diffHtml(p.diff)}</div>
       <div class="rv-ask"><textarea class="field" id="rvAsk" rows="2" placeholder="Ask for a change to this, e.g. &quot;keep the old name as an alias&quot;"></textarea><button class="btn" id="rvAskBtn">${icon("send")}Send</button></div></div></div>`;
   bindReceipt($("#editor"));
   $(".rv-list").onclick = (e) => { const it = e.target.closest("[data-rv]"); if (it) { tab.sel = +it.dataset.rv; renderReviewTab(tab); } };
@@ -1066,7 +1067,7 @@ function renderMemory() {
     <div class="group-head" style="padding-left:2px">Workspace notes</div>
     <textarea class="field mono" id="notesBox" rows="7" style="font-size:12px;resize:vertical" placeholder="${state.workspace ? "Facts codepilot should always know about this folder…" : "Open a folder to keep notes for it."}" ${state.workspace ? "" : "disabled"}></textarea>
     <div style="display:flex;gap:6px;align-items:center;margin-top:6px"><button class="btn" id="saveNotes" ${state.workspace ? "" : "disabled"}>Save notes</button><span class="hint" id="notesPath" style="margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span></div>
-    <div class="group-head" style="padding-left:2px">Always allowed in this session</div>
+    <div class="group-head" style="padding-left:2px">Always allowed in this session${allowPausedNote()}</div>
     <div class="hint" id="allowList">${(state.allow || []).length ? state.allow.map((r, i) => `<span class="allow-chip"><code>${esc(r.tool === "github" ? "gh " + r.prefix : r.prefix)}</code><button class="icon-btn sm" data-unallow="${i}" title="Ask again for these">${icon("x")}</button></span>`).join(" ") : "Nothing. Tick “always allow” when approving a command to skip asking for it in this session."}</div>
     <div class="group-head" style="padding-left:2px">Token usage</div><div id="usageTable" class="hint">—</div>
     <div class="group-head" style="padding-left:2px">Analysers (run_checks)</div>
@@ -1134,8 +1135,15 @@ async function refreshUsage() { if (state.sid) renderUsage(await api(`/api/sessi
 // ---------------------------------------------------------------- chat rendering
 let curText = null, curThink = null, curBuf = "";
 function endText() { curText = null; curThink = null; curBuf = ""; }
-let stickToBottom = true;
-function scrollEnd(force) { const t = $("#transcript"); if (force) stickToBottom = true; if (stickToBottom) t.scrollTop = t.scrollHeight; }
+let stickToBottom = true, snappedTop = 0; // where following last put the view
+function scrollEnd(force) {
+  const t = $("#transcript");
+  if (force) stickToBottom = true;
+  // A scroll event arrives a frame after the move. If the user just moved up, don't snap back in that frame: the event
+  // would then see the bottom, and the move would be lost. Positions, not heights, so the view resizing can't look like it.
+  else if ((userDragging || performance.now() < userScrollUntil) && t.scrollTop < Math.min(snappedTop, t.scrollHeight - t.clientHeight) - 40) stickToBottom = false;
+  if (stickToBottom) { t.scrollTop = t.scrollHeight; snappedTop = t.scrollTop; }
+}
 // Only the user scrolling up stops it following the newest output. Scrolls the browser makes on its own (the view
 // shrinking while the message box grows clamps scrollTop) used to switch following off mid-turn.
 let userScrollUntil = 0, userDragging = false;
@@ -1146,7 +1154,7 @@ let viewHeight = 0; // as of the last ResizeObserver run
 $("#transcript").addEventListener("scroll", () => {
   const t = $("#transcript");
   if (t.clientHeight !== viewHeight) return; // the view just resized: this says nothing about the user, and the observer below is about to settle it
-  if (t.scrollHeight - t.scrollTop - t.clientHeight < 80) stickToBottom = true;
+  if (t.scrollHeight - t.scrollTop - t.clientHeight < 80) { stickToBottom = true; snappedTop = t.scrollTop; }
   else if (userDragging || performance.now() < userScrollUntil) stickToBottom = false;
 });
 // The composer growing (a long draft, an approval, the plan) makes the transcript shorter: keep the newest line in view.
@@ -1343,6 +1351,7 @@ function render(ev, replay) {
     case "plan": endText(); onPlanEvent(ev); break;
     case "usage": { const u = ev.usage || {}; activity("model", shortModel(ev.model || ""), `in ${fmtTok(u.inputTokens || 0)} · out ${fmtTok(u.outputTokens || 0)}${u.cacheReadInputTokens ? " · cached " + fmtTok(u.cacheReadInputTokens) : ""} · ${ev.seconds}s`); endText(); refreshUsage(); break; }
     case "context": setContext(ev); break;
+    case "taint": onTaint(ev); break;
     case "verifying": onVerifying(ev); break;
     case "verification": endText(); onVerification(ev, replay); break;
     case "notice": endText(); add(`<div class="banner notice">${esc(ev.message)}</div>`); break;
@@ -1373,7 +1382,7 @@ function diffStat(diff) {
 }
 function renderProposalCard(p) {
   // Compact in the chat: one line with its status; the diff is a click away, and review happens in the bar/tab.
-  return add(`<details class="card prop" data-prop="${p.id}"><summary class="hd">${icon("edit")}<span class="path" data-prop-open="${p.id}" title="Open in Review">${esc(p.path)}</span>${diffStat(p.diff).html}<span class="muted">#${p.id}</span><span class="status ${p.status}" title="${esc(STATUS_TIPS[p.status] || "")}">${p.status}</span><span class="spacer"></span>
+  return add(`<details class="card prop" data-prop="${p.id}"><summary class="hd">${icon("edit")}<span class="path" data-prop-open="${p.id}" title="Open in Review">${esc(p.path)}</span>${depMark(p)}${diffStat(p.diff).html}<span class="muted">#${p.id}</span><span class="status ${p.status}" title="${esc(STATUS_TIPS[p.status] || "")}">${p.status}</span><span class="spacer"></span>
     <span class="pacts">${propActions(p)}</span></summary>
     ${p.reason ? `<div class="reason">${esc(p.reason)}</div>` : ""}${diffHtml(p.diff)}</details>`);
 }

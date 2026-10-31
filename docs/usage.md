@@ -291,8 +291,14 @@ A pending approval is still there after a page reload.
 **Always allow … in this session** (under the command) skips asking for commands that start the same way,
 such as `pytest`, `npm test` or `make eval-bedrock`, until the session ends. It's never offered for commands
 that chain or redirect (`;`, `&&`, `|`, `$( )`, `>`), and those always ask even when they start with an
-allowed prefix. It's also never offered for `rm`, `sudo`, `git`, `curl` and similar. **Memory → Always allowed in this
+allowed prefix. It's also never offered for `rm`, `sudo`, `git`, `curl` and similar, or for anything destructive
+(`terraform destroy`, `kubectl delete`, ...), which also gets a red warning. **Memory → Always allowed in this
 session** lists the rules; remove any of them there.
+
+After a session reads content from outside your machine (a web page, a GitHub issue, a log), the chat header shows
+**external content**. Until you **Clear…** it or start a new session, saved rules are paused and anything that could
+send data out asks, including `web_search` and `library_docs`. The approval says why. Tests and analysers still auto-run.
+Why: [security.md](security.md#prompt-injection).
 
 Commands run on your machine, in the workspace folder, as you. Read them before approving. The assistant
 also has a scratch folder (`~/.codepilot/scratch/<session>/`) for throwaway reproduction scripts, so it can

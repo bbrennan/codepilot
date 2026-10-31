@@ -105,6 +105,7 @@ class Proposal:
     after_text: str | None = None
     check_text: str | None = None
     applied_at: float | None = None  # when it was applied: undo goes newest-applied first, not by number
+    advice: list | None = None  # what the package guard found about dependencies this change adds
 
 
 def _encode(obj: Any) -> Any:
@@ -158,7 +159,7 @@ class Store:
         wanted = {"sessions": [("mode", "TEXT NOT NULL DEFAULT 'act'"), ("context_state", "TEXT"),
                                ("model", "TEXT NOT NULL DEFAULT ''")],
                   "proposals": [("before_text", "TEXT"), ("after_text", "TEXT"), ("check_text", "TEXT"),
-                                ("applied_at", "REAL")]}
+                                ("applied_at", "REAL"), ("advice", "TEXT")]}
         with self._lock, self._db:
             for table, cols in wanted.items():
                 have = {r["name"] for r in self._db.execute(f"PRAGMA table_info({table})")}
@@ -323,12 +324,16 @@ class Store:
             raise KeyError(f"no proposal {pid}")
         return Proposal(row["id"], row["session_id"], row["path"], row["old_text"], row["new_text"],
                         row["reason"], row["status"], row["before_text"], row["after_text"], row["check_text"],
-                        row["applied_at"])
+                        row["applied_at"], json.loads(row["advice"]) if row["advice"] else [])
 
     def list_proposals(self, sid: str) -> list[Proposal]:
         with self._lock:
             rows = self._db.execute("SELECT id FROM proposals WHERE session_id = ? ORDER BY id", (sid,)).fetchall()
         return [self.get_proposal(r["id"]) for r in rows]
+
+    def set_proposal_advice(self, pid: int, advice: list[dict]) -> None:
+        with self._lock, self._db:
+            self._db.execute("UPDATE proposals SET advice = ? WHERE id = ?", (json.dumps(advice), pid))
 
     def set_proposal_status(self, pid: int, status: str) -> None:
         with self._lock, self._db:

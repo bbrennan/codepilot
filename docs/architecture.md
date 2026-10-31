@@ -44,6 +44,9 @@ store.py (SQLite in ~/.codepilot): sessions, messages, proposals, usage, notes
 | `context.py` | Context-window management: token estimates, tool-output pruning, summaries, overflow recovery |
 | `store.py` | SQLite persistence with additive migrations |
 | `verification.py` | Verification receipts: clone the workspace, re-point copied virtualenvs, apply pending changes, run tests and analysers, and name what newly fails |
+| `approval_policy.py` | Which tool calls need a human right now: destructive commands, and sessions that read external content. Advisors feed one `advise` call, so a new check is added, not branched in |
+| `deps_guard.py` | Package guard: what a command or manifest edit would install, and what PyPI, npm and crates.io say about it |
+| `shellparse.py` | Reads a command line as the shell would: which programs it runs, through chains and wrappers like `sudo` |
 | `plans.py` | The plan checklist's lifecycle: new, update, complete, clear and restore, the same live and on reload |
 | `checkpoints.py` | Turn checkpoints: the changes applied from a message onwards, and undoing them together (guarded like Undo) |
 | `server.py` | HTTP API, NDJSON streaming, localhost and CSRF guards, static files, terminal endpoints. Blocking filesystem and git work runs in worker threads so it can't stall streams or terminals |
@@ -100,5 +103,5 @@ failing.
 
 `static/index.html` is the layout. `app.css` holds the theme tokens, with dark and light variants.
 `app.js` is plain DOM with no framework or build step. A feature with its own UI gets its own classic script
-(`checkpoints.js`, `verify.js`, `plan.js`), loaded after `app.js` and using its helpers, so `app.js` only wires it in. It vendors highlight.js (BSD-3) for highlighting and
+(`checkpoints.js`, `verify.js`, `plan.js`, `policy.js`, `deps.js`), loaded after `app.js` and using its helpers, so `app.js` only wires it in. It vendors highlight.js (BSD-3) for highlighting and
 xterm.js (MIT) for the terminal; see [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).

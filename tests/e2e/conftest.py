@@ -75,6 +75,16 @@ class ScriptedLLM:
         elif user_text.strip().startswith("plan ") and user_text.split()[1] in PLANS:  # a checklist through its life
             content = [{"toolUse": {"toolUseId": f"t{n}", "name": "update_plan",
                                     "input": {"items": PLANS[user_text.split()[1]]}}}]
+        elif "add a dependency" in user_text:
+            content = [{"toolUse": {"toolUseId": f"t{n}", "name": "propose_edit", "input": {
+                "path": "requirements.txt", "old_text": "", "new_text": "reqeusts\n", "reason": "needs http"}}}]
+        elif "install a package" in user_text:
+            content = [{"toolUse": {"toolUseId": f"t{n}", "name": "run_command", "input": {"command": "uv add reqeusts"}}}]
+        elif "read docs" in user_text:  # brings in external content
+            content = [{"toolUse": {"toolUseId": f"t{n}", "name": "library_docs",
+                                    "input": {"library": "fastapi", "question": "how"}}}]
+        elif "delete build" in user_text:
+            content = [{"toolUse": {"toolUseId": f"t{n}", "name": "run_command", "input": {"command": "rm -rf build"}}}]
         elif "slow tool" in user_text:  # a step that takes a while, then a read-only tool: a turn you can steer
             time.sleep(1.5)
             content = [{"toolUse": {"toolUseId": f"t{n}", "name": "read_file", "input": {"path": "agent/core.py"}}}]
@@ -161,6 +171,7 @@ def server(cfg, store, repo):
     _fake_models(cfg)
     llm = ScriptedLLM()
     agent = Agent(cfg, store, llm=llm)
+    agent.tools["library_docs"].fn = lambda ctx, library, question: f"docs for {library}"  # no network in tests
     app = create_app(cfg, store, agent)
     app.state.terminals.shell = "/bin/sh"
     live = LiveServer(app)

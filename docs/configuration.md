@@ -106,6 +106,7 @@ tiers and the default repo, for compatibility with an older internal tool.
 | `CODEPILOT_AUTO_APPROVE_TESTS` | `0` | Run tests and analyser checks without asking (other commands always ask) |
 | `CODEPILOT_AUTO_APPLY` | `0` | Write proposed edits immediately; each can still be undone |
 | `CODEPILOT_VERIFY` | `1` | Verification receipts: test pending changes on a copy of the workspace before review (the **Verify** button, the `verify_changes` tool, and an automatic run when auto-run tests is on). `0` turns it all off |
+| `CODEPILOT_DEPS_CHECK` | `1` | Package guard: look up packages a command installs or a change adds on PyPI, npm or crates.io. Only the package name is sent. `0` turns it off |
 | `CODEPILOT_VERIFY_TIMEOUT` | `600` | Seconds a verification may take in total (tests plus analysers) |
 | `CODEPILOT_TERMINAL` | `1` | Enable terminals (local shells; see [security.md](security.md#the-terminal)) |
 

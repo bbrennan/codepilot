@@ -267,3 +267,46 @@ def test_the_agent_is_told_how_git_writes_work():
     text = " ".join(prompts.STATIC.split())
     assert "git tool only reads" in text and "only when the user asks" in text
     assert "stage files by name" in text and "never use -i" in text and "--force" in text
+
+
+# -- package guard on proposals -----------------------------------------------------------------------------------
+
+def _pypi_404(monkeypatch):
+    from codepilot import deps_guard
+
+    def get(url, timeout):
+        raise deps_guard.NotFound
+
+    monkeypatch.setattr(deps_guard, "_get", get)
+
+
+def test_a_manifest_proposal_is_checked_and_tells_the_agent(ctx, repo, monkeypatch):
+    _pypi_404(monkeypatch)
+    msg = propose_edit(ctx, "pyproject.toml", "", '[project]\ndependencies = ["reqeusts"]\n', "add it")
+    assert "`reqeusts` is not on PyPI" in msg and "check the name" in msg
+    view = ctx.events[-1]["proposal"]
+    assert view["advice"] == [{"eco": "pypi", "name": "reqeusts", "level": "danger",
+                               "text": "not on PyPI: possibly an invented name, or a private package"}]
+
+
+def test_advice_is_kept_with_the_proposal(ctx, repo, cfg, monkeypatch):
+    from codepilot.store import Store
+    _pypi_404(monkeypatch)
+    propose_edit(ctx, "requirements.txt", "", "reqeusts\n", "")
+    assert Store(cfg.home).get_proposal(1).advice[0]["name"] == "reqeusts"
+
+
+def test_other_files_arent_checked(ctx, repo, monkeypatch):
+    from codepilot import deps_guard
+    calls = []
+    monkeypatch.setattr(deps_guard, "_get", lambda url, timeout: calls.append(url) or "{}")
+    msg = propose_edit(ctx, "agent/core.py", "a - b", "a + b", "")
+    assert "not on" not in msg and calls == [] and ctx.events[-1]["proposal"]["advice"] == []
+
+
+def test_an_applied_manifest_change_warns_too(ctx, repo, cfg, monkeypatch):
+    from dataclasses import replace
+    _pypi_404(monkeypatch)
+    ctx.cfg = replace(cfg, auto_apply_edits=True)
+    msg = propose_edit(ctx, "requirements.txt", "", "reqeusts\n", "")
+    assert "Applied change" in msg and "`reqeusts` is not on PyPI" in msg

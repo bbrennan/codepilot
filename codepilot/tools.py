@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import checks, github, gitcmd, images, plans, procenv, skills, specs, steering, traces, webtools
+from . import checks, deps_guard, github, gitcmd, images, plans, procenv, skills, specs, steering, traces, webtools
 from .config import Config
 from .store import Store
 
@@ -498,6 +498,12 @@ def propose_edit(ctx: ToolContext, path: str, old_text: str, new_text: str, reas
             ctx.events.append({"type": "proposal", "proposal": proposal_view(ctx.store.get_proposal(older.id), "")})
     proposal = ctx.store.add_proposal(ctx.session_id, rel, old_text, new_text, reason)
     diff = unified_diff(rel, content, after)
+    advice = deps_guard.check(deps_guard.added(rel, content, after)) if ctx.cfg.deps_check else []
+    if advice:
+        ctx.store.set_proposal_advice(proposal.id, advice)
+        proposal = ctx.store.get_proposal(proposal.id)
+    missing = "".join(f"\nNote: `{a['name']}` is not on {deps_guard.REGISTRY[a['eco']]}; check the name."
+                      for a in advice if a["level"] == "danger")
     if ctx.cfg.auto_apply_edits or ctx.auto_apply:
         before, written = apply_proposal(ctx.root, proposal)
         found = checks.quick_check(ctx.root, rel)
@@ -506,9 +512,9 @@ def propose_edit(ctx: ToolContext, path: str, old_text: str, new_text: str, reas
         proposal = ctx.store.get_proposal(proposal.id)
         ctx.events.append({"type": "proposal", "proposal": proposal_view(proposal, diff)})
         note = f"\nAutomatic checks on the file found:\n{found}" if found else ""
-        return f"Applied change #{proposal.id} to {rel} (auto-apply is on; the user can undo it).{note}"
+        return f"Applied change #{proposal.id} to {rel} (auto-apply is on; the user can undo it).{note}{missing}"
     ctx.events.append({"type": "proposal", "proposal": proposal_view(proposal, diff)})
-    return f"Proposed change #{proposal.id} to {rel} (pending the user's approval; not yet applied)."
+    return f"Proposed change #{proposal.id} to {rel} (pending the user's approval; not yet applied).{missing}"
 
 
 def verify_changes(ctx: ToolContext) -> str:
@@ -671,7 +677,7 @@ def unified_diff(rel: str, before: str, after: str) -> str:
 
 def proposal_view(proposal, diff: str) -> dict:
     return {"id": proposal.id, "path": proposal.path, "reason": proposal.reason, "status": proposal.status,
-            "diff": diff}
+            "diff": diff, "advice": proposal.advice or []}
 
 
 def apply_proposal(root: Path, proposal) -> tuple[str | None, str]:

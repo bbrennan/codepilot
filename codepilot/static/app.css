@@ -296,7 +296,7 @@ kbd { font: 11px var(--mono); padding: 1px 6px; border: 1px solid var(--line-2);
 /* ---------- chat ---------- */
 .chat { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--bg-1); }
 .chat-head { display: flex; align-items: center; gap: 6px; height: 35px; padding: 0 8px 0 14px; border-bottom: 1px solid var(--line); flex: none; }
-.chat-title { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-title { flex: 1; min-width: 48px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .transcript { flex: 1; overflow: auto; padding: 14px 14px 6px; min-height: 0; }
 .msg { margin: 0 0 12px; }
 .msg.user { background: var(--bg-3); border: 1px solid var(--line); border-radius: 10px; padding: 8px 11px; white-space: pre-wrap; word-break: break-word; }
@@ -340,6 +340,22 @@ a.loc:hover { text-decoration: underline; }
 .card .pacts { display: inline-flex; gap: 6px; flex: none; }
 .card .reason { padding: 6px 10px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); }
 .card .diff { max-height: 280px; overflow: auto; padding: 4px 0; }
+.dep-mark { color: var(--warn); display: inline-flex; flex: none; }
+.dep-mark .i { width: 13px; height: 13px; }
+.dep-advice { padding: 6px 12px; border-bottom: 1px solid var(--line); font-size: 12px; display: grid; gap: 3px; }
+.dep { display: flex; align-items: center; gap: 6px; }
+.dep .i { width: 13px; height: 13px; flex: none; }
+.dep.danger { color: var(--err); }
+.dep.caution { color: var(--warn); }
+.dep.info { color: var(--muted); }
+.rb-warn { display: flex; align-items: center; gap: 5px; margin-top: 4px; font-size: 12px; }
+.rb-warn .i { width: 13px; height: 13px; flex: none; }
+.rb-warn.danger { color: var(--err); font-weight: 600; }
+.rb-warn.caution { color: var(--warn); }
+.rb-warn.info { color: var(--muted); }
+.taint-chip { display: inline-flex; align-items: center; gap: 4px; flex: none; height: 24px; padding: 0 7px; border-radius: 6px; font-size: 11.5px; white-space: nowrap; cursor: pointer; color: var(--warn); background: transparent; border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); }
+.taint-chip:hover { background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.taint-chip .i { width: 13px; height: 13px; }
 .rb-receipt { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin-top: 5px; font-size: 12px; }
 .rb-changes { flex-wrap: wrap; }
 .rb-changes > .rb-receipt { flex-basis: 100%; margin: 0 0 0 23px; padding-top: 6px; border-top: 1px solid var(--line); }
@@ -466,7 +482,7 @@ a.loc:hover { text-decoration: underline; }
 .status.reverted { color: var(--muted); }
 .composer-box.readonly { border-color: color-mix(in srgb, var(--warn) 55%, var(--line-2)); }
 .mode-select { font-weight: 600; color: var(--fg); max-width: 120px; }
-#tier { max-width: 230px; }
+#tier { max-width: 230px; min-width: 70px; flex: 0 1 230px; } /* gives way first when the header is crowded */
 .mode-select.readonly { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
 
 /* ---------- open-folder dialog ---------- */

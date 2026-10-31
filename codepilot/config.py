@@ -143,6 +143,7 @@ class Config:
     # Verification receipts: pending changes are tested on a copy of the workspace before review
     verify: bool = True
     verify_timeout: int = 600
+    deps_check: bool = True  # package guard: look new packages up in their public registry
 
     @classmethod
     def from_env(cls) -> Config:
@@ -202,6 +203,7 @@ class Config:
             context7_api_key=_env("CONTEXT7_API_KEY", default=""),
             verify=_flag("CODEPILOT_VERIFY", True),
             verify_timeout=int(_env("CODEPILOT_VERIFY_TIMEOUT", default="600")),
+            deps_check=_flag("CODEPILOT_DEPS_CHECK", True),
         )
 
     def context_window(self, model: str) -> int:
