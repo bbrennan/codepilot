@@ -62,9 +62,16 @@ class ScriptedLLM:
         n = len(self.calls)
         full = " ".join(b.get("text", "") for b in last if "text" in b)
         phase = re.search(r'<spec name="[^"]+" kind="\w+" phase="(\w+)"', full)
+        quick = 'profile="quick"' in full
         task = re.search(r"implement task ([\d.]+)", user_text)
-        if any("toolResult" in b for b in last):
+        steps = sum("toolResult" in b for m in messages for b in m["content"])
+        if "long task" in " ".join(b.get("text", "") for b in messages[0]["content"]) and steps < 7:
+            content = [{"toolUse": {"toolUseId": f"t{n}", "name": "read_file", "input": {"path": "agent/core.py"}}}]
+        elif any("toolResult" in b for b in last):
             content = [{"text": "Please review it in the Spec tab." if phase else "Done."}]
+        elif phase and phase.group(1) == "requirements" and quick:  # a quick spec's whole plan, in one turn
+            content = [{"toolUse": {"toolUseId": f"t{n}-{doc}", "name": "write_spec",
+                                    "input": {"doc": doc, "content": SPEC_DOCS[doc]}}} for doc in SPEC_DOCS]
         elif phase and phase.group(1) == "implement" and task:
             content = [{"toolUse": {"toolUseId": f"t{n}", "name": "update_task",
                                     "input": {"task": task.group(1), "status": "done"}}}]

@@ -15,6 +15,7 @@ folders (`.kiro/specs/`, Spec Kit's `specs/`) belong to those tools, so codepilo
 
 - [When to use a spec](#when-to-use-a-spec)
 - [Walkthrough](#walkthrough)
+- [Quick specs](#quick-specs)
 - [Bugfix specs](#bugfix-specs)
 - [The files](#the-files)
 - [Running tasks](#running-tasks)
@@ -53,6 +54,23 @@ off on larger work and are overhead on small fixes.
 Until the task list is approved, codepilot can't propose code changes in a spec. The planning phases plan.
 Click any finished step in the stepper to look back at its document.
 
+## Quick specs
+
+For a medium-sized change that deserves a plan but not three rounds of review, use a **quick spec**: **Specs → Quick
+spec**, `/spec quick add CSV export`, or in Spec mode a first message starting with `quick`. It works for bugs too: the
+kind comes from your description.
+
+codepilot writes all three documents in one turn, kept short: at most 3 requirements with 4 criteria each, a design of
+about 40 lines, and at most 6 tasks. The Spec tab shows two steps, **Plan › Implement**, with the documents under Plan
+and one **Approve plan & continue**. From there it's the same as any spec.
+
+If the plan needs a closer look, **Switch to full review** before approving. The documents are kept, and you approve
+each in turn. Quick specs use the same files, with `"profile": "quick"` in `spec.json`.
+
+**Length.** Full specs are asked to stay under about 150 lines per document and 5 criteria per requirement, and to
+suggest splitting when more is needed. A document over 200 lines shows a quiet hint with its length. Neither blocks
+anything: they're there because a spec too long to review doesn't get reviewed.
+
 ## Bugfix specs
 
 **New bugfix spec** replaces requirements with a **bug analysis** (`bugfix.md`):
@@ -71,13 +89,17 @@ Design and tasks follow as usual. In Spec mode, a message that describes a bug (
   requirements.md   (bugfix.md for bugfix specs)
   design.md
   tasks.md          - [ ] 1. Title / - [-] 2.1 in progress / - [x] 3. done, with _Requirements: 1.1_ lines
-  spec.json         codepilot's bookkeeping: kind and the last approved phase
+  spec.json         codepilot's bookkeeping: kind, profile and the last approved phase
 ```
 
 They're plain Markdown: commit them, review them in pull requests, edit them anywhere. Because the format is
 Kiro's, a spec can be copied between `.codepilot/specs/` and `.kiro/specs/` by hand.
 
 ## Running tasks
+
+During a long task, codepilot is reminded what it's working on: every 6th step of a turn, the task in progress and the
+text of its acceptance criteria are added to the latest tool result, so it doesn't drift into neighbouring work. Each
+reminder is a row in Activity, not in the chat.
 
 - **Run** (or **Run next task**) sends "Implement task 2.1 of spec csv-export: …". The message carries the
   requirements, design and task list, so codepilot has them even in a long session.
@@ -108,6 +130,7 @@ Specs go stale when code moves on. On the Implement step:
 - **Two tools:** `write_spec` writes the active spec's documents (no approval needed; they're docs, and you
   approve the phase). `update_task` ticks tasks.
 - **Guardrails:** `write_spec` can't write a phase you haven't reached, and approving never skips ahead or
-  moves back. Until tasks are approved, `propose_edit` is refused in a spec session.
+  moves back. In a quick spec, all three documents can be written during planning and are approved together. Until
+  tasks are approved, `propose_edit` is refused in a spec session.
 - **Endpoints:** `GET/POST /api/sessions/{sid}/specs` and `POST /api/sessions/{sid}/specs/{name}/approve`
-  (or `/activate`).
+  (or `/activate`, or `/profile` with `{"profile": "full"}`).

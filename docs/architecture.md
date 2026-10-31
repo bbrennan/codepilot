@@ -35,7 +35,9 @@ store.py (SQLite in ~/.codepilot): sessions, messages, proposals, usage, notes
 | `procenv.py` | How commands run: non-interactive (no editor, prompt, pager or stdin), killed as a process group on timeout |
 | `modes.py` | Built-in and custom modes |
 | `skills.py` | SKILL.md discovery and slash commands |
-| `specs.py` | Specs (Kiro format, plus Kiro and Spec Kit folders): phases, approvals, task parsing, per-phase instructions |
+| `specs.py` | Specs (Kiro format): phases, approvals, task parsing |
+| `spec_profiles.py` | How much review a spec gets (full or quick): what may be written and approved when, and the instructions |
+| `spec_reminder.py` | The task reminder during long implementation turns |
 | `router.py` | Auto model routing: the per-turn rules, and failed-run detection for the second opinion |
 | `steering.py` | Steering docs (Kiro format, plus Cursor, Copilot and other instruction files): discovery, inclusion modes, glob matching, `#[[file:]]` references |
 | `repomap.py` | Symbol map of the workspace (Python via `ast`, others via regex) |
@@ -105,5 +107,5 @@ failing.
 
 `static/index.html` is the layout. `app.css` holds the theme tokens, with dark and light variants.
 `app.js` is plain DOM with no framework or build step. A feature with its own UI gets its own classic script
-(`checkpoints.js`, `verify.js`, `plan.js`, `policy.js`, `deps.js`, `cost.js`), loaded after `app.js` and using its helpers, so `app.js` only wires it in. It vendors highlight.js (BSD-3) for highlighting and
+(`checkpoints.js`, `verify.js`, `plan.js`, `policy.js`, `deps.js`, `cost.js`, `specs-quick.js`), loaded after `app.js` and using its helpers, so `app.js` only wires it in. It vendors highlight.js (BSD-3) for highlighting and
 xterm.js (MIT) for the terminal; see [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
