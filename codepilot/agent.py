@@ -585,7 +585,8 @@ class Agent:
 
     def advice(self, session_id: str, tu: dict, root: Path | None, in_explore: bool = False) -> approval_policy.Advice:
         state = self.store.get_session(session_id).context_state or {}
-        return approval_policy.advise(tu, approval_policy.View(state.get("taint", []), root, in_explore))
+        view = approval_policy.View(state.get("taint", []), root, in_explore, self.cfg.deps_check)
+        return approval_policy.advise(tu, view)
 
     def approval_view(self, session_id: str, awaiting: list[dict], root: Path | None) -> list[dict]:
         view = []

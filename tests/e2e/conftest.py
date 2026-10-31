@@ -75,6 +75,11 @@ class ScriptedLLM:
         elif user_text.strip().startswith("plan ") and user_text.split()[1] in PLANS:  # a checklist through its life
             content = [{"toolUse": {"toolUseId": f"t{n}", "name": "update_plan",
                                     "input": {"items": PLANS[user_text.split()[1]]}}}]
+        elif "add a dependency" in user_text:
+            content = [{"toolUse": {"toolUseId": f"t{n}", "name": "propose_edit", "input": {
+                "path": "requirements.txt", "old_text": "", "new_text": "reqeusts\n", "reason": "needs http"}}}]
+        elif "install a package" in user_text:
+            content = [{"toolUse": {"toolUseId": f"t{n}", "name": "run_command", "input": {"command": "uv add reqeusts"}}}]
         elif "read docs" in user_text:  # brings in external content
             content = [{"toolUse": {"toolUseId": f"t{n}", "name": "library_docs",
                                     "input": {"library": "fastapi", "question": "how"}}}]

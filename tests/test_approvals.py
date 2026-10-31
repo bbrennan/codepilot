@@ -1,5 +1,8 @@
 """Approvals: "always allow in this session" rules, and that they can't be stretched to other commands."""
 
+import time
+from datetime import datetime, timezone
+
 import pytest
 from fakes import FakeLLM, tool_use
 from starlette.testclient import TestClient
@@ -12,6 +15,10 @@ H = {"X-Codepilot": "1"}
 
 def cmd(c):
     return {"name": "run_command", "input": {"command": c}}
+
+
+def time_ago(days):
+    return datetime.fromtimestamp(time.time() - days * 86400, timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 @pytest.mark.parametrize("command,prefix", [
@@ -223,3 +230,73 @@ def test_a_saved_runner_rule_doesnt_cover_a_destructive_command_behind_it(cfg, s
     sess = store.create_session(str(repo), "main")
     agent.allow(sess.id, [{"tool": "run_command", "prefix": "uv run"}])
     assert any(e["type"] == "approval_needed" for e in agent.chat(sess.id, "clean up"))
+
+
+# -- package guard ------------------------------------------------------------------------------------------------
+
+def _registry(monkeypatch, known):
+    """A fake PyPI: `known` maps a name to its first upload; anything else is a 404."""
+    import json as _json
+
+    from codepilot import deps_guard
+
+    def get(url, timeout):
+        name = url.split("/pypi/")[1].split("/")[0]
+        if name not in known:
+            raise deps_guard.NotFound
+        return _json.dumps({"releases": {str(i): [{"upload_time_iso_8601": known[name]}] for i in range(5)}})
+
+    monkeypatch.setattr(deps_guard, "_get", get)
+
+
+def test_an_install_shows_what_the_registry_says(cfg, store, repo, monkeypatch):
+    _registry(monkeypatch, {"requests": "2014-01-01T00:00:00Z"})
+    agent = Agent(cfg, store, llm=FakeLLM([[tool_use("t1", "run_command", command="pip install requests reqeusts")]]))
+    sess = store.create_session(str(repo), "main")
+    tool = next(e for e in agent.chat(sess.id, "install") if e["type"] == "approval_needed")["tools"][0]
+    assert [(w["level"], w["text"].split(":")[0]) for w in tool["warnings"]] == [("info", "requests"),
+                                                                                ("danger", "reqeusts")]
+    assert "not on PyPI" in tool["warnings"][1]["text"] and tool["allow"] is None
+
+
+def test_a_saved_rule_doesnt_cover_an_unknown_or_new_package(cfg, store, repo, monkeypatch):
+    _registry(monkeypatch, {"fresh": time_ago(10)})
+    for name in ("reqeusts", "fresh"):
+        agent = Agent(cfg, store, llm=FakeLLM([[tool_use("t1", "run_command", command=f"uv add {name}")]]))
+        sess = store.create_session(str(repo), "main")
+        agent.allow(sess.id, [{"tool": "run_command", "prefix": "uv add"}])
+        assert any(e["type"] == "approval_needed" for e in agent.chat(sess.id, "add it"))
+
+
+def test_a_saved_rule_still_covers_an_established_package(cfg, store, repo, monkeypatch):
+    _registry(monkeypatch, {"requests": "2014-01-01T00:00:00Z"})
+    agent = Agent(cfg, store, llm=FakeLLM([[tool_use("t1", "run_command", command="echo uv add requests")],
+                                           [{"text": "done"}]]))
+    sess = store.create_session(str(repo), "main")
+    agent.allow(sess.id, [{"tool": "run_command", "prefix": "echo"}])
+    assert not any(e["type"] == "approval_needed" for e in agent.chat(sess.id, "add it"))
+    agent = Agent(cfg, store, llm=FakeLLM([[tool_use("t1", "run_command", command="poetry add requests")],
+                                           [{"text": "done"}]]))
+    sess = store.create_session(str(repo), "main")
+    agent.allow(sess.id, [{"tool": "run_command", "prefix": "poetry add"}])
+    assert not any(e["type"] == "approval_needed" for e in agent.chat(sess.id, "add it"))
+
+
+def test_an_unreachable_registry_blocks_nothing(cfg, store, repo):
+    agent = Agent(cfg, store, llm=FakeLLM([[tool_use("t1", "run_command", command="poetry add requests")],
+                                           [{"text": "done"}]]))
+    sess = store.create_session(str(repo), "main")
+    agent.allow(sess.id, [{"tool": "run_command", "prefix": "poetry add"}])
+    assert not any(e["type"] == "approval_needed" for e in agent.chat(sess.id, "add it"))
+
+
+def test_the_check_can_be_turned_off(cfg, store, repo, monkeypatch):
+    from dataclasses import replace
+
+    from codepilot import deps_guard
+    calls = []
+    monkeypatch.setattr(deps_guard, "_get", lambda url, timeout: calls.append(url) or "{}")
+    agent = Agent(replace(cfg, deps_check=False), store, llm=FakeLLM([[tool_use("t1", "run_command", command="uv add x")]]))
+    sess = store.create_session(str(repo), "main")
+    tool = next(e for e in agent.chat(sess.id, "add") if e["type"] == "approval_needed")["tools"][0]
+    assert tool["warnings"] == [] and calls == []

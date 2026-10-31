@@ -47,3 +47,15 @@ def cfg(tmp_path):
 @pytest.fixture
 def store(cfg):
     return Store(cfg.home)
+
+
+@pytest.fixture(autouse=True)
+def no_registry_lookups(monkeypatch):
+    """Tests never reach PyPI, npm or crates.io; a test that needs answers replaces this."""
+    from codepilot import deps_guard
+
+    def offline(url, timeout):
+        raise OSError("no network in tests")
+
+    monkeypatch.setattr(deps_guard, "_get", offline)
+    deps_guard.CACHE.clear()
