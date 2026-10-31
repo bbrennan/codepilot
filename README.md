@@ -85,6 +85,16 @@ assistant's replies in them are scripted so the demo is reproducible.</sub>
 - **Steering:** standing instructions it always follows, in Kiro's format (`.codepilot/steering/`):
   always on, for matching files, by `#name`, or when relevant. It drafts them from your repo, and reads
   `AGENTS.md`, `CLAUDE.md`, Kiro, Cursor and Copilot instruction files too.
+- **Undo a whole turn:** checkpoints. Everything applied from a message onwards can be undone together, with
+  the same guard as Undo, so edits you made since are never overwritten.
+- **Verification receipts:** pending changes are tried on a copy of your workspace first (tests and analysers),
+  so the review shows what they would newly break before you Apply.
+- **Safer around untrusted content:** once a session has read from outside the machine (web pages, search,
+  logs, GitHub), "always allow" rules pause and commands, fetches and queries ask again, with the reason.
+- **Package guard:** before a command or manifest edit installs a dependency, it checks PyPI, npm and
+  crates.io for packages that don't exist or look suspicious.
+- **Cost meter:** dollars per session and per day, an estimate before a long run, and an optional daily cap.
+- **Quick specs:** `/spec quick …` plans a medium-sized change or bug in one reviewed pass instead of three.
 - **Measurable:** `codepilot bench` grades it on planted-bug tasks with hidden tests, so you can compare
   models and changes.
 
