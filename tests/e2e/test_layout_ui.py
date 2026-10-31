@@ -172,6 +172,18 @@ def test_focusing_older_content_stops_the_chat_following(page, server, session):
     assert gap(page) > 40, "the next streamed event dragged the view away from what the user focused"
 
 
+def test_a_streamed_event_landing_before_the_scroll_event_doesnt_undo_the_users_move(page, server, session):
+    start_slow_turn(page)
+    # The browser delivers a scroll event a frame after the move. A streamed event in that frame used to snap the view
+    # straight back, and the scroll event then saw the bottom. Forced in that order here, in one task.
+    page.evaluate("""() => { const t = document.querySelector('#transcript');
+      t.firstElementChild.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      t.scrollTop = 0;
+      scrollEnd(); }""")
+    page.wait_for_timeout(600)  # more of the reply streams in
+    assert gap(page) > 40, "the user's move was undone before its scroll event arrived"
+
+
 def test_toasts_stay_off_the_message_box_when_the_editor_is_narrow(page, server, session):
     page.set_viewport_size({"width": 1024, "height": 700})
     open_app(page)

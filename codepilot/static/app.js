@@ -1135,8 +1135,15 @@ async function refreshUsage() { if (state.sid) renderUsage(await api(`/api/sessi
 // ---------------------------------------------------------------- chat rendering
 let curText = null, curThink = null, curBuf = "";
 function endText() { curText = null; curThink = null; curBuf = ""; }
-let stickToBottom = true;
-function scrollEnd(force) { const t = $("#transcript"); if (force) stickToBottom = true; if (stickToBottom) t.scrollTop = t.scrollHeight; }
+let stickToBottom = true, snappedTop = 0; // where following last put the view
+function scrollEnd(force) {
+  const t = $("#transcript");
+  if (force) stickToBottom = true;
+  // A scroll event arrives a frame after the move. If the user just moved up, don't snap back in that frame: the event
+  // would then see the bottom, and the move would be lost. Positions, not heights, so the view resizing can't look like it.
+  else if ((userDragging || performance.now() < userScrollUntil) && t.scrollTop < Math.min(snappedTop, t.scrollHeight - t.clientHeight) - 40) stickToBottom = false;
+  if (stickToBottom) { t.scrollTop = t.scrollHeight; snappedTop = t.scrollTop; }
+}
 // Only the user scrolling up stops it following the newest output. Scrolls the browser makes on its own (the view
 // shrinking while the message box grows clamps scrollTop) used to switch following off mid-turn.
 let userScrollUntil = 0, userDragging = false;
