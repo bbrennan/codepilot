@@ -1102,9 +1102,9 @@ function renderUsage(u) {
   state.usage = u;
   const rows = (u && u.by_model) || [];
   const tot = rows.reduce((a, r) => a + (r.input || 0) + (r.output || 0), 0);
-  $("#sbTokens").textContent = `${fmtTok(tot)} tokens`;
+  $("#sbTokens").textContent = `${fmtTok(tot)} tokens${costText(u)}`; $("#sbTokens").title = costTip(u);
   const el = $("#usageTable"); if (!el) return;
-  el.innerHTML = rows.length ? rows.map((r) => `<div class="mono" style="font-size:11.5px">${esc(shortModel(r.model))}: ${r.calls} calls · in ${fmtTok(r.input)} · out ${fmtTok(r.output)}${r.cache_read ? ` · cache ${fmtTok(r.cache_read)}` : ""}</div>`).join("") : "—";
+  el.innerHTML = (rows.length ? rows.map((r) => `<div class="mono" style="font-size:11.5px">${esc(shortModel(r.model))}: ${r.calls} calls · in ${fmtTok(r.input)} · out ${fmtTok(r.output)}${r.cache_read ? ` · cache ${fmtTok(r.cache_read)}` : ""}${costCell(r)}</div>`).join("") : "—") + costFooter(u);
 }
 const ctxPct = (c) => (c && c.budget ? Math.min(100, Math.round((c.tokens / c.budget) * 100)) : 0);
 const ctxClass = (c) => { const p = ctxPct(c) / 100; return !c ? "" : p >= c.compact_at ? "high" : p >= c.prune_at ? "mid" : ""; };
@@ -1349,9 +1349,10 @@ function render(ev, replay) {
     }
     case "workspace": setWorkspace(ev.repo, true); loadSessions(); toast(`Opened ${ev.repo}`); break;
     case "plan": endText(); onPlanEvent(ev); break;
-    case "usage": { const u = ev.usage || {}; activity("model", shortModel(ev.model || ""), `in ${fmtTok(u.inputTokens || 0)} · out ${fmtTok(u.outputTokens || 0)}${u.cacheReadInputTokens ? " · cached " + fmtTok(u.cacheReadInputTokens) : ""} · ${ev.seconds}s`); endText(); refreshUsage(); break; }
+    case "usage": { const u = ev.usage || {}; activity("model", shortModel(ev.model || ""), `in ${fmtTok(u.inputTokens || 0)} · out ${fmtTok(u.outputTokens || 0)}${u.cacheReadInputTokens ? " · cached " + fmtTok(u.cacheReadInputTokens) : ""} · ${ev.seconds}s${costOfCall(ev)}`); endText(); refreshUsage(); break; }
     case "context": setContext(ev); break;
     case "taint": onTaint(ev); break;
+    case "budget": endText(); budgetBanner(ev); break;
     case "verifying": onVerifying(ev); break;
     case "verification": endText(); onVerification(ev, replay); break;
     case "notice": endText(); add(`<div class="banner notice">${esc(ev.message)}</div>`); break;
@@ -2184,7 +2185,7 @@ async function renderSpecTab(tab) {
   on("#spAskBtn", ask);
   $("#spAsk") && ($("#spAsk").onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(); } });
   on("#spNext", () => runSpecTask(spec, spec.tasks.find((t) => t.status !== "done")));
-  on("#spAll", () => { state.runAll = spec.name; runSpecTask(spec, spec.tasks.find((t) => t.status !== "done")); });
+  on("#spAll", () => estimateRunAll(spec, () => { state.runAll = spec.name; runSpecTask(spec, spec.tasks.find((t) => t.status !== "done")); }));
   on("#spDrift", () => specSay(spec, `Check spec ${spec.name} against the current code. List: acceptance criteria that aren't implemented or only partly; behaviour in the code the spec doesn't describe; tasks marked done whose code doesn't match the design. If the code is right and the spec is stale, update the spec with write_spec. Don't change code without asking.`));
   on("#spEvals", () => specSay(spec, `Verify spec ${spec.name} with the evals: run the eval command (${state.specs.eval_cmd}), then map the results to the acceptance criteria in the requirements: for each criterion, which scenarios, test cases or traces exercise it and whether they pass. List criteria with no coverage and suggest new scenarios for them.`));
   $$("[data-sp-run]").forEach((b) => (b.onclick = () => runSpecTask(spec, spec.tasks.find((t) => t.id === b.dataset.spRun))));

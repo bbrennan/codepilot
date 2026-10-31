@@ -85,7 +85,7 @@ losing what matters.
 | `--max-steps N` | 30 | Model↔tool round trips per task |
 | `--timeout S` | 900 | Seconds per task before the agent is stopped |
 | `--label NAME` | none | Name shown in reports and `compare` |
-| `--prices FILE` | none | Per-token prices for cost estimates (copy `bench/prices.example.toml`) |
+| `--prices FILE` | none | Per-token prices for cost estimates (copy `bench/prices.example.toml`; the app's cost meter uses the same format) |
 | `--keep` | off | Keep each task's working folder for inspection |
 | `--context-tokens N` | per model | Pretend the context window is this small, to force compaction |
 | `--prune-at`, `--compact-at` | from `.env` | Override the compaction thresholds for this run |

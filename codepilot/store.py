@@ -419,6 +419,34 @@ class Store:
                 "GROUP BY model", (sid,)).fetchall()
         return {"by_model": [dict(r) for r in rows]}
 
+    def usage_since(self, since: float) -> list[dict]:
+        """Usage by model across all sessions."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT model, COUNT(*) AS calls, SUM(input_tokens) AS input, SUM(output_tokens) AS output, "
+                "SUM(cache_read) AS cache_read, SUM(cache_write) AS cache_write FROM usage WHERE created >= ? "
+                "GROUP BY model", (since,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def usage_rows(self, sid: str) -> list[dict]:
+        """One row per model call."""
+        with self._lock:
+            rows = self._db.execute("SELECT model, input_tokens AS input, output_tokens AS output, cache_read, "
+                                    "cache_write, created FROM usage WHERE session_id = ? ORDER BY id", (sid,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def turn_starts(self, sid: str) -> list[tuple[int, float, str]]:
+        """(message id, created, text) of each message that started a turn, compacted ones included."""
+        with self._lock:
+            rows = self._db.execute("SELECT id, created, content FROM messages WHERE session_id = ? AND role = 'user' "
+                                    "ORDER BY id", (sid,)).fetchall()
+        starts = []
+        for row in rows:
+            content = json.loads(row["content"])
+            if content and "text" in content[0]:
+                starts.append((row["id"], row["created"], content[0]["text"]))
+        return starts
+
     # -- per-repo notes (memory that outlives a session) ---------------------------------------
 
     def notes_path(self, repo: str) -> Path:

@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from . import (approval_policy, checkpoints, checks, gitstate, images, mentions, models, modes, plans, prompts, repomap,
-               router, skills, specs, steering, verification, webtools)
+               router, skills, specs, spend, steering, verification, webtools)
 from .bedrock import BedrockError, make_client
 from .config import Config
 from .context import CLEARED_PREFIX, ContextManager, is_overflow
@@ -26,6 +26,7 @@ from .tools import (SKIP_DIRS, Tool, ToolContext, ToolError, build_tools, detect
 
 UI_OUTPUT_LIMIT = 6000
 TAINT_SOURCES_KEPT = 20
+WARN_PERCENT = round(spend.WARN_AT * 100)
 EXPLORE_MAX_STEPS = 12
 
 
@@ -72,6 +73,7 @@ class Agent:
         self._queues: dict[str, list[dict]] = {}  # messages typed while a turn runs, read at the next step
         self._queue_lock = threading.Lock()
         self.ctxm = ContextManager(cfg, store, self.llm, fast_model=lambda: self.tier_model("fast"))
+        self.spend = spend.Spend(cfg, store)
 
     def cancel(self, session_id: str) -> list[str]:
         """Ask a running turn to stop at the next safe point. Returns queued messages, so the UI can put them
@@ -699,6 +701,10 @@ class Agent:
         while step < self.cfg.max_steps:
             step += 1
             yield from self._deliver_queue(session_id)
+            if (yield from self._over_budget()):
+                yield self.context_usage(session_id)
+                yield {"type": "done"}
+                return
             changed = yield from self.ctxm.ensure_room(session_id, model, system, specs)
             if changed:
                 self._strip_reasoning(session_id)
@@ -746,7 +752,8 @@ class Agent:
             if usage:
                 self.store.add_usage(session_id, model, usage)
                 self.ctxm.record(session_id, system, specs, sent, usage)
-            yield {"type": "usage", "model": model, "usage": usage, "seconds": round(time.monotonic() - started, 1)}
+            yield {"type": "usage", "model": model, "usage": usage, "seconds": round(time.monotonic() - started, 1),
+                   "cost": self.spend.call(model, usage)}
             stop = (final or {}).get("stop_reason")
             if not tool_uses:
                 if stop == "max_tokens":
@@ -833,6 +840,17 @@ class Agent:
             return False
         return not _reopens(tu, ctx.root) and not (advice.offer_rule and self.allowed(session_id, tu))
 
+    def _over_budget(self) -> Generator[dict, None, bool]:
+        """Before a model call: warn near the daily budget, and report if it's reached."""
+        status = self.spend.check()
+        if status == "warn":
+            yield {"type": "notice", "message": f"Today's cost has passed {WARN_PERCENT}% of the daily budget "
+                                                f"(${self.cfg.daily_budget:g}, CODEPILOT_DAILY_BUDGET)."}
+        if status != "stop":
+            return False
+        yield {"type": "budget", "spent": round(self.spend.spent_today(), 4), "limit": self.cfg.daily_budget}
+        return True
+
     def _stopped(self, session_id: str) -> Iterator[dict]:
         self._cancelled.discard(session_id)
         yield {"type": "notice", "message": "Stopped."}
@@ -873,6 +891,8 @@ class Agent:
         for step in range(EXPLORE_MAX_STEPS):
             if ctx.session_id in self._cancelled:
                 return "Cancelled: the user stopped this turn.", True
+            if self.spend.check() == "stop":
+                return "Stopped: the daily budget has been reached.", True
             if step == EXPLORE_MAX_STEPS - 1:
                 messages[-1]["content"].append({"text": "Step limit reached: write your final report now."})
             _shrink_local(messages, self.ctxm.budget(model) // 2, self.ctxm.ratio(ctx.session_id))

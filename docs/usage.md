@@ -457,6 +457,16 @@ Token use per model shows in **Memory → Token usage** and in the status bar. C
 provider's bill; prompt caching cuts the cost of the repeated context a lot. To compare models on your
 kind of work, use the [benchmark](benchmark.md).
 
+**Seeing the cost in dollars.** Copy `bench/prices.example.toml` to `~/.codepilot/prices.toml` and put in your prices
+(check them: they change, and Bedrock's differ by region). The status bar then shows the session's cost
+(`23.7k tokens · $0.31`); hover for the cost per model and today's total across all sessions. **Memory** and each model
+call in **Activity** show dollars too, and **Run all remaining** gives an estimate from the tasks already run in that
+session. A model with no price shows as `$?` and isn't counted, so it never looks free. Local models show as `local`.
+
+**A daily cap.** Set `CODEPILOT_DAILY_BUDGET=5` (USD). You get a notice at 80%. At the cap the turn stops before its
+next model call, and your message is kept. **Continue anyway today** lifts the cap until midnight, then send a message
+to carry on. Usage with no price doesn't count towards the cap.
+
 ## The terminal
 
 Real terminals, like VS Code's: your login shell with your usual prompt, PATH, aliases and credentials.
