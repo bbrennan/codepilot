@@ -281,6 +281,7 @@ async function openSession(sid) {
   // Changes are redrawn where they were proposed (proposal_ref); anything still waiting that wasn't goes last.
   for (const p of data.proposals) if (p.status === "pending" && !$(`#transcript [data-prop="${p.id}"]`)) renderProposalCard(p);
   state.approval = null; state.allow = data.allow || []; state.receipt = data.receipt; state.verifying = null;
+  state.taint = data.taint || []; renderTaintChip();
   if (data.pending) render({ type: "approval_needed", tools: data.pending }, true);
   renderReviewBar();
   updateBusy();
@@ -847,7 +848,7 @@ function renderReviewBar() {
     const rule = ap.tools.length === 1 ? ap.tools[0].allow : null;
     // The buttons sit on the title line so the command gets the full width (and scrolls if it's long).
     html += `<div class="rb-row rb-approval">${icon("alert")}<div class="rb-main"><div class="rb-head"><b>Run ${ap.tools.length > 1 ? "these" : "this"}?</b><span class="spacer"></span>
-      <div class="rb-acts"><button class="btn primary" id="rbApprove" title="${mod}Enter">${icon("check")}Run <kbd>${mod}⏎</kbd></button><button class="btn" id="rbDeny">Deny</button></div></div>${ap.tools.map((t) => `<code class="rb-cmd">${esc(t.command)}</code>`).join("")}
+      <div class="rb-acts"><button class="btn primary" id="rbApprove" title="${mod}Enter">${icon("check")}Run <kbd>${mod}⏎</kbd></button><button class="btn" id="rbDeny">Deny</button></div></div>${ap.tools.map((t) => `<code class="rb-cmd">${esc(t.command)}</code>${warningLines(t)}`).join("")}
       ${rule ? `<label class="toggle rb-allow" title="Run commands starting with this without asking, for the rest of this session. Commands that chain or redirect (;, &&, |, >) always ask."><input type="checkbox" id="rbAllow"><span>always allow <code>${esc(rule.prefix)}</code> in this session</span></label>` : ""}</div></div>`;
   }
   if (pend.length) {
@@ -1066,7 +1067,7 @@ function renderMemory() {
     <div class="group-head" style="padding-left:2px">Workspace notes</div>
     <textarea class="field mono" id="notesBox" rows="7" style="font-size:12px;resize:vertical" placeholder="${state.workspace ? "Facts codepilot should always know about this folder…" : "Open a folder to keep notes for it."}" ${state.workspace ? "" : "disabled"}></textarea>
     <div style="display:flex;gap:6px;align-items:center;margin-top:6px"><button class="btn" id="saveNotes" ${state.workspace ? "" : "disabled"}>Save notes</button><span class="hint" id="notesPath" style="margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span></div>
-    <div class="group-head" style="padding-left:2px">Always allowed in this session</div>
+    <div class="group-head" style="padding-left:2px">Always allowed in this session${allowPausedNote()}</div>
     <div class="hint" id="allowList">${(state.allow || []).length ? state.allow.map((r, i) => `<span class="allow-chip"><code>${esc(r.tool === "github" ? "gh " + r.prefix : r.prefix)}</code><button class="icon-btn sm" data-unallow="${i}" title="Ask again for these">${icon("x")}</button></span>`).join(" ") : "Nothing. Tick “always allow” when approving a command to skip asking for it in this session."}</div>
     <div class="group-head" style="padding-left:2px">Token usage</div><div id="usageTable" class="hint">—</div>
     <div class="group-head" style="padding-left:2px">Analysers (run_checks)</div>
@@ -1343,6 +1344,7 @@ function render(ev, replay) {
     case "plan": endText(); onPlanEvent(ev); break;
     case "usage": { const u = ev.usage || {}; activity("model", shortModel(ev.model || ""), `in ${fmtTok(u.inputTokens || 0)} · out ${fmtTok(u.outputTokens || 0)}${u.cacheReadInputTokens ? " · cached " + fmtTok(u.cacheReadInputTokens) : ""} · ${ev.seconds}s`); endText(); refreshUsage(); break; }
     case "context": setContext(ev); break;
+    case "taint": onTaint(ev); break;
     case "verifying": onVerifying(ev); break;
     case "verification": endText(); onVerification(ev, replay); break;
     case "notice": endText(); add(`<div class="banner notice">${esc(ev.message)}</div>`); break;

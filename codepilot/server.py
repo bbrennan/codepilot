@@ -359,8 +359,11 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         if request.method == "PATCH":
             data = await json_body(request)
             fields = {k: data[k] for k in ("title", "tier", "auto_approve", "repo", "mode", "model") if k in data}
-            if isinstance(data.get("allow"), list) or "auto_apply" in data:
+            clear_taint = data.get("taint") == []  # clearing is all a client can do with it
+            if isinstance(data.get("allow"), list) or "auto_apply" in data or clear_taint:
                 state = dict(sess.context_state or {})
+                if clear_taint:
+                    state["taint"], state["taint_told"] = [], False
                 if isinstance(data.get("allow"), list):  # replace "always allow" rules (only removing is possible)
                     state["allow"] = [r for r in state.get("allow", []) if r in data["allow"]]
                 if "auto_apply" in data:
@@ -391,8 +394,9 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             "busy": sid in busy,
             "summary": sess.summary,
             "events": history_events(store, sid),
-            "pending": sess.pending and agent.approval_view(sess.pending["awaiting"], root),
+            "pending": sess.pending and agent.approval_view(sid, sess.pending["awaiting"], root),
             "allow": (sess.context_state or {}).get("allow", []),
+            "taint": (sess.context_state or {}).get("taint", []),
             "auto_apply": bool((sess.context_state or {}).get("auto_apply")) or cfg.auto_apply_edits,
             "spec": (sess.context_state or {}).get("spec"),
             "proposals": [_proposal_json(p, root) for p in store.list_proposals(sid)],
