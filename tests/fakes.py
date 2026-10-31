@@ -21,8 +21,10 @@ class FakeLLM:
         yield {"type": "message", "content": content, "stop_reason": stop,
                "usage": {"inputTokens": 10, "outputTokens": 5}}
 
-    def complete(self, model, system, prompt, max_tokens=4000):
+    def complete(self, model, system, prompt, max_tokens=4000, on_usage=None):
         self.calls.append({"complete": prompt})
+        if on_usage:
+            on_usage({"inputTokens": 100, "outputTokens": 20})
         return "SUMMARY: earlier work"
 
 

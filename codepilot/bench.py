@@ -28,6 +28,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
+from . import pricing
 from .agent import Agent, make_llm
 from .config import Config
 from .store import Store
@@ -268,23 +269,12 @@ def summarize(results: list[dict], model: str, prices: dict | None) -> dict:
         rows = by_model.items() if by_model else [(model, {"input": tot["input_tokens"], "output": tot["output_tokens"],
                                                            "cache_read": tot["cache_read_tokens"],
                                                            "cache_write": tot["cache_write_tokens"]})]
-        priced = [(_price_for(m, prices), u) for m, u in rows]
-        if all(p for p, _ in priced):
-            cost = sum(u["input"] * p.get("input", 0) + u["output"] * p.get("output", 0)
-                       + u["cache_read"] * p.get("cache_read", 0) + u["cache_write"] * p.get("cache_write", 0)
-                       for p, u in priced) / 1e6
+        priced = pricing.summarise([{**u, "model": m} for m, u in rows], prices)
+        if not priced["unpriced"]:
+            cost = priced["total"]
             summary["cost_usd"] = round(cost, 4)
             summary["cost_per_pass_usd"] = round(cost / passed, 4) if passed else None
     return summary
-
-
-def _price_for(model: str, prices: dict | None) -> dict | None:
-    if not prices:
-        return None
-    for key, value in prices.items():
-        if key in model:
-            return value
-    return None
 
 
 def markdown(report: dict) -> str:

@@ -124,7 +124,7 @@ class ScriptedLLM:
                "stop_reason": "tool_use" if any("toolUse" in b for b in content) else "end_turn",
                "usage": {"inputTokens": sent // 3, "outputTokens": 40}}
 
-    def complete(self, model, system, prompt, max_tokens=4000):
+    def complete(self, model, system, prompt, max_tokens=4000, on_usage=None):
         return "SUMMARY: we fixed the add bug in agent/core.py."
 
 

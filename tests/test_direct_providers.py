@@ -128,7 +128,8 @@ def test_openai_stream_tool_calls():
     assert msg["content"] == [{"text": "Let me look. "},
                               {"toolUse": {"toolUseId": "call_1", "name": "read_file", "input": {"path": "a.py"}}}]
     assert msg["stop_reason"] == "tool_use"
-    assert msg["usage"] == {"inputTokens": 50, "outputTokens": 7, "cacheReadInputTokens": 30}
+    # OpenAI counts cached tokens inside prompt_tokens; everywhere else they're separate, so they mustn't count twice.
+    assert msg["usage"] == {"inputTokens": 20, "outputTokens": 7, "cacheReadInputTokens": 30}
     req = requests[0]
     assert req["messages"][0] == {"role": "system", "content": "sys"} and req["reasoning_effort"] == "medium"
     assert req["tools"][0]["function"]["name"] == "read_file" and "max_completion_tokens" in req

@@ -14,6 +14,25 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+# Marks a message steered into a running turn: part of that turn, not the start of another.
+QUEUED_PREFIX = "(Sent while you were working) "
+
+# No foreign key on purpose: deleting a chat doesn't refund it, so its usage has to outlive it for today's total and
+# the daily cap.
+USAGE_TABLE = """CREATE TABLE IF NOT EXISTS usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    model TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_read INTEGER NOT NULL DEFAULT 0,
+    cache_write INTEGER NOT NULL DEFAULT 0,
+    created REAL NOT NULL,
+    local INTEGER NOT NULL DEFAULT 0,
+    rewound INTEGER NOT NULL DEFAULT 0
+);
+"""
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
@@ -53,16 +72,6 @@ CREATE TABLE IF NOT EXISTS receipts (
     status TEXT NOT NULL,
     body TEXT NOT NULL,
     told INTEGER NOT NULL DEFAULT 0,
-    created REAL NOT NULL
-);
-CREATE TABLE IF NOT EXISTS usage (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    model TEXT NOT NULL,
-    input_tokens INTEGER NOT NULL DEFAULT 0,
-    output_tokens INTEGER NOT NULL DEFAULT 0,
-    cache_read INTEGER NOT NULL DEFAULT 0,
-    cache_write INTEGER NOT NULL DEFAULT 0,
     created REAL NOT NULL
 );
 """
@@ -151,7 +160,7 @@ class Store:
         self._db = sqlite3.connect(self.home / "codepilot.db", check_same_thread=False)
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA foreign_keys = ON")
-        self._db.executescript(SCHEMA)
+        self._db.executescript(SCHEMA + USAGE_TABLE)
         self._migrate()
 
     def _migrate(self) -> None:
@@ -159,13 +168,26 @@ class Store:
         wanted = {"sessions": [("mode", "TEXT NOT NULL DEFAULT 'act'"), ("context_state", "TEXT"),
                                ("model", "TEXT NOT NULL DEFAULT ''")],
                   "proposals": [("before_text", "TEXT"), ("after_text", "TEXT"), ("check_text", "TEXT"),
-                                ("applied_at", "REAL"), ("advice", "TEXT")]}
+                                ("applied_at", "REAL"), ("advice", "TEXT")],
+                  "usage": [("local", "INTEGER NOT NULL DEFAULT 0"), ("rewound", "INTEGER NOT NULL DEFAULT 0")]}
         with self._lock, self._db:
             for table, cols in wanted.items():
                 have = {r["name"] for r in self._db.execute(f"PRAGMA table_info({table})")}
                 for name, decl in cols:
                     if name not in have:
                         self._db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+            if self._db.execute("PRAGMA foreign_key_list(usage)").fetchone():
+                self._drop_usage_cascade()
+
+    def _drop_usage_cascade(self) -> None:
+        """SQLite can't drop a foreign key, so usage is rebuilt, in one transaction so a crash can't lose it."""
+        columns = ("id, session_id, model, input_tokens, output_tokens, cache_read, cache_write, created, local, "
+                   "rewound")
+        self._db.execute("BEGIN")
+        self._db.execute("ALTER TABLE usage RENAME TO usage_cascading")
+        self._db.execute(USAGE_TABLE)
+        self._db.execute(f"INSERT INTO usage ({columns}) SELECT {columns} FROM usage_cascading")
+        self._db.execute("DROP TABLE usage_cascading")
 
     # -- sessions -------------------------------------------------------------------------------
 
@@ -263,8 +285,13 @@ class Store:
         return bool(row and row["archived"])
 
     def delete_messages_from(self, sid: str, mid: int) -> int:
-        """Delete a message and everything after it in the session (rewinding the conversation)."""
+        """Delete a message and everything after it in the session (rewinding the conversation).
+
+        Its usage stays, because it was billed, but is marked: it no longer belongs to any turn.
+        """
         with self._lock, self._db:
+            self._db.execute("UPDATE usage SET rewound = 1 WHERE session_id = ? AND created >= "
+                             "(SELECT created FROM messages WHERE id = ?)", (sid, mid))
             return self._db.execute("DELETE FROM messages WHERE session_id = ? AND id >= ?", (sid, mid)).rowcount
 
     def archive_messages(self, sid: str, ids: list[int]) -> None:
@@ -402,22 +429,53 @@ class Store:
 
     # -- token usage ----------------------------------------------------------------------------
 
-    def add_usage(self, sid: str, model: str, usage: dict) -> None:
+    def add_usage(self, sid: str, model: str, usage: dict, local: bool = False) -> None:
         with self._lock, self._db:
             self._db.execute(
                 "INSERT INTO usage (session_id, model, input_tokens, output_tokens, cache_read, cache_write,"
-                " created) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                " created, local) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (sid, model, usage.get("inputTokens", 0), usage.get("outputTokens", 0),
-                 usage.get("cacheReadInputTokens", 0), usage.get("cacheWriteInputTokens", 0), time.time()),
+                 usage.get("cacheReadInputTokens", 0), usage.get("cacheWriteInputTokens", 0), time.time(), int(local)),
             )
 
     def usage(self, sid: str) -> dict:
         with self._lock:
             rows = self._db.execute(
-                "SELECT model, COUNT(*) AS calls, SUM(input_tokens) AS input, SUM(output_tokens) AS output, "
+                "SELECT model, local, COUNT(*) AS calls, SUM(input_tokens) AS input, SUM(output_tokens) AS output, "
                 "SUM(cache_read) AS cache_read, SUM(cache_write) AS cache_write FROM usage WHERE session_id = ? "
-                "GROUP BY model", (sid,)).fetchall()
+                "GROUP BY model, local", (sid,)).fetchall()
         return {"by_model": [dict(r) for r in rows]}
+
+    def usage_since(self, since: float) -> list[dict]:
+        """Usage by model across all sessions."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT model, local, COUNT(*) AS calls, SUM(input_tokens) AS input, SUM(output_tokens) AS output, "
+                "SUM(cache_read) AS cache_read, SUM(cache_write) AS cache_write FROM usage WHERE created >= ? "
+                "GROUP BY model, local", (since,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def usage_rows(self, sid: str) -> list[dict]:
+        """One row per model call, leaving out rewound turns: their times now fall inside the turn before."""
+        with self._lock:
+            rows = self._db.execute("SELECT model, local, input_tokens AS input, output_tokens AS output, cache_read, "
+                                    "cache_write, created FROM usage WHERE session_id = ? AND rewound = 0 ORDER BY id",
+                                    (sid,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def turn_starts(self, sid: str) -> list[tuple[int, float, str]]:
+        """(message id, created, text) of each message that started a turn, compacted ones included."""
+        with self._lock:
+            rows = self._db.execute("SELECT id, created, content FROM messages WHERE session_id = ? AND role = 'user' "
+                                    "ORDER BY id", (sid,)).fetchall()
+        starts = []
+        for row in rows:
+            # A new message can follow tool results (a stopped turn resuming) or steering, in the same message.
+            texts = [b["text"] for b in json.loads(row["content"]) if "text" in b]
+            text = next((t for t in texts if not t.startswith(("<turn_context>", QUEUED_PREFIX))), None)
+            if text is not None:
+                starts.append((row["id"], row["created"], text))
+        return starts
 
     # -- per-repo notes (memory that outlives a session) ---------------------------------------
 
