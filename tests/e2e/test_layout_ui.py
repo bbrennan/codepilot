@@ -184,6 +184,27 @@ def test_a_streamed_event_landing_before_the_scroll_event_doesnt_undo_the_users_
     assert gap(page) > 40, "the user's move was undone before its scroll event arrived"
 
 
+def test_a_second_move_up_sticks_after_following_resumed(page, server, session):
+    page.set_viewport_size({"width": 1280, "height": 560})
+    open_app(page)
+    for _ in range(6):
+        page.fill("#input", "hello")
+        page.press("#input", "Enter")
+        page.wait_for_function("() => document.querySelector('#stopBtn').hidden")
+    left = page.evaluate("""async () => {
+      const t = document.querySelector('#transcript');
+      const frames = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const moveUser = (top) => { t.firstElementChild.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); t.scrollTop = top; };
+      scrollEnd(true);
+      moveUser(0); await frames();  // the user leaves the bottom
+      const more = document.createElement('div'); more.style.height = '1000px'; t.append(more);  // output arrives meanwhile
+      moveUser(t.scrollHeight); await frames();  // back down: following resumes
+      moveUser(t.scrollHeight - t.clientHeight - 300);  // up again, and a streamed event lands before the scroll event
+      scrollEnd();
+      return t.scrollHeight - t.scrollTop - t.clientHeight; }""")
+    assert left > 200, f"the second move was undone ({left}px from the bottom)"
+
+
 def test_toasts_stay_off_the_message_box_when_the_editor_is_narrow(page, server, session):
     page.set_viewport_size({"width": 1024, "height": 700})
     open_app(page)

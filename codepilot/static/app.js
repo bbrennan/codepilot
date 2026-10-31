@@ -1154,7 +1154,7 @@ let viewHeight = 0; // as of the last ResizeObserver run
 $("#transcript").addEventListener("scroll", () => {
   const t = $("#transcript");
   if (t.clientHeight !== viewHeight) return; // the view just resized: this says nothing about the user, and the observer below is about to settle it
-  if (t.scrollHeight - t.scrollTop - t.clientHeight < 80) stickToBottom = true;
+  if (t.scrollHeight - t.scrollTop - t.clientHeight < 80) { stickToBottom = true; snappedTop = t.scrollTop; }
   else if (userDragging || performance.now() < userScrollUntil) stickToBottom = false;
 });
 // The composer growing (a long draft, an approval, the plan) makes the transcript shorter: keep the newest line in view.
