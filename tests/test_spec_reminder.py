@@ -112,3 +112,23 @@ def test_a_reminder_isnt_a_turn_and_stays_out_of_the_transcript(repo, store, cfg
     assert len(store.turn_starts(sess.id)) == 1
     shown = [e for e in history_events(store, sess.id) if e["type"] in ("tool_result", "user")]
     assert shown and not [e for e in shown if "spec_reminder" in str(e)]
+
+
+def test_a_turn_that_keeps_pausing_for_approval_is_still_reminded(repo, store, cfg):
+    from dataclasses import replace
+    spec_with(repo, "- [-] 1. Task\n")
+    llm = FakeLLM([[tool_use(f"t{i}", "run_command", command=f"./step{i}")] for i in range(7)] + [[{"text": "done"}]])
+    agent = Agent(replace(cfg, max_steps=20), store, llm=llm)
+    sess = store.create_session(str(repo), "main")
+    store.update_session(sess.id, mode="spec", context_state={"spec": "export"})
+    events = list(agent.chat(sess.id, "Implement task 1 of spec export: Task"))
+    while store.get_session(sess.id).pending:
+        events += agent.resume(sess.id, approve=True)
+    assert [e["task"] for e in events if e["type"] == "spec_reminder"] == ["1"] and len(reminders(llm)) == 1
+
+
+def test_the_count_starts_again_with_each_turn(repo, store, cfg):
+    agent, sess, _ = long_turn(repo, store, cfg, "- [-] 1. Task\n", steps=5)
+    agent.llm.script = [[tool_use("x", "read_file", path="x.py")], [{"text": "done"}]]
+    events = list(agent.chat(sess.id, "next"))
+    assert not [e for e in events if e["type"] == "spec_reminder"]

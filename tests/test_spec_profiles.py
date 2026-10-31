@@ -77,3 +77,7 @@ def test_implementing_is_the_same_for_both():
 ])
 def test_asking_for_a_quick_spec(text, expected):
     assert profiles.requested(text) == expected
+
+
+def test_a_hand_edited_kind_doesnt_break_a_quick_spec():
+    assert "doc='tasks'" in profiles.instructions("quick", "chore", "requirements")

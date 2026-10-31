@@ -94,7 +94,7 @@ def instructions(profile: str, kind: str, phase: str) -> str:
     if phase == "implement":
         return PHASE_INSTRUCTIONS[phase]
     if profile == "quick":
-        return QUICK_INSTRUCTIONS[kind]
+        return QUICK_INSTRUCTIONS.get(kind, QUICK_INSTRUCTIONS["feature"])  # spec.json is hand-editable
     key = "bugfix" if phase == "requirements" and kind == "bugfix" else phase
     return PHASE_INSTRUCTIONS[key] + BUDGET
 

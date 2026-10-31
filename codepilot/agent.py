@@ -489,7 +489,7 @@ class Agent:
         state = dict(self.store.get_session(session_id).context_state or {})
         turn = {**{"failures": 0, "advised": False, "hit_limit": False}, **state.get("turn", {})}
         for k, v in changes.items():
-            turn[k] = turn.get(k, 0) + v if k == "failures" else v
+            turn[k] = turn.get(k, 0) + v if k in ("failures", "steps") else v
         state["turn"] = turn
         self.store.update_session(session_id, context_state=state)
         return turn
@@ -578,8 +578,9 @@ class Agent:
             output = yield from self._after_result(session_id, tu, output, is_error)
             results.append(_tool_result(tu["toolUseId"], output, is_error))
         self.store.update_session(session_id, pending=None)
-        content = _order_results(pending["order"], results) + ([{"text": feedback}] if feedback else [])
-        self.store.add_message(session_id, "user", content)
+        ordered = _order_results(pending["order"], results)
+        yield from self._remind(session_id, ctx.root, ordered)
+        self.store.add_message(session_id, "user", ordered + ([{"text": feedback}] if feedback else []))
         yield from self._loop(session_id)
         yield from self._drain_queue_turns(session_id)
 
@@ -803,7 +804,7 @@ class Agent:
                     "results": results, "awaiting": awaiting, "order": [tu["toolUseId"] for tu in tool_uses]})
                 yield {"type": "approval_needed", "tools": self.approval_view(session_id, awaiting, ctx.root)}
                 return
-            yield from self._remind(session_id, ctx.root, step, results)
+            yield from self._remind(session_id, ctx.root, results)
             self.store.add_message(session_id, "user", results)
             if session_id in self._cancelled:
                 yield from self._stopped(session_id)
@@ -850,11 +851,16 @@ class Agent:
             return False
         return not _reopens(tu, ctx.root) and not (advice.offer_rule and self.allowed(session_id, tu))
 
-    def _remind(self, session_id: str, root: Path | None, step: int, results: list[dict]) -> Iterator[dict]:
-        """On a long implementation turn, put the task in progress back in front of the model."""
+    def _remind(self, session_id: str, root: Path | None, results: list[dict]) -> Iterator[dict]:
+        """On a long implementation turn, put the task in progress back in front of the model.
+
+        Steps are counted on the turn, not the loop: approvals restart the loop, and a task that keeps pausing for
+        them is as likely to drift as one that doesn't.
+        """
+        due = spec_reminder.due(self._turn_flag(session_id, steps=1)["steps"])
         sess = self.store.get_session(session_id)
         name = (sess.context_state or {}).get("spec")
-        if not spec_reminder.due(step) or sess.mode != "spec" or not name or root is None:
+        if not due or sess.mode != "spec" or not name or root is None:
             return
         spec = specs.get(root, name)
         reminder = spec_reminder.text(spec) if spec and spec.phase == "implement" else None

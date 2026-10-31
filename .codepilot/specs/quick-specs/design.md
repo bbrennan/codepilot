@@ -73,9 +73,11 @@ def text(spec: Spec) -> str | None                           # None when no task
 - **`agent.py`:**
   - `_spec_for_message` and `/spec` parsing accept a leading `quick` (1.1). The existing bug-word detection still picks
     the kind.
-  - In `_loop_steps`, just before `self.store.add_message(session_id, "user", results)`: if the session's active spec is
-    in `implement` and `spec_reminder.due(step)`, append the reminder to the last tool result's content and yield
+  - In `_loop_steps` and `resume`, just before the results are stored: if the session's active spec is in `implement` and
+    `spec_reminder.due(steps)`, append the reminder to the last tool result's content and yield
     `{"type": "spec_reminder", "task": id}` (3.1, 3.3). The frozen system prompt is untouched (3.2).
+    - `steps` is counted on the turn with `_turn_flag`, not by the loop: approvals restart the loop, so a task that
+      keeps pausing would otherwise never reach step 6.
     - It's a block inside the tool result, not a text block beside it: a text block in a user message reads as the
       user speaking to compaction, turn costs and the transcript. Old reminders are also pruned with their output.
   - `history_events` leaves reminders out of the tool output it redraws (3.3).
