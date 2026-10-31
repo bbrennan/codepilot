@@ -6,7 +6,7 @@ A spec is a folder:
                           design.md        architecture, interfaces, data, errors, testing, traced to requirements
                           tasks.md         "- [ ] 1. Title" / "- [x] 2.1 Sub-task" checklist; "_Requirements: 1.2_"
                                            lines tie tasks to acceptance criteria; "- [-]" is in progress
-                          spec.json        codepilot's bookkeeping: kind and approved phase (Kiro ignores it)
+                          spec.json        codepilot's bookkeeping: kind, profile and approved phase (Kiro ignores it)
 Only .codepilot/specs/ is listed. Other tools' spec folders (.kiro/specs/, Spec Kit's specs/) belong to those
 tools and aren't shown, even though the files share Kiro's format.
 """
@@ -19,7 +19,9 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-PHASES = ("requirements", "design", "tasks", "implement")
+from . import spec_profiles
+from .spec_profiles import PHASES, PROFILES
+
 KINDS = ("feature", "bugfix")
 NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 TASK_LINE = re.compile(r"^(\s*)- \[([ xX-])\]\s+(?:(\d+(?:\.\d+)*)\.?\s+)?(.*\S)\s*$")
@@ -44,6 +46,7 @@ class Spec:
     folder: Path
     kind: str = "feature"
     approved: str = ""  # the last approved phase
+    profile: str = "full"  # how much review it gets: spec_profiles.py
     tasks: list[Task] = field(default_factory=list)
 
     def doc(self, phase: str) -> Path:
@@ -60,7 +63,7 @@ class Spec:
 
     def info(self, root: Path) -> dict:
         done = sum(t.status == "done" for t in self.tasks)
-        return {"name": self.name, "kind": self.kind, "phase": self.phase,
+        return {"name": self.name, "kind": self.kind, "profile": self.profile, "phase": self.phase,
                 "approved": self.approved, "folder": str(self.folder.relative_to(root)),
                 "docs": {p: str(self.doc(p).relative_to(root)) for p in PHASES[:3] if self.doc(p).is_file()},
                 "doc_paths": {p: str(self.doc(p).relative_to(root)) for p in PHASES[:3]},
@@ -113,7 +116,8 @@ def _load(folder: Path) -> Spec:
     except (OSError, ValueError):
         pass
     kind = state.get("kind") or ("bugfix" if (folder / "bugfix.md").is_file() else "feature")
-    spec = Spec(name=folder.name, folder=folder, kind=kind, approved=state.get("approved", ""))
+    profile = state.get("profile") if state.get("profile") in PROFILES else "full"
+    spec = Spec(name=folder.name, folder=folder, kind=kind, approved=state.get("approved", ""), profile=profile)
     tasks = spec.doc("tasks")
     if tasks.is_file():
         spec.tasks = parse_tasks(tasks.read_text(errors="replace"))
@@ -131,32 +135,39 @@ def get(root: Path, name: str) -> Spec | None:
     return next((s for s in discover(root) if s.name == name), None)
 
 
-def create(root: Path, name: str, kind: str = "feature") -> Spec:
+def create(root: Path, name: str, kind: str = "feature", profile: str = "full") -> Spec:
     if not NAME.match(name):
         raise ValueError("Use lowercase letters, digits and dashes for the spec name (e.g. csv-export).")
     if kind not in KINDS:
         raise ValueError(f"kind must be one of {KINDS}")
+    if profile not in PROFILES:
+        raise ValueError(f"profile must be one of {PROFILES}")
     folder = root / ".codepilot/specs" / name
     if folder.exists() or get(root, name):
         raise FileExistsError(f"A spec named {name} already exists.")
     folder.mkdir(parents=True)
-    (folder / "spec.json").write_text(json.dumps({"kind": kind, "approved": "", "created": time.time()}, indent=1))
+    state = {"kind": kind, "approved": "", "created": time.time()} | ({"profile": profile} if profile != "full" else {})
+    (folder / "spec.json").write_text(json.dumps(state, indent=1))
     return _load(folder)
+
+
+def _state(spec: Spec) -> dict:
+    try:
+        return json.loads((spec.folder / "spec.json").read_text())
+    except (OSError, ValueError):
+        return {"kind": spec.kind}
 
 
 def approve(root: Path, spec: Spec, phase: str) -> Spec:
     """Approve a phase's document, moving the spec on to the next phase."""
     if phase not in PHASES[:3]:
         raise ValueError("Approve requirements, design or tasks.")
-    if PHASES.index(phase) > PHASES.index(spec.phase):
-        raise ValueError(f"Approve {spec.phase} first.")
-    if not spec.doc(phase).is_file():
-        raise FileNotFoundError(f"{spec.doc(phase).name} hasn't been written yet.")
+    present = {doc for doc in PHASES[:3] if spec.doc(doc).is_file()}
+    refused = spec_profiles.may_approve(spec.profile, spec.phase, phase, present)
+    if refused:
+        raise ValueError(refused)
     path = spec.folder / "spec.json"
-    try:
-        state = json.loads(path.read_text())
-    except (OSError, ValueError):
-        state = {"kind": spec.kind}
+    state = _state(spec)
     current = state.get("approved") or spec.approved
     # Approving again (after editing an earlier document) never moves the spec backwards.
     if not current or PHASES.index(phase) > PHASES.index(current):
@@ -165,52 +176,21 @@ def approve(root: Path, spec: Spec, phase: str) -> Spec:
     return _load(spec.folder)
 
 
+def set_profile(root: Path, spec: Spec, profile: str) -> Spec:
+    """Move a quick spec to full review, keeping its documents. Past planning there's nothing left to review."""
+    if profile != "full":
+        raise ValueError("A spec can only switch to full review.")
+    if not spec_profiles.can_switch_to_full(spec.approved):
+        raise ValueError("Already approved; it's past planning.")
+    (spec.folder / "spec.json").write_text(json.dumps({**_state(spec), "profile": profile}, indent=1))
+    return _load(spec.folder)
+
+
 def slug(text: str) -> str:
     words = re.findall(r"[a-z0-9]+", text.lower())
     stop = {"a", "an", "the", "to", "for", "of", "and", "with", "in", "on", "i", "we", "want", "add", "make"}
     keep = [w for w in words if w not in stop][:5] or words[:5] or ["spec"]
     return "-".join(keep)[:60].strip("-")
-
-
-# -- what the model is told, per phase -------------------------------------------------------------
-
-PHASE_INSTRUCTIONS = {
-    "requirements": (
-        "Phase 1 of 3, REQUIREMENTS. Investigate read-only first (explore, read_file, search_code). Then write the "
-        "document with write_spec(doc='requirements'): a short introduction, then numbered requirements, each "
-        "with a user story ('As a <role>, I want <capability>, so that <benefit>') and numbered acceptance "
-        "criteria in EARS form, e.g. '1.1 WHEN <event> THEN the <system> SHALL <response>', 'IF <condition> "
-        "THEN the <system> SHALL <response>', 'WHILE <state> the <system> SHALL …'. Cover errors and edge cases. "
-        "Ask at most three clarifying questions, only if essential. Don't design or write code yet. Finish by "
-        "asking the user to review it and approve it in the Spec tab (or tell you what to change)."),
-    "bugfix": (
-        "Phase 1 of 3, BUGFIX ANALYSIS. Reproduce and investigate first (read code, traces, tests; a scratch "
-        "reproduction with write_scratch + run_command if useful). Then write the document with "
-        "write_spec(doc='requirements') with sections: Current behaviour (with exact reproduction steps or the "
-        "failing case), Expected behaviour (EARS criteria: 'WHEN … THEN the system SHALL …'), Root cause "
-        "(confirmed, or clearly marked as a hypothesis with evidence), and Unchanged behaviour (what must keep "
-        "working: the regression criteria). Don't fix anything yet. Ask the user to review and approve it."),
-    "design": (
-        "Phase 2 of 3, DESIGN. Requirements are approved (below). Write the design with write_spec(doc='design'): "
-        "Overview; Architecture (components and how they interact, naming the real files and modules); "
-        "Components and interfaces (signatures); Data models; Error handling; Testing strategy (which tests prove "
-        "which criteria). Trace each part to requirement numbers, and note alternatives you rejected and why. "
-        "Don't write code yet. Ask the user to review and approve it."),
-    "tasks": (
-        "Phase 3 of 3, TASKS. Write the implementation plan with write_spec(doc='tasks'): an ordered checklist of "
-        "small coding tasks (each about one commit), test-first where practical, as '- [ ] 1. Title' with "
-        "sub-tasks '  - [ ] 1.1 Title'. Under each task, one to three indented bullets of specifics (files, "
-        "functions) and a line '  - _Requirements: 1.1, 2.3_'. Only coding and testing tasks: no deployment, "
-        "manual testing or meetings. Every acceptance criterion should be covered by some task. Ask the user "
-        "to review and approve it."),
-    "implement": (
-        "IMPLEMENTATION. Work only on the task the user names, following design.md. Call "
-        "update_task(task, 'in_progress') when you start. Write or update the tests for its acceptance criteria "
-        "first, then the code, then run the tests. When the criteria are verified, call update_task(task, 'done') "
-        "and stop: report what changed and how you verified it. Don't start the next task; the user does that. "
-        "If the design turns out wrong, say so and propose a change to the spec with write_spec instead of "
-        "drifting from it."),
-}
 
 
 def context_block(root: Path, spec: Spec, phases: tuple[str, ...]) -> str:
@@ -228,9 +208,10 @@ def context_block(root: Path, spec: Spec, phases: tuple[str, ...]) -> str:
 
 def turn_text(root: Path, spec: Spec) -> str:
     phase = spec.phase
-    key = "bugfix" if phase == "requirements" and spec.kind == "bugfix" else phase
-    earlier = PHASES[:PHASES.index(phase)] if phase != "implement" else PHASES[:3]
-    docs = context_block(root, spec, tuple(p for p in earlier if p != "implement"))
-    head = (f'<spec name="{spec.name}" kind="{spec.kind}" phase="{phase}" folder="{spec.folder.relative_to(root)}">\n'
-            f"SPEC MODE. {PHASE_INSTRUCTIONS[key]}")
+    quick = spec.profile == "quick"
+    docs = context_block(root, spec, PHASES[:3] if quick or phase == "implement" else PHASES[:PHASES.index(phase)])
+    profile = ' profile="quick"' if quick else ""
+    head = (f'<spec name="{spec.name}" kind="{spec.kind}" phase="{phase}"{profile} '
+            f'folder="{spec.folder.relative_to(root)}">\n'
+            f"SPEC MODE. {spec_profiles.instructions(spec.profile, spec.kind, phase)}")
     return head + (f"\n\nSpec documents so far:\n{docs}" if docs else "") + "\n</spec>"

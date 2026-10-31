@@ -907,7 +907,8 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         data = await json_body(request)
         name = str(data.get("name") or "").strip() or specs.slug(str(data.get("description") or ""))
         try:
-            spec = await run_in_threadpool(specs.create, ctx.root, name, str(data.get("kind") or "feature"))
+            spec = await run_in_threadpool(specs.create, ctx.root, name, str(data.get("kind") or "feature"),
+                                           str(data.get("profile") or "full"))
         except FileExistsError as exc:
             return err(str(exc), 409)
         except ValueError as exc:
@@ -932,7 +933,13 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                 return err(str(exc), 409)
             set_active_spec(ctx.session_id, spec.name)
             return JSONResponse(spec.info(ctx.root))
-        return err("action must be activate or approve", 404)
+        if action == "profile":
+            try:
+                spec = specs.set_profile(ctx.root, spec, str((await json_body(request)).get("profile") or ""))
+            except ValueError as exc:
+                return err(str(exc), 409)
+            return JSONResponse(spec.info(ctx.root))
+        return err("action must be activate, approve or profile", 404)
 
     # -- steering docs ---------------------------------------------------------------------------
 
