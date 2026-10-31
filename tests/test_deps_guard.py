@@ -1,5 +1,6 @@
 """Package guard: what a command or manifest edit would install, and what the public registries say about it."""
 
+import http.client
 import json
 from datetime import datetime, timezone
 
@@ -33,6 +34,20 @@ DAY = 86400
     ("cd x && uv add foo", [("pypi", "foo")]),
     ("sudo pip install foo", [("pypi", "foo")]),
     ("uv run pip install foo", [("pypi", "foo")]),
+    ("npm install react@npm:reqeusts@1", [("npm", "reqeusts")]),
+    ("npm i alias@npm:@scope/real@2", [("npm", "@scope/real")]),
+    ("pip --isolated install reqeusts", [("pypi", "reqeusts")]),
+    ("python -m pip --isolated install reqeusts", [("pypi", "reqeusts")]),
+    ("pip --python /usr/bin/python3 install foo", [("pypi", "foo")]),
+    ("uv --directory sub add foo", [("pypi", "foo")]),
+    ("npm --prefix web install foo", [("npm", "foo")]),
+    ("cargo add --optional reqeusts", [("crates", "reqeusts")]),
+    ("npm install --optional foo", [("npm", "foo")]),
+    ("npm i -f foo", [("npm", "foo")]),
+    ("pnpm add -r foo", [("npm", "foo")]),
+    ("uv add --optional extra foo", [("pypi", "foo")]),
+    ("cargo add -p member foo", [("crates", "foo")]),
+    ("npm i --registry https://r.example.com foo", [("npm", "foo")]),
 ])
 def test_installs_finds_what_a_command_would_install(command, pairs):
     assert dg.installs(command) == pairs
@@ -67,6 +82,12 @@ def test_a_package_named_twice_is_checked_once():
     ("Cargo.toml", '[dependencies]\na = "1"\n',
      '[dependencies]\na = "2"\nb = "1"\nl = { path = "../l" }\n[dev-dependencies]\nc = { version = "1" }\n',
      [("crates", "b"), ("crates", "c")]),
+    ("package.json", '', '{"dependencies": {"react": "npm:reqeusts@1", "x": "npm:@s/real@2"}}',
+     [("npm", "reqeusts"), ("npm", "@s/real")]),
+    ("package.json", '{"dependencies": {"react": "npm:good@1"}}', '{"dependencies": {"react": "npm:bad@1"}}',
+     [("npm", "bad")]),  # the same key, a different package
+    ("package.json", '', '{"dependencies": {"g": "user/repo", "h": "github:a/b", "i": "^1.0"}}', [("npm", "i")]),
+    ("pyproject.toml", "", '[project]\ndependencies = ["x @ git+https://github.com/a/b", "y"]\n', [("pypi", "y")]),
 ])
 def test_added_finds_new_dependencies_in_a_manifest_edit(path, before, after, pairs):
     assert dg.added(path, before, after) == pairs
@@ -122,6 +143,15 @@ def test_lookup_tells_missing_from_unreachable():
     assert dg.lookup("pypi", "nope", http=http, now=NOW).found is False
     assert dg.lookup("pypi", "down", http=http, now=NOW).found is None
     assert dg.lookup("pypi", "garbled", http=http, now=NOW).found is None
+
+
+@pytest.mark.parametrize("failure", [http.client.IncompleteRead(b"{"), '{"releases": null}', "[]", '"text"',
+                                     '{"crate": 3}', '{"time": null}'])
+def test_a_broken_response_is_unknown_never_an_error(failure):
+    for eco, url in (("pypi", "https://pypi.org/pypi/x/json"), ("npm", "https://registry.npmjs.org/x"),
+                     ("crates", "https://crates.io/api/v1/crates/x")):
+        dg.CACHE.clear()
+        assert dg.lookup(eco, "x", http=fake_http({url: failure}), now=NOW).found is None
 
 
 def test_results_are_cached_for_an_hour_and_failures_briefly():

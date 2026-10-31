@@ -19,6 +19,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from http.client import HTTPException
 from pathlib import PurePosixPath
 
 from . import shellparse
@@ -31,10 +32,17 @@ REGISTRY = {"pypi": "PyPI", "npm": "npm", "crates": "crates.io"}
 INSTALLERS = {("pip", "install"): "pypi", ("pip3", "install"): "pypi", ("uv", "add"): "pypi", ("poetry", "add"): "pypi",
               ("pipx", "install"): "pypi", ("npm", "install"): "npm", ("npm", "i"): "npm", ("npm", "add"): "npm",
               ("pnpm", "add"): "npm", ("yarn", "add"): "npm", ("bun", "add"): "npm", ("cargo", "add"): "crates"}
-TAKES_A_VALUE = {"-r", "--requirement", "-e", "--editable", "-c", "--constraint", "-i", "--index-url",
-                 "--extra-index-url", "-f", "--find-links", "-t", "--target", "--group", "--optional", "-F",
-                 "--features", "--version", "--git", "--branch", "--tag", "--rev", "--registry", "--path", "--python",
-                 "-p", "--with", "--package", "--manifest-path", "--filter"}
+# Per ecosystem: the same flag can differ (--optional takes a value in uv, not in cargo or npm), and taking a package
+# name as a flag's value would hide it from the check.
+TAKES_A_VALUE = {
+    "pypi": {"-r", "--requirement", "-e", "--editable", "-c", "--constraint", "-i", "--index-url", "--index",
+             "--default-index", "--extra-index-url", "-f", "--find-links", "-t", "--target", "--group", "--optional",
+             "-p", "--python", "--with", "--package", "--rev", "--tag", "--branch", "--path", "--directory",
+             "--project", "--source", "--extras", "-E"},
+    "npm": {"--registry", "--prefix", "-C", "--tag", "-w", "--workspace", "--filter", "--cache"},
+    "crates": {"-F", "--features", "--git", "--branch", "--tag", "--rev", "--path", "--registry", "--rename",
+               "-p", "--package", "--manifest-path", "--vers"},
+}
 
 
 class NotFound(Exception):
@@ -89,24 +97,40 @@ def _is_local(eco: str, spec: str) -> bool:
     return "/" in spec and not (eco == "npm" and spec.startswith("@"))
 
 
+def _installer(cmd: list[str]) -> tuple[str, list[str]] | None:
+    """(ecosystem, what follows the install subcommand), if this command installs. Global options can come first
+    (`pip --isolated install x`), so the subcommand is looked for, not assumed to be the second word."""
+    if cmd[0].startswith("python") and "-m" in cmd[:-1] and cmd[cmd.index("-m") + 1] == "pip":
+        cmd = ["pip", *cmd[cmd.index("-m") + 2:]]
+    for i, word in enumerate(cmd[1:], 1):
+        if cmd[0] == "uv" and word == "pip":
+            return _installer(["pip", *cmd[i + 1:]])
+        if (cmd[0], word) in INSTALLERS:
+            return INSTALLERS[(cmd[0], word)], cmd[i + 1:]
+    return None
+
+
+def _spec(spec: str) -> str:
+    """What an npm alias really installs: react@npm:other@1 is `other`."""
+    return spec.split("npm:", 1)[1] if "@npm:" in spec or spec.startswith("npm:") else spec
+
+
 def installs(command: str) -> list[tuple[str, str]]:
     """The (ecosystem, name) pairs a shell command would install from a public registry, in every part of it."""
     found = []
     for cmd in shellparse.simple_commands(command):
-        if cmd[0].startswith("python") and cmd[1:3] == ["-m", "pip"]:
-            cmd = ["pip", *cmd[3:]]
-        elif cmd[:2] == ["uv", "pip"]:
-            cmd = ["pip", *cmd[2:]]
-        eco = INSTALLERS.get(tuple(cmd[:2]))
-        if eco is None:
+        match = _installer(cmd)
+        if match is None:
             continue
-        args, i = cmd[2:], 0
+        eco, args = match
+        i = 0
         while i < len(args):
             arg = args[i]
             if arg.startswith("-"):
-                i += 2 if arg in TAKES_A_VALUE else 1
+                i += 2 if arg in TAKES_A_VALUE[eco] else 1
                 continue
-            if not _is_local(eco, arg) and (name := _name(eco, arg)):
+            spec = _spec(arg) if eco == "npm" else arg
+            if not _is_local(eco, spec) and (name := _name(eco, spec)):
                 found.append((eco, _normalize(eco, name)))
             i += 1
     return list(dict.fromkeys(found))
@@ -118,7 +142,7 @@ def _python_deps(text: str) -> list[str]:
     specs = list(project.get("dependencies", []))
     for group in (*project.get("optional-dependencies", {}).values(), *data.get("dependency-groups", {}).values()):
         specs += [s for s in group if isinstance(s, str)]
-    names = [_name("pypi", s) for s in specs]
+    names = [_name("pypi", s) for s in specs if "://" not in s]  # `x @ https://...` isn't from the registry
     poetry = data.get("tool", {}).get("poetry", {})
     for table in (poetry.get("dependencies", {}), *[g.get("dependencies", {}) for g in poetry.get("group", {}).values()]):
         names += [n for n in table if n != "python"]
@@ -134,8 +158,12 @@ def _npm_deps(text: str) -> list[str]:
     data = json.loads(text)
     names = []
     for key in ("dependencies", "devDependencies", "peerDependencies", "optionalDependencies"):
-        names += [n for n, v in data.get(key, {}).items()
-                  if not str(v).startswith(("file:", "link:", "workspace:", "git", "http"))]
+        for name, value in data.get(key, {}).items():
+            value = str(value)
+            if value.startswith("npm:"):  # an alias: the key is a local name, the value says what's installed
+                names.append(_name("npm", _spec(value)))
+            elif "/" not in value and not value.startswith(("file:", "link:", "workspace:", "git", "http")):
+                names.append(name)
     return names
 
 
@@ -214,8 +242,8 @@ def lookup(eco: str, name: str, http=None, now: float | None = None) -> Info:
         info = _parse(eco, name, (http or _get)(_url(eco, name), TIMEOUT))
     except NotFound:
         info = Info(eco, name, False, None, None)
-    except (OSError, ValueError, KeyError, TypeError):
-        info = Info(eco, name, None, None, None)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, HTTPException):
+        info = Info(eco, name, None, None, None)  # advisory: a bad answer is "couldn't check", never a failed call
     with _lock:
         CACHE[(eco, name)] = (info, now + (RETRY_AFTER if info.found is None else CACHE_FOR))
     return info

@@ -88,6 +88,17 @@ def check(pairs, http=..., now=...) -> list[dict]                         # [{ec
     caution (2.2).
   - About 40 lines in total.
 
+### Hardening from code review (PR #42)
+
+- **Option tables are per ecosystem:** `--optional` takes a value in uv but not in cargo or npm, and `-f` and `-r` mean
+  different things across installers. Taking a package name as a flag's value would hide it from the check.
+- **The install subcommand is found, not assumed to be the second word,** so global options don't hide it
+  (`pip --isolated install x`, `uv --directory sub add x`, `npm --prefix web install x`).
+- **npm aliases are unwrapped,** on the command line and in `package.json`: `react@npm:other@1` installs `other`, and
+  changing an alias's target counts as adding a package even though the key stays the same.
+- **Everything a lookup can raise stays inside it:** a truncated body or malformed JSON is "couldn't check".
+- **`approval_view` runs in a worker thread** from the session endpoint, because it can wait on the network.
+
 ## Error handling
 
 | Situation | Behaviour |

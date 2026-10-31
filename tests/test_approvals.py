@@ -300,3 +300,18 @@ def test_the_check_can_be_turned_off(cfg, store, repo, monkeypatch):
     sess = store.create_session(str(repo), "main")
     tool = next(e for e in agent.chat(sess.id, "add") if e["type"] == "approval_needed")["tools"][0]
     assert tool["warnings"] == [] and calls == []
+
+
+def test_a_slow_registry_doesnt_block_the_server(cfg, store, repo, monkeypatch):
+    import threading
+
+    agent = Agent(cfg, store, llm=FakeLLM([[tool_use("t1", "run_command", command="uv add foo")]]))
+    sess = store.create_session(str(repo), "main")
+    list(agent.chat(sess.id, "add"))
+    client = TestClient(create_app(cfg, store, agent))
+    threads = []
+    real = agent.approval_view
+    monkeypatch.setattr(agent, "approval_view", lambda *a: threads.append(threading.current_thread()) or real(*a))
+    with client:  # the event loop runs on the portal's thread; lookups must not
+        assert client.get(f"/api/sessions/{sess.id}").json()["pending"]
+    assert "worker" in threads[0].name.lower(), threads[0].name
