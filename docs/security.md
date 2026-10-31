@@ -136,6 +136,29 @@ contain instructions aimed at the model. Mitigations:
 - Skills, steering docs and instruction files are trusted input, so install third-party skills only after
   reading them. A steering doc's `#[[file:...]]` references can include only files inside the workspace.
 
+**External content.** An injection needs a way to act and a way out. So once a session has read content from outside
+the machine (`web_fetch`, `web_search`, `library_docs`, CloudWatch logs, GitHub reads, an image by URL), the chat
+header shows an **external content** chip and, for the rest of the session:
+- "always allow" rules are paused, and no new ones are offered;
+- every command, GitHub write and fetch asks, saying why;
+- `web_search`, `library_docs`, `gh search`, `gh api` and images by URL, which normally don't ask, now do, because the
+  query or URL itself can carry data out. The `explore` sub-agent can't ask, so it is refused them;
+- the assistant is told, with the content itself, to treat it as data and not to follow instructions in it.
+
+The workspace's own test command and analysers still run under the auto-run switch, because the model doesn't choose
+what they run. If it passes arguments to the tests, that asks too: pytest runs whatever file it's pointed at.
+Compaction doesn't end this: the content may still steer the model. A new session does, and so does
+**Clear…** on the chip, which is for when you've checked what was read.
+
+This limits what an injection can do without you. It doesn't detect injections, and it doesn't cover content already
+in the workspace, such as a README in a repo you cloned: counting that would mark every session, and the mark would
+mean nothing. Approved commands still run as you.
+
+**Destructive commands** (recursive `rm`, `git push --force`, `git reset --hard`, `terraform destroy`, `kubectl delete`,
+a download piped to a shell, and so on) get a red warning naming what they do, in every part of a chained command.
+"Always allow" never covers them, even with a rule saved earlier. The check reads the command text, so it can't see
+what a script does.
+
 ## Benchmark runs
 
 `codepilot bench` auto-approves tests and a short allowlist of read/test commands, and auto-applies edits,

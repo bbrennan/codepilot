@@ -332,3 +332,65 @@ def test_verification_can_be_switched_off(cfg, store, repo):
     sess = store.create_session(str(repo), "main", auto_approve=True)
     assert "verification" not in types(agent.chat(sess.id, "fix"))
     assert "verify_changes" not in agent.tools
+
+
+# -- external content (taint) -------------------------------------------------------------------------------------
+
+def _docs_agent(cfg, store, script):
+    agent = Agent(cfg, store, llm=FakeLLM(script))
+    agent.tools["library_docs"].fn = lambda ctx, library, question: "docs text"  # no network in tests
+    return agent
+
+
+def _taint(store, sid):
+    return (store.get_session(sid).context_state or {}).get("taint", [])
+
+
+def test_reading_external_content_marks_the_session_once_per_source(cfg, store, repo):
+    agent = _docs_agent(cfg, store, [
+        [tool_use("t1", "library_docs", library="fastapi", question="a")],
+        [tool_use("t2", "library_docs", library="fastapi", question="b")],
+        [tool_use("t3", "library_docs", library="boto3", question="c")], [{"text": "done"}]])
+    sess = store.create_session(str(repo), "main")
+    events = list(agent.chat(sess.id, "look it up"))
+    for _ in range(2):  # once the session is tainted, further lookups ask
+        events += list(agent.resume(sess.id, True))
+    marks = [e for e in events if e["type"] == "taint"]
+    assert [[s["detail"] for s in e["sources"]] for e in marks] == [["docs fastapi"], ["docs fastapi", "docs boto3"]]
+    assert [s["detail"] for s in _taint(store, sess.id)] == ["docs fastapi", "docs boto3"]
+
+
+def test_workspace_reads_leave_the_session_clean(cfg, store, repo):
+    agent = Agent(cfg, store, llm=FakeLLM([[tool_use("t1", "read_file", path="agent/core.py")], [{"text": "ok"}]]))
+    sess = store.create_session(str(repo), "main")
+    assert "taint" not in types(agent.chat(sess.id, "read it")) and _taint(store, sess.id) == []
+
+
+def test_the_explore_sub_agent_can_taint_the_session(cfg, store, repo):
+    agent = _docs_agent(cfg, store, [
+        [tool_use("e1", "explore", task="find docs")],
+        [tool_use("d1", "library_docs", library="fastapi", question="q")], [{"text": "report"}],  # the sub-agent
+        [{"text": "done"}]])
+    sess = store.create_session(str(repo), "main")
+    assert "taint" in types(agent.chat(sess.id, "explore it"))
+    assert _taint(store, sess.id)[0]["detail"] == "docs fastapi"
+
+
+def test_taint_survives_later_turns_a_restart_and_compaction_but_not_a_new_session(cfg, store, repo):
+    from codepilot.store import Store
+    agent = _docs_agent(cfg, store, [
+        [tool_use("t1", "library_docs", library="fastapi", question="a")], [{"text": "one"}], [{"text": "two"}]])
+    sess = store.create_session(str(repo), "main")
+    list(agent.chat(sess.id, "look it up"))
+    list(agent.chat(sess.id, "thanks"))
+    list(agent.compact(sess.id))
+    assert [s["detail"] for s in _taint(Store(cfg.home), sess.id)] == ["docs fastapi"]
+    assert _taint(store, agent.handoff(sess.id)) == []
+
+
+def test_the_source_list_is_capped(cfg, store, repo):
+    agent = Agent(cfg, store, llm=FakeLLM([]))
+    sess = store.create_session(str(repo), "main")
+    for i in range(30):
+        list(agent._note_taint(sess.id, {"name": "library_docs", "input": {"library": f"lib{i}"}}, False))
+    assert len(_taint(store, sess.id)) == 20
