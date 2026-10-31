@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import base64
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 
 from .bedrock import BedrockError
@@ -62,9 +62,10 @@ class OpenAIAPI:
             for chunk in self.client.chat.completions.create(**req):
                 if chunk.usage:
                     details = getattr(chunk.usage, "prompt_tokens_details", None)
-                    usage = {"inputTokens": chunk.usage.prompt_tokens or 0,
+                    cached = getattr(details, "cached_tokens", 0) or 0  # a part of prompt_tokens, unlike other providers
+                    usage = {"inputTokens": (chunk.usage.prompt_tokens or 0) - cached,
                              "outputTokens": chunk.usage.completion_tokens or 0,
-                             "cacheReadInputTokens": getattr(details, "cached_tokens", 0) or 0}
+                             "cacheReadInputTokens": cached}
                 for choice in chunk.choices or []:
                     delta = choice.delta
                     if delta and delta.content:
@@ -107,12 +108,15 @@ class OpenAIAPI:
         stop = "tool_use" if calls else ("max_tokens" if finish == "length" else "end_turn")
         yield {"type": "message", "content": content, "stop_reason": stop, "usage": usage}
 
-    def complete(self, model: str, system: str, prompt: str, max_tokens: int = 4000) -> str:
+    def complete(self, model: str, system: str, prompt: str, max_tokens: int = 4000,
+                 on_usage: Callable[[dict], None] | None = None) -> str:
         out = ""
         for event in self.stream(model, [{"text": system}], [{"role": "user", "content": [{"text": prompt}]}],
                                  None, max_tokens):
             if event["type"] == "message":
                 out = "".join(b["text"] for b in event["content"] if "text" in b)
+                if on_usage and event.get("usage"):
+                    on_usage(event["usage"])
         return out.strip()
 
     def list_models(self) -> list[str]:

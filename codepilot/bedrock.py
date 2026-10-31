@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 
 from .config import Config
@@ -123,13 +123,16 @@ class Bedrock:
                 self._cache_enabled = False
         return self.client.converse_stream(**self._request(model, system, messages, tools, max_tokens, False))
 
-    def complete(self, model: str, system: str, prompt: str, max_tokens: int = 4000) -> str:
+    def complete(self, model: str, system: str, prompt: str, max_tokens: int = 4000,
+                 on_usage: Callable[[dict], None] | None = None) -> str:
         """One-shot text completion (used for summaries and doctor checks)."""
         parts = []
         for event in self.stream(model, [{"text": system}], [{"role": "user", "content": [{"text": prompt}]}],
                                  None, max_tokens):
             if event["type"] == "message":
                 parts = [b["text"] for b in event["content"] if "text" in b]
+                if on_usage and event.get("usage"):
+                    on_usage(event["usage"])
         return "".join(parts).strip()
 
 

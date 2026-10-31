@@ -106,6 +106,8 @@ tiers and the default repo, for compatibility with an older internal tool.
 | `CODEPILOT_AUTO_APPROVE_TESTS` | `0` | Run tests and analyser checks without asking (other commands always ask) |
 | `CODEPILOT_AUTO_APPLY` | `0` | Write proposed edits immediately; each can still be undone |
 | `CODEPILOT_VERIFY` | `1` | Verification receipts: test pending changes on a copy of the workspace before review (the **Verify** button, the `verify_changes` tool, and an automatic run when auto-run tests is on). `0` turns it all off |
+| `CODEPILOT_PRICES` | `~/.codepilot/prices.toml` | Per-million-token prices for the cost meter, in the benchmark's format (copy `bench/prices.example.toml`). Read on each use, so edits apply straight away |
+| `CODEPILOT_DAILY_BUDGET` | none | Daily spending cap in USD, across all sessions. A notice comes at 80%. At the cap, the turn stops before its next model call, and **Continue anyway today** lifts it until midnight |
 | `CODEPILOT_DEPS_CHECK` | `1` | Package guard: look up packages a command installs or a change adds on PyPI, npm or crates.io. Only the package name is sent. `0` turns it off |
 | `CODEPILOT_VERIFY_TIMEOUT` | `600` | Seconds a verification may take in total (tests plus analysers) |
 | `CODEPILOT_TERMINAL` | `1` | Enable terminals (local shells; see [security.md](security.md#the-terminal)) |
@@ -132,6 +134,8 @@ tiers and the default repo, for compatibility with an older internal tool.
 | `~/Applications/Codepilot.app` | The macOS launcher written by `codepilot app` |
 | `~/.codepilot/notes/<folder>-<hash>.md` | Per-workspace notes |
 | `~/.codepilot/scratch/<session>/` | The assistant's throwaway repro scripts |
+| `~/.codepilot/prices.toml` | Your per-token prices for the cost meter (optional) |
+| `~/.codepilot/budget.json` | Today's daily-budget state: whether it warned, and whether you lifted it |
 | `~/.codepilot/verify/<session>/` | Temporary copies of the workspace while pending changes are verified (removed afterwards, and at start) |
 | `~/.codepilot/images/` | Copies of images in conversations, for display (safe to delete) |
 | `~/.codepilot/trash/` | Files and folders you deleted from the Explorer (restorable; delete old ones by hand) |

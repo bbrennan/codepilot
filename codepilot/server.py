@@ -400,7 +400,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             "auto_apply": bool((sess.context_state or {}).get("auto_apply")) or cfg.auto_apply_edits,
             "spec": (sess.context_state or {}).get("spec"),
             "proposals": [_proposal_json(p, root) for p in store.list_proposals(sid)],
-            "usage": store.usage(sid),
+            "usage": agent.spend.view(sid),
             "context": agent.context_usage(sid),
             "receipt": store.latest_receipt(sid),
         })
@@ -462,6 +462,8 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         with busy_lock:
             if sid in busy:
                 return err("This session is busy; wait for it to finish.", 409)
+        if agent.spend.capped():  # the summary it needs is a model call, and without one the session's work is lost
+            return err("The daily budget is reached. Press Compact now to lift it, then carry the session over.", 409)
         try:
             new_id = await run_in_threadpool(agent.handoff, sid)
         except KeyError:
@@ -622,7 +624,14 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                              "outdated": [_proposal_json(store.get_proposal(i), root) for i in retired]})
 
     async def usage(request: Request) -> Response:
-        return JSONResponse(store.usage(request.path_params["sid"]))
+        return JSONResponse(agent.spend.view(request.path_params["sid"]))
+
+    async def turn_costs(request: Request) -> Response:
+        return JSONResponse({"turns": agent.spend.turns(request.path_params["sid"])})
+
+    async def budget_override(request: Request) -> Response:
+        agent.spend.override_today()
+        return JSONResponse({"ok": True})
 
     async def workspace_info(request: Request) -> Response:
         sess = store.get_session(request.path_params["sid"])
@@ -1103,6 +1112,8 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         Route("/api/sessions/{sid}/handoff", handoff, methods=["POST"]),
         Route("/api/sessions/{sid}/grep", needs_workspace(grep)),
         Route("/api/sessions/{sid}/usage", usage),
+        Route("/api/sessions/{sid}/turn-costs", turn_costs),
+        Route("/api/budget/override", budget_override, methods=["POST"]),
         Route("/api/sessions/{sid}/workspace", needs_workspace(workspace_info)),
         Route("/api/sessions/{sid}/traces", needs_workspace(trace_list)),
         Route("/api/sessions/{sid}/trace", needs_workspace(trace_view)),

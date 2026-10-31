@@ -68,7 +68,7 @@ def test_compaction_eval_scores_facts(cfg, tmp_path):
         def stream(self, *a, **k):
             raise AssertionError("compaction must not call the main model")
 
-        def complete(self, model, system, prompt, max_tokens=4000):
+        def complete(self, model, system, prompt, max_tokens=4000, on_usage=None):
             self.prompts.append(prompt)
             # Keeps some facts, drops others, so scoring is exercised both ways.
             return ("## Goal\nFix EUR rounding (CP-4821) without changing the public API.\n"

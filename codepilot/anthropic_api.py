@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import base64
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 
 from .bedrock import BedrockError
@@ -175,12 +175,15 @@ class AnthropicAPI:
                  "cacheWriteInputTokens": getattr(u, "cache_creation_input_tokens", 0) or 0}
         yield {"type": "message", "content": content, "stop_reason": stop, "usage": usage}
 
-    def complete(self, model: str, system: str, prompt: str, max_tokens: int = 4000) -> str:
+    def complete(self, model: str, system: str, prompt: str, max_tokens: int = 4000,
+                 on_usage: Callable[[dict], None] | None = None) -> str:
         out = ""
         for event in self.stream(model, [{"text": system}], [{"role": "user", "content": [{"text": prompt}]}],
                                  None, max_tokens):
             if event["type"] == "message":
                 out = "".join(b["text"] for b in event["content"] if "text" in b)
+                if on_usage and event.get("usage"):
+                    on_usage(event["usage"])
         return out.strip()
 
     def list_models(self) -> list[str]:
