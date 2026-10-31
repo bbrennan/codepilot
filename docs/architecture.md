@@ -107,5 +107,5 @@ failing.
 
 `static/index.html` is the layout. `app.css` holds the theme tokens, with dark and light variants.
 `app.js` is plain DOM with no framework or build step. A feature with its own UI gets its own classic script
-(`checkpoints.js`, `verify.js`, `plan.js`, `policy.js`, `deps.js`, `cost.js`), loaded after `app.js` and using its helpers, so `app.js` only wires it in. It vendors highlight.js (BSD-3) for highlighting and
+(`checkpoints.js`, `verify.js`, `plan.js`, `policy.js`, `deps.js`, `cost.js`, `specs-quick.js`), loaded after `app.js` and using its helpers, so `app.js` only wires it in. It vendors highlight.js (BSD-3) for highlighting and
 xterm.js (MIT) for the terminal; see [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
