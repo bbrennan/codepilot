@@ -80,6 +80,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
     agent = agent or Agent(cfg, store)
     busy: set[str] = set()
     busy_lock = threading.Lock()
+    applying: set[int] = set()  # proposals being applied right now (only touched on the event loop)
     term_token = secrets.token_urlsafe(32)  # new every launch; embedded in the page, required by terminal routes
     from .terminal import TerminalManager
 
@@ -612,13 +613,21 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             return JSONResponse(_proposal_json(store.get_proposal(pid), root))
         if action != "apply":
             return err("action must be apply, reject or revert", 404)
+        # Claimed before the first await, so a second Apply (a double-click, a held key, another tab) can't write it
+        # again while this one is still writing or checking: it isn't recorded as applied until both are done.
+        if pid in applying:
+            return err(f"Change #{pid} is already being applied.", 409)
+        applying.add(pid)
         try:
-            before, after = apply_proposal(root, prop)
-        except (ToolError, OSError) as exc:
-            store.set_proposal_status(pid, "failed")
-            return err(str(exc), 409)
-        found = await run_in_threadpool(checks.quick_check, root, prop.path)
-        store.record_applied(pid, before, after, found)
+            try:
+                before, after = await run_in_threadpool(apply_proposal, root, prop)
+            except (ToolError, OSError) as exc:
+                store.set_proposal_status(pid, "failed")
+                return err(str(exc), 409)
+            found = await run_in_threadpool(checks.quick_check, root, prop.path)
+            store.record_applied(pid, before, after, found)
+        finally:
+            applying.discard(pid)
         retired = retire_stale_proposals(store, prop.session_id, root)  # e.g. an older version of this change
         return JSONResponse({**_proposal_json(store.get_proposal(pid), root), "checks": found,
                              "outdated": [_proposal_json(store.get_proposal(i), root) for i in retired]})

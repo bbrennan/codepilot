@@ -868,9 +868,18 @@ function decideApproval(approve) {
   if (row) { row.classList.remove("waiting"); row.classList.add(approve ? "approved" : "denied"); row.innerHTML = `${icon(approve ? "check" : "x")}<span>${approve ? "Approved" : "Denied"}: ${tools.map((t) => `<code>${esc(t.command)}</code>`).join(", ")}${remember ? ` · always allowed <code>${esc(tools[0].allow.prefix)}</code> this session` : ""}</span>`; }
   streamTo(state.sid, `/api/sessions/${state.sid}/approve`, { approve, remember });
 }
+// Changes with a request on its way. A second click, a held key or Apply all must not send another: the first may
+// still be writing the file. null means "already on its way", so the caller does nothing.
+const proposalsInFlight = new Set();
+async function proposalRequest(id, action) {
+  if (proposalsInFlight.has(+id)) return null;
+  proposalsInFlight.add(+id);
+  try { return await api(`/api/proposals/${id}/${action}`, { method: "POST" }); } finally { proposalsInFlight.delete(+id); }
+}
 async function proposalAction(p, action) {
   try {
-    const r = await api(`/api/proposals/${p.id}/${action}`, { method: "POST" }); state.proposals.set(r.id, r);
+    const r = await proposalRequest(p.id, action); if (!r) return false;
+    state.proposals.set(r.id, r);
     for (const o of r.outdated || []) { state.proposals.set(o.id, o); refreshProposalViews(o.id); }
     if (action === "apply" && r.checks) activity("error", "checks", r.path, r.checks);
     return true;
@@ -1015,7 +1024,9 @@ document.addEventListener("click", async (e) => {
   const id = ap.dataset.apply || ap.dataset.reject || ap.dataset.revert;
   const action = ap.dataset.apply ? "apply" : ap.dataset.reject ? "reject" : "revert";
   try {
-    const p = await api(`/api/proposals/${id}/${action}`, { method: "POST" }); state.proposals.set(p.id, p);
+    ap.disabled = true;
+    const p = await proposalRequest(id, action); if (!p) return;
+    state.proposals.set(p.id, p);
     for (const o of p.outdated || []) { state.proposals.set(o.id, o); refreshProposalViews(o.id); } // older versions of it
     toast({ apply: `Applied #${p.id} to ${p.path}`, reject: `Rejected #${p.id}`, revert: `Undid #${p.id}; ${p.path} restored` }[action]);
     if (action === "apply" && p.checks) { toast(`Checks found issues in ${p.path}; codepilot will see them next turn`, true); activity("error", "checks", p.path, p.checks); }

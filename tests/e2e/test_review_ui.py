@@ -144,3 +144,19 @@ def test_a_change_made_stale_elsewhere_stops_waiting(page, server, session):
     page.reload()
     page.locator("#transcript .card.prop .status.outdated").wait_for()
     assert page.locator("#reviewBar").is_hidden()
+
+
+def test_a_double_click_on_apply_sends_one_request(page, server, session):
+    open_app(page)
+    send(page, "fix the add bug")
+    wait_idle(page)
+    held = []
+    page.route("**/api/proposals/*/apply", lambda route: held.append(route))  # the first click is still on its way
+    button = page.locator("#transcript [data-apply]").first
+    button.click()
+    button.click(force=True)
+    page.wait_for_timeout(300)
+    assert len(held) == 1
+    held[0].continue_()
+    page.locator("#transcript .card.prop .status.applied").wait_for()
+    assert (server.repo / "agent/core.py").read_text().count("a + b") == 1
