@@ -36,3 +36,33 @@ def test_settings_are_switches_that_click_and_keyboard_both_toggle(page, server,
     switch.focus()
     page.keyboard.press("Space")
     assert not switch.is_checked()
+
+
+def test_small_dropdowns_leave_room_for_their_chevron(page, server, session):
+    open_app(page)
+    for sel in ("#modeSelect", "#tier"):
+        pad = page.locator(sel).evaluate("(el) => parseFloat(getComputedStyle(el).paddingRight)")
+        assert pad >= 20, f"{sel}: {pad}px leaves the label running under the chevron"
+
+
+def test_the_open_folder_switch_is_a_switch_too(page, server, session):
+    open_app(page)
+    page.click("#openFolderBtn")
+    hidden = page.locator("#fdHidden")
+    hidden.wait_for()
+    look = hidden.evaluate(LOOK)
+    pad = hidden.evaluate("(el) => getComputedStyle(el).paddingLeft")
+    assert look["appearance"] == "none" and round(look["width"]) == 26 and round(look["height"]) == 14, look
+    assert pad == "0px"
+
+
+def test_keyboard_focus_shows_on_a_switch_that_is_on(page, server, session):
+    open_app(page)
+    switch = page.locator("#autoApprove")
+    page.locator("label.toggle", has=switch).click()
+    page.wait_for_function(f"() => getComputedStyle(document.querySelector('#autoApprove')).backgroundColor === ({ACCENT})()")
+    page.keyboard.press("Tab")
+    switch.evaluate("(el) => el.focus()")
+    ring = switch.evaluate("""(el) => { const cs = getComputedStyle(el);
+      return { style: cs.outlineStyle, offset: parseFloat(cs.outlineOffset), color: cs.outlineColor, bg: cs.backgroundColor }; }""")
+    assert ring["style"] != "none" and (ring["offset"] >= 0 or ring["color"] != ring["bg"]), ring
