@@ -402,3 +402,37 @@ def test_leftover_verification_copies_are_removed_at_start(cfg, store):
     (leftover / "big.bin").write_bytes(b"x" * 10)
     with TestClient(create_app(cfg, store, Agent(cfg, store, llm=FakeLLM([])))):
         assert not (cfg.home / "verify").exists()
+
+
+def test_two_applies_of_one_change_at_once_write_it_once(cfg, store, repo, monkeypatch):
+    """A double-click, a held key or two tabs: the second Apply arrives while the first is still running its checks."""
+    from codepilot import checks, tools
+    root = repo.resolve()
+    sess = store.create_session(str(root), "main")
+    ctx = tools.ToolContext(root=root, cfg=cfg, store=store, session_id=sess.id)
+    # The new text keeps the old, so applying it twice would insert the import twice.
+    tools.propose_edit(ctx, "agent/core.py", "def add(a, b):", "import math\n\n\ndef add(a, b):")
+    pid = store.list_proposals(sess.id)[-1].id
+    entered, release, seen = threading.Event(), threading.Event(), []
+    real = checks.quick_check
+
+    def held_first(root_, path):  # the first apply waits here, with its write done and not yet recorded
+        seen.append(path)
+        if len(seen) == 1:
+            entered.set()
+            release.wait(5)
+        return real(root_, path)
+
+    monkeypatch.setattr(checks, "quick_check", held_first)
+    client = TestClient(create_app(replace(cfg, terminal=False), store, Agent(cfg, store, llm=FakeLLM([]))))
+    codes = []
+    first = threading.Thread(target=lambda: codes.append(client.post(f"/api/proposals/{pid}/apply", headers=H)
+                                                         .status_code))
+    first.start()
+    assert entered.wait(5)
+    second = client.post(f"/api/proposals/{pid}/apply", headers=H)
+    release.set()
+    first.join(5)
+    assert (root / "agent" / "core.py").read_text().count("import math") == 1
+    assert codes == [200] and second.status_code == 409 and "already" in second.json()["error"]
+    assert store.get_proposal(pid).status == "applied"
