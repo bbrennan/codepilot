@@ -309,8 +309,24 @@ def load_skill(ctx: ToolContext, name: str) -> str:
     return skill.body
 
 
+def _gh_argv(args: str) -> list[str]:
+    try:
+        return shlex.split(args.removeprefix("gh ").strip())
+    except ValueError as exc:
+        raise ToolError(f"args isn't valid shell syntax ({exc}); check the quoting, e.g. --body 'it'\"'\"'s fine' "
+                        "or --body \"it's fine\"") from None
+
+
+def _gh_writes(tool_input: dict, _root: Path | None) -> bool:
+    """A write needs approval. Arguments that can't be parsed can't run either: the call fails and the model is told."""
+    try:
+        return github.classify(_gh_argv(str(tool_input.get("args", "")))) == "write"
+    except ToolError:
+        return False
+
+
 def github_cli(ctx: ToolContext, args: str) -> str:
-    argv = shlex.split(args.removeprefix("gh ").strip())
+    argv = _gh_argv(args)
     kind = github.classify(argv)
     if kind is None:
         raise ToolError("not an allowed gh command. Read: pr list/view/diff/checks, issue list/view, run list/view "
@@ -865,9 +881,7 @@ def build_tools(cfg: Config) -> list[Tool]:
             "for compact output. Writes (pr create/comment/review, issue create/comment, run rerun, api writes) "
             "need the user's approval; draft the text carefully.",
             _obj({"args": {**s, "description": "Arguments after 'gh', e.g. 'pr view 12 --json title,body,files'"}},
-                 ["args"]), github_cli, needs_workspace=False,
-            approval_fn=lambda inp, _root: github.classify(shlex.split(str(inp.get("args", "")).removeprefix("gh ")))
-            == "write"))
+                 ["args"]), github_cli, needs_workspace=False, approval_fn=_gh_writes))
     if cfg.log_groups:
         tools.append(Tool(
             "cloudwatch_logs", "Search CloudWatch Logs (read-only). Allowed groups: " + ", ".join(cfg.log_groups)
