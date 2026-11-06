@@ -213,7 +213,8 @@ async function restartServer() {
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) fetch("/api/config", { cache: "no-store" }).then((r) => r.json()).then(showStaleBanner).catch(() => {});
 });
-const shortModel = (m) => String(m).replace(/^(us|eu|apac|global)\.anthropic\./, "").replace(/-\d{8}-v\d+:\d+$/, "");
+// A model id without its region, provider prefix (Bedrock base ids too) and date/version suffix.
+const shortModel = (m) => String(m).replace(/^((us|eu|apac|global)\.)?anthropic\./, "").replace(/-\d{8}-v\d+:\d+$/, "");
 
 // ---------------------------------------------------------------- sessions
 async function loadSessions() {
@@ -1680,7 +1681,8 @@ async function loadModels(refresh) {
   if (d) {
     state.modelsData = d;
     const fb = Object.entries(d.tiers || {}).filter(([, t]) => t.fallback);
-    if (fb.length && refresh !== null) toast(`${fb.map(([k, t]) => `${k}: ${shortModel(t.configured)} not enabled, using ${shortModel(t.model)}`).join("; ")}`);
+    // Only when you asked: on every page load it repeated what the picker shows ("(fallback)") over the bottom panel.
+    if (fb.length && refresh) toast(`${fb.map(([k, t]) => `${k}: ${shortModel(t.configured)} not enabled, using ${shortModel(t.model)}`).join("; ")}`);
     else if (refresh) toast(`Found ${(d.models || []).filter((m) => m.available && !m.same_as).length} models on your account. Tiers use the newest of each family.`);
   }
   renderModelSelect();

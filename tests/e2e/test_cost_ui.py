@@ -35,7 +35,7 @@ def test_the_status_bar_and_memory_show_dollars(page, server, session):
     assert "tokens · $" in bar.text_content()
     tip = bar.get_attribute("title")
     assert "claude-sonnet-5-5" in tip and "Today: $" in tip
-    assert "· $" in page.locator(".act", has_text="anthropic.claude-sonnet-5-5").first.text_content()
+    assert "· $" in page.locator(".act", has_text="claude-sonnet-5-5").first.text_content()
     page.click("[data-view=memory]")
     table = page.locator("#usageTable")
     table.locator("text=Today").wait_for()
@@ -130,7 +130,7 @@ def test_a_missing_price_shows_as_unknown_everywhere(page, server, session):
     open_app(page)
     send(page, "hello")
     page.wait_for_function("() => document.querySelector('#sbTokens').textContent.includes('$?')")
-    assert "· $?" in page.locator(".act", has_text="anthropic.claude-sonnet-5-5").last.text_content()
+    assert "· $?" in page.locator(".act", has_text="claude-sonnet-5-5").last.text_content()
     page.click("[data-view=memory]")
     table = page.locator("#usageTable")
     table.locator("text=Today").wait_for()
