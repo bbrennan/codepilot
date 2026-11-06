@@ -244,7 +244,9 @@ one is also a single line in the chat; click it to see its diff.
 - **Apply** writes it. codepilot then checks the file's syntax (and runs ruff on Python files, if
   installed) and tells the assistant what it found.
 - **Reject** discards it. The assistant is told on your next message.
-- **Undo** (on applied changes) restores the file exactly, as long as it hasn't changed since. To undo every
+- **Undo** (on applied changes) restores the file exactly, as long as it hasn't changed since.
+- Changes, Undo and the editor's **Save** keep a file's line endings: a Windows-style (`\r\n`) file stays that way, so
+  git shows only the lines that changed. To undo every
   change from one message onwards at once, use ↶ on that message (see [Talking to it](#talking-to-it)).
 
 Changes only wait while they can still be applied. One that can't be applied any more stops waiting, and

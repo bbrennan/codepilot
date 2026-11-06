@@ -26,7 +26,7 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from . import checks, procenv
+from . import checks, procenv, textfile
 from .config import Config
 from .store import Proposal
 from .tools import ToolError, apply_proposal, detect_test_cmd
@@ -119,7 +119,7 @@ def prepared(root: Path, proposals: list[Proposal], workdir: Path, copier=clone_
         for n, p in enumerate(sorted(proposals, key=lambda p: p.id)):
             if p.path not in copy.originals:
                 target = path / p.path
-                copy.originals[p.path] = target.read_text(errors="replace") if target.is_file() else None
+                copy.originals[p.path] = textfile.read(target, errors="replace") if target.is_file() else None
             try:
                 apply_proposal(path, p)
             except (ToolError, OSError):
@@ -285,7 +285,7 @@ def _run_all(root: Path, copy: Copy, cfg: Config, receipt: Receipt, runner, canc
         if text is None:
             target.unlink(missing_ok=True)
         else:
-            target.write_text(text)
+            textfile.write(target, text)
     conclusive = True
     for failing in failed:
         if cancelled() or clock() >= deadline:
