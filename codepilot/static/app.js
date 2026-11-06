@@ -213,7 +213,8 @@ async function restartServer() {
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) fetch("/api/config", { cache: "no-store" }).then((r) => r.json()).then(showStaleBanner).catch(() => {});
 });
-const shortModel = (m) => String(m).replace(/^((us|eu|apac|global)\.)?anthropic\./, "") // Bedrock base ids too.replace(/-\d{8}-v\d+:\d+$/, "");
+// A model id without its region, provider prefix (Bedrock base ids too) and date/version suffix.
+const shortModel = (m) => String(m).replace(/^((us|eu|apac|global)\.)?anthropic\./, "").replace(/-\d{8}-v\d+:\d+$/, "");
 
 // ---------------------------------------------------------------- sessions
 async function loadSessions() {

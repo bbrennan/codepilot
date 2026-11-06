@@ -35,14 +35,17 @@ def test_the_header_shows_the_session_title_and_short_model_names_on_a_narrow_wi
     assert title.evaluate("(el) => el.scrollWidth <= el.clientWidth"), f"title cut: {title.bounding_box()}"
     shown = page.evaluate("() => document.querySelector('#tier').selectedOptions[0].textContent")
     assert "anthropic." not in shown and "sonnet-5-5" in shown  # the model, not its provider's prefix
+    # Every form of a Bedrock id comes out the same: no region, no provider prefix, no date or version suffix.
+    for full in ["anthropic.claude-sonnet-5-5", "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+                 "global.anthropic.claude-opus-5-5"]:
+        assert page.evaluate("(m) => shortModel(m)", full) == full.split("anthropic.")[1].split("-2025")[0]
 
 
 def test_a_page_load_doesnt_toast_what_the_model_picker_already_shows(page, server, session):
     open_app(page)
-    page.wait_for_function("() => document.querySelector('#tier option[value=\"tier:fast\"]')")
-    page.wait_for_timeout(400)
+    # The picker says it once the model list arrives (the same moment the toast used to show): wait for that.
+    page.locator("#tier option[value='tier:fast']", has_text="(fallback)").wait_for(state="attached")
     assert page.locator(".toast", has_text="not enabled").count() == 0  # it covered the bottom panel at every load
-    assert "(fallback)" in page.locator("#tier option[value='tier:fast']").text_content()  # still said where it belongs
     fallback = {**MODELS, "tiers": {"fast": {"model": "anthropic.claude-haiku-4-5", "fallback": True,
                                              "configured": "anthropic.claude-haiku-5-5"}}}
     page.route("**/api/models?refresh=1", lambda route: route.fulfill(status=200, content_type="application/json",
