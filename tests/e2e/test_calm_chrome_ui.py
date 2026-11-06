@@ -24,9 +24,11 @@ def test_the_welcome_page_fits_a_folder_thats_already_open(page, server, session
 
 def test_the_status_bar_is_short_and_calm(page, server, session):
     open_app(page)
-    test_cmd = page.locator("#sbTest")
-    assert len(test_cmd.text_content().strip()) <= 26 and "tests-ran" in (test_cmd.get_attribute("title") or "")
-    github = page.locator("#sbGithub")
+    # Both load on their own after the page: wait for what they say, not just for the (empty) items.
+    test_cmd = page.locator("#sbTest[title*='tests-ran']")
+    test_cmd.wait_for()
+    assert len(test_cmd.text_content().strip()) <= 26
+    github = page.locator("#sbGithub", has_text="github off")
     github.wait_for()
     color = github.evaluate("(el) => getComputedStyle(el.firstElementChild || el).color")
     muted = page.evaluate("() => getComputedStyle(document.querySelector('.statusbar')).color")
