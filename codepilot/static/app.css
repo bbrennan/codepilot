@@ -231,11 +231,19 @@ svg.i { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none;
 kbd { font: var(--fs-sm) var(--mono); padding: 1px 6px; border: 1px solid var(--line-2); border-bottom-width: 2px; border-radius: var(--r-sm); background: var(--bg-3); color: var(--fg-2); }
 
 /* diff */
-.diff { font: var(--fs-ui)/19px var(--mono); padding: 6px 0 24px; min-width: max-content; }
-.diff div { padding: 0 16px; white-space: pre; }
+.diff { font: var(--fs-ui)/19px var(--mono); padding: 4px 0 24px; min-width: max-content; }
+.diff .dl, .diff .hunk { display: flex; white-space: pre; }
+.diff .ln { flex: none; width: 5ch; padding-right: 1ch; text-align: right; color: var(--faint); user-select: none; }
+.diff .sg { flex: none; width: 2.5ch; text-align: center; user-select: none; }
+.diff .code { padding-right: 16px; }
 .diff .a { background: var(--add-bg); color: var(--add-fg); }
 .diff .d { background: var(--del-bg); color: var(--del-fg); }
-.diff .h { color: var(--syn-attr); background: var(--bg-3); }
+.diff .a .ln, .diff .d .ln { color: inherit; opacity: .55; }
+.diff .hunk { color: var(--muted); background: var(--bg-3); }
+.diff .f { padding: 8px 16px 4px; font: 600 var(--fs-ui) var(--sans); color: var(--fg-2); }
+.diff .f:not(:first-child) { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
+.diff .note { padding-left: calc(12.5ch + 8px); color: var(--faint); font-style: italic; }
+.rv-main .crumbs { flex-shrink: 0; max-width: 70%; } /* the file's name, whole: the reason gives way first */
 .status { font-size: var(--fs-sm); padding: 1px 7px; border-radius: var(--r-pill); border: 1px solid var(--line-2); text-transform: lowercase; }
 .status.pending { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
 .status.applied { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
