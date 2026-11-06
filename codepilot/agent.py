@@ -268,7 +268,7 @@ class Agent:
             yield {"type": "notice", "message": "Declined the waiting command; your message goes to codepilot instead."}
             root = self._ctx(sess).root
             extra = yield from self._attachments(session_id, root, text, pasted)
-            yield from self.resume(session_id, approve=False, feedback=text, attachments=extra)
+            yield from self._resume(session_id, approve=False, feedback=text, attachments=extra)
             return
         if tier and tier != sess.tier:
             self.store.update_session(session_id, tier=tier)
@@ -575,11 +575,16 @@ class Agent:
                                   title=f"{(old.title or 'Session')[:60]} (continued)")
         return new.id
 
-    def resume(self, session_id: str, approve: bool, remember: bool = False, feedback: str = "",
-               attachments: list[dict] | None = None) -> Iterator[dict]:
-        """`feedback`: a message written instead of approving, and `attachments`, what it carries."""
-        sess = self.store.get_session(session_id)
+    def resume(self, session_id: str, approve: bool, remember: bool = False) -> Iterator[dict]:
+        """Approve or deny what's waiting (a new action, so an earlier Stop no longer applies)."""
         self._cancelled.discard(session_id)
+        yield from self._resume(session_id, approve, remember)
+
+    def _resume(self, session_id: str, approve: bool, remember: bool = False, feedback: str = "",
+                attachments: list[dict] | None = None) -> Iterator[dict]:
+        """`feedback`: a message written instead of approving, and `attachments`, what it carries. A Stop pressed
+        while that message was being prepared still stops the turn."""
+        sess = self.store.get_session(session_id)
         pending = sess.pending
         if not pending:
             yield {"type": "error", "message": "Nothing is waiting for approval."}

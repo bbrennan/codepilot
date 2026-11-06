@@ -183,3 +183,6 @@ def test_writing_instead_of_approving_keeps_an_attached_screenshot(page, server,
     page.locator("#transcript img[src^='/api/images/']").first.wait_for()  # shown in the chat
     sent = server.llm.calls[-1]["messages"][-1]["content"]
     assert any("image" in b for b in sent) and any("toolResult" in b for b in sent)  # with the decline
+    # And the turn went on: codepilot answered, nothing failed on the way.
+    assert page.locator("#transcript .banner.error").count() == 0
+    assert page.locator(".msg.assistant").last.inner_text().strip() == "Done."

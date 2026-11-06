@@ -554,3 +554,21 @@ def test_declining_an_approval_by_writing_keeps_your_attachments(cfg, store, rep
     assert any("image" in b for b in sent)
     redrawn = types(history_events(store, sess.id))
     assert "attached" in redrawn and "attached_images" in redrawn
+
+
+def test_stop_while_your_message_loads_its_attachments_stops_the_turn(cfg, store, repo, monkeypatch):
+    from codepilot import images
+    llm = FakeLLM([[tool_use("t1", "run_command", command="make deploy")],
+                   [tool_use("t2", "list_files")], [{"text": "carried on"}]])
+    agent = Agent(cfg, store, llm=llm)
+    sess = store.create_session(str(repo), "main")
+    list(agent.chat(sess.id, "deploy it"))  # a command waits for approval
+
+    def slow_link(text, root):  # an image link still downloading when you press Stop
+        agent.cancel(sess.id)
+        return [], []
+
+    monkeypatch.setattr(images, "from_message", slow_link)
+    events = list(agent.chat(sess.id, "no, see https://example.com/shot.png"))
+    assert any(e["type"] == "notice" and e["message"] == "Stopped." for e in events)
+    assert not any(e["type"] == "tool_call" for e in events)  # nothing ran after Stop
