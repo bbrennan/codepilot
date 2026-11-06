@@ -205,7 +205,9 @@ def _is_guarded(tu: dict) -> bool:
         return True
     if tu["name"] == "run_tests":  # arguments are the model's: pytest runs whatever file it's pointed at
         return bool(str(tu["input"].get("args", "")).strip())
-    return tu["name"] == "github" and github.classify(_gh_args(tu)) != "read"
+    # Arguments that can't be parsed can't run (the tool parses them the same way and fails), so the model is told at
+    # once instead of you being asked to approve a call that would only fail.
+    return tu["name"] == "github" and bool(_gh_args(tu)) and github.classify(_gh_args(tu)) != "read"
 
 
 def taint_advisor(tu: dict, view: View) -> Advice | None:

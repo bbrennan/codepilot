@@ -436,15 +436,54 @@ def test_an_unexpected_error_in_a_tool_becomes_its_result(cfg, store, repo):
     assert types(events)[-1] == "done" and _answered(llm.calls[-1]["messages"])
 
 
-def test_a_call_left_unanswered_by_a_crash_or_restart_is_closed_before_the_next_message(cfg, store, repo):
+def _interrupted(store, repo, *follow_ups):
+    """A session as a restart mid-command leaves it: the call stored, its result never, maybe messages after it."""
     sess = store.create_session(str(repo), "main")
     store.add_message(sess.id, "user", [{"text": "run the long build"}])
     store.add_message(sess.id, "assistant", [{"text": "Building."}, tool_use("t1", "run_command", command="make all")])
-    llm = FakeLLM([[{"text": "It didn't finish; shall I run it again?"}]])
+    for text in follow_ups:  # stored before the provider rejected them
+        store.add_message(sess.id, "user", [{"text": text}])
+    return sess
+
+
+def test_a_call_left_unanswered_by_a_restart_gets_a_result_before_the_next_message(cfg, store, repo):
+    sess = _interrupted(store, repo)
+    llm = FakeLLM([[{"text": "It didn't finish; shall I run it again?"}], [{"text": "ok"}]])
     agent = Agent(cfg, store, llm=llm)  # a new process: the turn that made t1 is gone
     events = list(agent.chat(sess.id, "what happened?"))
     sent = llm.calls[0]["messages"]
-    assert _answered(sent) and [m["role"] for m in sent] == ["user", "assistant", "user", "assistant", "user"]
+    assert _answered(sent) and [m["role"] for m in sent] == ["user", "assistant", "user"]
+    assert "toolResult" in sent[2]["content"][0]  # results lead the message, as providers require
+    # The card in the chat stops spinning: it gets its result, once, with one notice.
+    assert [e["id"] for e in events if e["type"] == "tool_result"] == ["t1"]
     assert any(e["type"] == "notice" and "run_command" in e["message"] for e in events)
+    events = list(agent.chat(sess.id, "run it again"))
+    assert not any(e["type"] in ("tool_result", "notice") for e in events) and _answered(llm.calls[1]["messages"])
+
+
+def test_a_session_stuck_with_messages_after_the_unanswered_call_recovers(cfg, store, repo):
+    sess = _interrupted(store, repo, "hello?", "why does every message fail?")
+    llm = FakeLLM([[{"text": "Back now."}]])
+    events = list(Agent(cfg, store, llm=llm).chat(sess.id, "try again"))
+    assert types(events)[-1] == "done" and _answered(llm.calls[0]["messages"])
     redrawn = [e for e in history_events(store, sess.id) if e["type"] == "user"]
-    assert redrawn[-1]["text"] == "what happened?" and "mid" in redrawn[-1]  # still a message you can edit or retry
+    assert "mid" in redrawn[1] and redrawn[1]["text"] == "hello?"  # your messages stay ones you can edit or retry
+
+
+def test_a_redrawn_session_shows_the_interrupted_call_as_not_run(cfg, store, repo):
+    sess = _interrupted(store, repo)
+    events = history_events(store, sess.id)
+    result = next(e for e in events if e["type"] == "tool_result")
+    assert result["id"] == "t1" and result["is_error"] and "Not run" in result["output"]
+
+
+def test_after_external_content_a_github_call_with_bad_quoting_is_an_error_not_an_approval(cfg, store, repo, monkeypatch):
+    from codepilot import github
+    monkeypatch.setattr(github, "available", lambda: True)
+    llm = FakeLLM([[tool_use("t1", "github", args='issue comment 3 --body "it\'s fine')], [{"text": "fixed it"}]])
+    agent = Agent(replace(cfg, github=True), store, llm=llm)
+    sess = store.create_session(str(repo), "main")
+    store.update_session(sess.id, context_state={"taint": [{"tool": "web_fetch", "detail": "fetch example.com"}]})
+    events = list(agent.chat(sess.id, "comment on issue 3"))
+    assert "approval_needed" not in types(events)
+    assert next(e for e in events if e["type"] == "tool_result")["is_error"]

@@ -309,10 +309,7 @@ class Agent:
         route = self._start_turn(session_id, text)
         if route:
             yield route
-        closed = unanswered.close(self.store, session_id)
-        if closed:
-            yield {"type": "notice", "message": f"The last step ({', '.join(closed)}) was interrupted before it "
-                                                "finished, so codepilot was told it may not have run."}
+        yield from unanswered.announce(self.store, session_id)  # calls a crash left without a result
         last = self.store.last_message(session_id)
         if last and last[1]["role"] == "user":
             # A stop or error left the conversation ending on our side; Bedrock needs alternating roles.
@@ -733,7 +730,7 @@ class Agent:
             final = None
             partial = ""
             started = time.monotonic()
-            sent = self.store.live_messages(session_id)
+            sent = unanswered.repair(self.store.live_messages(session_id))
             try:
                 for event in self.llm.stream(model, system, sent, specs):
                     if session_id in self._cancelled:
@@ -1114,6 +1111,7 @@ def history_events(store: Store, session_id: str) -> list[dict]:
     names: dict[str, str] = {}
     plan, applied = plans.Tracker(), plans.applied_ids(store, session_id)  # the same lifecycle as live
     live = {mid for mid, _ in store.messages(session_id)}
+    missing = {tu["toolUseId"] for _, calls in unanswered.find(store.live_messages(session_id)) for tu in calls}
     for mid, m in store.messages(session_id, include_archived=True):
         # A message that starts a turn (and isn't compacted) can be edited or retried from the UI.
         starts_turn = m["role"] == "user" and bool(m["content"]) and "text" in m["content"][0] and mid in live
@@ -1140,6 +1138,8 @@ def history_events(store: Store, session_id: str) -> list[dict]:
                 tu = b["toolUse"]
                 names[tu["toolUseId"]] = tu["name"]
                 events.append({"type": "tool_call", "id": tu["toolUseId"], "name": tu["name"], "input": tu["input"]})
+                if tu["toolUseId"] in missing:  # a crash left it without a result: show what the model is told
+                    events.append(unanswered.result_event(tu))
                 if tu["name"] == "update_plan" and tu["toolUseId"] in applied:
                     events.append(plan.push(tu["input"].get("items")))
             elif "image" in b and m["role"] == "user":
