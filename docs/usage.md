@@ -230,7 +230,7 @@ You can switch mode mid-conversation, and you can add your own modes
 ## Changes: proposals, Apply, Undo
 
 codepilot never writes to your files without you. Proposed changes collect in the **review bar** pinned
-above the message box ("2 changes to review · +12 −3"), so they don't get lost as the chat scrolls. Each
+above the message box ("2 changes · +12 −3"), so they don't get lost as the chat scrolls. Each
 one is also a single line in the chat; click it to see its diff.
 
 - **Review** opens the **Review** tab: changed files on the left, the full diff on the right. Press

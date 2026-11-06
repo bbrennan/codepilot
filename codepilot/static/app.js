@@ -847,7 +847,7 @@ function renderReviewBar() {
   if (pend.length) {
     const tot = pend.reduce((acc, p) => { const st = diffStat(p.diff); acc.a += st.a; acc.d += st.d; return acc; }, { a: 0, d: 0 });
     const files = [...new Set(pend.map((p) => base(p.path)))];
-    html += `<div class="rb-row rb-changes">${icon("diff")}<div class="rb-main"><b>${pend.length} change${pend.length > 1 ? "s" : ""} to review</b> <span class="dstat"><span class="a">+${tot.a}</span> <span class="d">−${tot.d}</span></span><span class="rb-files muted">${esc(files.slice(0, 4).join(", "))}${files.length > 4 ? ` +${files.length - 4} more` : ""}</span></div>
+    html += `<div class="rb-row rb-changes">${icon("diff")}<div class="rb-main"><b title="Waiting for your review">${pend.length} change${pend.length > 1 ? "s" : ""}</b> <span class="dstat"><span class="a">+${tot.a}</span> <span class="d">−${tot.d}</span></span><span class="rb-files muted">${esc(files.slice(0, 4).join(", "))}${files.length > 4 ? ` +${files.length - 4} more` : ""}</span></div>
       <div class="rb-acts"><button class="btn" id="rbReview">Review</button><button class="btn primary" id="rbApplyAll">Apply all</button><button class="btn ghost" id="rbRejectAll">Reject all</button></div>${receiptHtml()}</div>`;
   }
   bar.innerHTML = html; bar.hidden = !html; bindReceipt(bar);

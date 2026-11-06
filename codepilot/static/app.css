@@ -378,7 +378,7 @@ a.loc:hover { text-decoration: underline; }
 .taint-chip .i { width: 13px; height: 13px; }
 .rb-receipt { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin-top: 5px; font-size: var(--fs-ui); }
 .rb-changes { flex-wrap: wrap; }
-.rb-changes > .rb-receipt { flex-basis: 100%; margin: 0 0 0 23px; padding-top: 6px; border-top: 1px solid var(--line); }
+.rb-changes > .rb-receipt { flex-basis: 100%; margin: 0 0 0 23px; }
 .rb-receipt .ok, .card.verify .ok { color: var(--ok); font-weight: 600; }
 .rb-receipt .bad, .card.verify .bad { color: var(--err); font-weight: 600; }
 .rb-receipt .warn, .card.verify .warn { color: var(--warn); }
@@ -545,6 +545,7 @@ a.loc:hover { text-decoration: underline; }
 .hljs-variable, .hljs-template-variable, .hljs-tag, .hljs-name, .hljs-deletion { color: var(--syn-var); }
 
 @media (max-height: 640px) { .composer .quick { display: none; } }
+.chat:has(#transcript .msg.user) .quick { display: none; } /* suggestions are for an empty session */
 @media (max-width: 1100px) { :root { --chat-w: 380px; --sidebar-w: 240px; } .palette-btn { min-width: 0; } .palette-btn span:nth-child(2), .palette-btn kbd { display: none; } }
 @media (max-width: 820px) {
   body { overflow: auto; }
@@ -605,6 +606,15 @@ a.loc:hover { text-decoration: underline; }
 .rb-cmd { display: block; font: var(--fs-ui)/1.45 var(--mono); white-space: pre; overflow: auto; max-height: 8.9em; background: var(--bg-2); padding: 3px 6px; border-radius: var(--r-sm); }
 .rb-allow { font-size: var(--fs-sm); color: var(--muted); }
 .rb-files { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The changes row says it in one line (what · how much · which files, cut short) beside its buttons, so the
+   conversation keeps its room; the verification result, when there is one, is the line under it. */
+.rb-changes { align-items: center; }
+.rb-changes > svg { margin-top: 0; }
+/* The count and stats always fit: the summary is never narrower than them (the file names count for nothing, width: 0,
+   and take only the room left over). When the buttons don't fit beside it, they wrap under it. */
+.rb-changes > .rb-main { flex: 1 1 auto; min-width: min-content; flex-direction: row; align-items: center; gap: 8px; min-height: 26px; white-space: nowrap; }
+.rb-changes > .rb-main > b, .rb-changes > .rb-main > .dstat { flex: none; }
+.rb-changes > .rb-main > .rb-files { width: 0; flex: 1 1 0; min-width: 0; }
 .rb-acts { display: flex; gap: 6px; flex: none; align-items: center; }
 .rb-acts kbd { font-size: var(--fs-xs); opacity: .8; margin-left: 4px; }
 .dstat { font: var(--fs-sm) var(--mono); white-space: nowrap; }
