@@ -136,24 +136,6 @@ $("#themeBtn").onclick = () => {
   document.documentElement.dataset.theme = next; store("cp-theme", next);
   for (const v of terms.views.values()) v.xterm.options.theme = termTheme();
 };
-function makeResizer(el, varName, axis, min, max, invert) {
-  el.addEventListener("mousedown", (e) => {
-    e.preventDefault(); el.classList.add("drag");
-    const start = axis === "x" ? e.clientX : e.clientY;
-    const startVal = parseFloat(getComputedStyle(ide).getPropertyValue(varName));
-    const move = (ev) => {
-      const delta = (axis === "x" ? ev.clientX : ev.clientY) - start;
-      const v = Math.max(min, Math.min(max, startVal + (invert ? -delta : delta)));
-      ide.style.setProperty(varName, v + "px");
-    };
-    const up = () => { el.classList.remove("drag"); document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); store("cp" + varName, ide.style.getPropertyValue(varName)); };
-    document.addEventListener("mousemove", move); document.addEventListener("mouseup", up);
-  });
-}
-makeResizer($("#sidebarResizer"), "--sidebar-w", "x", 180, 560, false);
-makeResizer($("#chatResizer"), "--chat-w", "x", 300, 820, true);
-makeResizer($("#panelResizer"), "--panel-h", "y", 90, 640, true);
-
 // bottom panel tabs
 $(".panel-tabs").addEventListener("click", (e) => {
   const b = e.target.closest("[data-ptab]"); if (!b) return;
@@ -171,8 +153,8 @@ $("#clearActivity").onclick = () => { $("#activity").innerHTML = ""; state.activ
 // ---------------------------------------------------------------- init
 async function init() {
   const theme = store("cp-theme"); if (theme) document.documentElement.dataset.theme = theme;
-  for (const v of ["--sidebar-w", "--chat-w", "--panel-h"]) { const s = store("cp" + v); if (s) ide.style.setProperty(v, s); }
   for (const c of ["no-sidebar", "no-panel", "no-chat"]) if (store("cp-" + c) === "1") ide.classList.add(c);
+  initLayout(); // layout.js: saved pane sizes, fitted to this window
   hydrateIcons(); renderQuick(); // before the first await, so the composer doesn't change height after first paint
   state.cfg = await api("/api/config");
   const c = state.cfg;
