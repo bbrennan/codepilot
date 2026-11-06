@@ -19,3 +19,20 @@ def test_the_browser_finds_codepilots_app_manifest(page, server, session):
         resp = page.request.get(icon["src"])
         assert resp.ok and resp.headers["content-type"].startswith("image/"), icon
     assert cdp.send("Page.getInstallabilityErrors")["installabilityErrors"] == []
+
+
+# The colour the installed window's title bar uses: the theme-color whose media query applies.
+TITLE_BAR = """() => [...document.querySelectorAll('meta[name="theme-color"]')]
+  .find((m) => matchMedia(m.media || 'all').matches)?.content"""
+
+
+def test_the_title_bar_follows_the_theme_you_picked_not_only_the_system(page, server, session):
+    page.emulate_media(color_scheme="light")
+    open_app(page)
+    assert page.evaluate(TITLE_BAR) == "#e9ecf1"  # nothing picked: the system's (light)
+    page.click("#themeBtn")  # pick dark
+    assert page.evaluate("document.documentElement.dataset.theme") == "dark"
+    assert page.evaluate(TITLE_BAR) == "#0d0f13"
+    page.reload()
+    page.wait_for_function("() => document.querySelector('#sbProvider')?.textContent.length > 0")
+    assert page.evaluate(TITLE_BAR) == "#0d0f13"  # still dark after a reload

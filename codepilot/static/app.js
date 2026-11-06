@@ -135,7 +135,16 @@ $("#themeBtn").onclick = () => {
   const next = cur === "dark" ? "light" : "dark";
   document.documentElement.dataset.theme = next; store("cp-theme", next);
   for (const v of terms.views.values()) v.xterm.options.theme = termTheme();
+  syncThemeColor();
 };
+// The installed app's title bar (theme-color) follows the theme in use: the one you picked, else the system's.
+function syncThemeColor() {
+  const picked = document.documentElement.dataset.theme;
+  for (const m of $$('meta[name="theme-color"]')) {
+    m.dataset.media ??= m.media; // the system query it was written for
+    m.media = picked ? (m.dataset.media.includes(picked) ? "all" : "not all") : m.dataset.media;
+  }
+}
 // bottom panel tabs
 $(".panel-tabs").addEventListener("click", (e) => {
   const b = e.target.closest("[data-ptab]"); if (!b) return;
@@ -153,6 +162,7 @@ $("#clearActivity").onclick = () => { $("#activity").innerHTML = ""; state.activ
 // ---------------------------------------------------------------- init
 async function init() {
   const theme = store("cp-theme"); if (theme) document.documentElement.dataset.theme = theme;
+  syncThemeColor();
   for (const c of ["no-sidebar", "no-panel", "no-chat"]) if (store("cp-" + c) === "1") ide.classList.add(c);
   initLayout(); // layout.js: saved pane sizes, fitted to this window
   hydrateIcons(); renderQuick(); // before the first await, so the composer doesn't change height after first paint
