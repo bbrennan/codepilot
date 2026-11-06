@@ -345,6 +345,11 @@ Brave, Chromium or Arc is installed, it opens in its own window, without tabs or
 desktop app. Otherwise it uses your default browser; `--browser-tab` forces a normal tab. Running it
 again while the server is up just opens the window.
 
+That window uses a browser profile of its own (`~/.codepilot/chrome`), apart from your everyday browsing: your
+extensions don't run in the page, and the browser remembers the window's size and position separately, for each set of
+displays. The first time, it asks again for what you allowed before: clipboard access (for Ctrl+V on a Mac) and
+notifications. `CODEPILOT_APP_PROFILE=0` uses your usual profile instead.
+
 | Command | What it does |
 |---|---|
 | `codepilot start` | Start in the background (if needed) and open the UI |

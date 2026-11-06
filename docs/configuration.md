@@ -122,6 +122,7 @@ tiers and the default repo, for compatibility with an older internal tool.
 | `CODEPILOT_ENV_FILE` | `./.env` | Load settings from another file |
 | `CODEPILOT_VERBOSE` | unset | `1` logs every HTTP request and credential lookup made by the AWS/Anthropic/OpenAI libraries |
 | `CODEPILOT_APP_BROWSER` | auto | Browser for `codepilot start`'s app window, e.g. `Google Chrome`, `Microsoft Edge`, `Brave Browser` |
+| `CODEPILOT_APP_PROFILE` | `1` | The app window's browser profile: its own, in `~/.codepilot/chrome` (no extensions in the page, its own window position). `0` uses your everyday browser profile |
 
 ## Files codepilot reads and writes
 
@@ -138,6 +139,7 @@ tiers and the default repo, for compatibility with an older internal tool.
 | `~/.codepilot/budget.json` | Today's daily-budget state: whether it warned, and whether you lifted it |
 | `~/.codepilot/verify/<session>/` | Temporary copies of the workspace while pending changes are verified (removed afterwards, and at start) |
 | `~/.codepilot/images/` | Copies of images in conversations, for display (safe to delete) |
+| `~/.codepilot/chrome/` | The app window's browser profile (`CODEPILOT_APP_PROFILE`): its permissions, window position and cache. Delete it to reset them |
 | `~/.codepilot/trash/` | Files and folders you deleted from the Explorer (restorable; delete old ones by hand) |
 | `~/.codepilot/skills/`, `~/.codepilot/modes/` | Your custom skills and modes |
 | `~/.codepilot/steering/*.md` | Your steering docs for every workspace ([steering.md](steering.md)) |
