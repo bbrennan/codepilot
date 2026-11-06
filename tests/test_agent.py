@@ -487,3 +487,48 @@ def test_after_external_content_a_github_call_with_bad_quoting_is_an_error_not_a
     events = list(agent.chat(sess.id, "comment on issue 3"))
     assert "approval_needed" not in types(events)
     assert next(e for e in events if e["type"] == "tool_result")["is_error"]
+
+
+# -- a restart keeps each session's frozen system prompt ------------------------------------------------------------
+
+ONE_TURN_IN_A_NEW_PROCESS = """
+import json, sys
+from dataclasses import replace
+from pathlib import Path
+from fakes import FakeLLM
+from codepilot.agent import Agent
+from codepilot.config import Config
+from codepilot.store import Store
+
+home, sid, text = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+cfg = replace(Config.from_env(), provider="bedrock", home=home, trace_dirs=[], log_groups=[], context_tokens=None)
+llm = FakeLLM([[{"reasoningContent": {"reasoningText": {"text": "thinking", "signature": "sig-" + text}}},
+                {"text": "ok"}]])
+list(Agent(cfg, Store(home), llm=llm).chat(sid, text))
+sent = llm.calls[0]
+print(json.dumps({"system": sent["system"],
+                  "reasoning": sum("reasoningContent" in b for m in sent["messages"] for b in m["content"])}))
+"""
+
+
+def test_a_restart_keeps_the_system_prompt_and_earlier_reasoning(cfg, store, repo):
+    """Each turn runs in its own process, as after `make restart`. Python salts str hashes per process, so anything
+    hash()-based in the prompt's key would rebuild the prompt (a cache miss) and strip every reasoning block."""
+    import json
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    sess = store.create_session(str(repo), "main")
+    store.update_session(sess.id, summary="SUMMARY: earlier work")  # compacted once, as long sessions are
+
+    def turn(text, seed):
+        env = {**os.environ, "PYTHONHASHSEED": seed, "PYTHONPATH": str(Path(__file__).parent)}
+        out = subprocess.run([sys.executable, "-c", ONE_TURN_IN_A_NEW_PROCESS, str(cfg.home), sess.id, text],
+                             capture_output=True, text=True, env=env, cwd=repo, check=True).stdout
+        return json.loads(out.strip().splitlines()[-1])
+
+    first, second = turn("one", "1"), turn("two", "2")
+    assert second["system"] == first["system"]
+    assert second["reasoning"] == 1  # the first turn's reasoning is still there to replay

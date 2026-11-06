@@ -6,6 +6,7 @@ the terminal REPL render the same stream.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -675,8 +676,10 @@ class Agent:
         compaction), and then reasoning blocks from the old prefix are dropped once so they can't fail
         Claude's conversation check."""
         state = dict(sess.context_state or {})
-        # Editing a steering doc changes the key, so new instructions apply from the next request.
-        key = f"{ctx.root}|{hash(sess.summary)}|{steering.fingerprint(ctx.root, self.cfg.home)}"
+        # Editing a steering doc changes the key, so new instructions apply from the next request. A digest, not hash():
+        # Python salts str hashes per process, so a restart would rebuild every session's prompt and drop its reasoning.
+        summary = hashlib.sha1((sess.summary or "").encode()).hexdigest()[:16]
+        key = f"{ctx.root}|{summary}|{steering.fingerprint(ctx.root, self.cfg.home)}"
         if state.get("system") and state.get("key") == key:
             return state["system"]
         system = self._system(sess, ctx)
