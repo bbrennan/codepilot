@@ -40,16 +40,18 @@ def test_the_review_diff_has_line_numbers_and_no_raw_headers(page, server, sessi
 
 def test_a_working_tree_diff_names_each_file(page, server, session):
     repo = server.repo
+    (repo / "café.py").write_text("x = 1\n")
     for args in (["add", "-A"], ["commit", "-qm", "start"]):
         subprocess.run(["git", "-C", str(repo), *args], check=True)
     (repo / "agent" / "core.py").write_text("def add(a, b):\n    return a + b\n")
     (repo / "Makefile").write_text("eval-bedrock:\n\techo evals\n")
+    (repo / "café.py").write_text("x = 2\n")  # git quotes this name: "b/caf\303\251.py"
     open_app(page)
     page.click("[data-view=changes]")
     page.locator("#openGitDiff").click()
     page.locator(".diff").wait_for()
     files = page.locator(".diff .f").all_text_contents()
-    assert [f.strip() for f in files] == ["Makefile", "agent/core.py"]
+    assert [f.strip() for f in files] == ["Makefile", "agent/core.py", "café.py"]
     assert "diff --git" not in page.locator(".diff").text_content() and "index " not in page.locator(".diff").text_content()
 
 
@@ -59,3 +61,42 @@ def test_a_removed_line_that_starts_with_dashes_is_not_taken_for_a_header(page, 
     rows = page.evaluate("(d) => { const el = document.createElement('div'); el.innerHTML = diffHtml(d); "
                          "return [...el.querySelectorAll('.dl')].map((r) => [r.className, r.textContent]); }", diff)
     assert any("d" in cls.split() and "-- old comment" in text for cls, text in rows), rows
+
+
+def test_every_kind_of_change_is_named_and_explained(page, server, session):
+    """Quoted names (git's C-quoting of non-ASCII paths), mode-only, binary and renamed files: each gets its name and a
+    plain description, and none of their headers turn into numbered code rows."""
+    open_app(page)
+    diff = "\n".join([
+        "diff --git a/agent/core.py b/agent/core.py", "index 1111111..2222222 100644",
+        "--- a/agent/core.py", "+++ b/agent/core.py", "@@ -1 +1 @@", "-a", "+b",
+        'diff --git "a/caf\\303\\251.py" "b/caf\\303\\251.py"', "index 3333333..4444444 100644",
+        '--- "a/caf\\303\\251.py"', '+++ "b/caf\\303\\251.py"', "@@ -1 +1 @@", "-x = 1", "+x = 2",
+        "diff --git a/run.sh b/run.sh", "old mode 100644", "new mode 100755",
+        "diff --git a/logo.png b/logo.png", "index 5555555..6666666 100644", "Binary files a/logo.png and b/logo.png differ",
+        "diff --git a/old_name.py b/new_name.py", "similarity index 100%", "rename from old_name.py",
+        "rename to new_name.py", ""])
+    seen = page.evaluate("""(d) => { const el = document.createElement('div'); el.innerHTML = diffHtml(d);
+      return { files: [...el.querySelectorAll('.f')].map((r) => r.textContent),
+               meta: [...el.querySelectorAll('.meta')].map((r) => r.textContent),
+               code: [...el.querySelectorAll('.dl .code')].map((r) => r.textContent) }; }""", diff)
+    assert seen["files"] == ["agent/core.py", "café.py", "run.sh", "logo.png", "new_name.py"]
+    assert any("100644 → 100755" in m for m in seen["meta"]) and any("binary" in m.lower() for m in seen["meta"])
+    assert any("renamed from old_name.py" in m for m in seen["meta"])
+    assert sorted(seen["code"]) == ["a", "b", "x = 1", "x = 2"], seen["code"]  # only real lines are numbered
+
+
+def test_a_long_path_keeps_the_review_buttons_in_reach(page, server, session):
+    from codepilot import tools
+    long = "src/very/deeply/nested/package/module_with_a_rather_long_name/implementation_details_and_helpers.py"
+    ctx = tools.ToolContext(root=server.repo.resolve(), cfg=server.cfg, store=server.store, session_id=session.id)
+    tools.propose_edit(ctx, long, "", "x = 1\n")
+    page.set_viewport_size({"width": 1280, "height": 800})
+    open_app(page)
+    page.click("#rbReview")
+    page.locator(".rv-main .crumbs").wait_for()
+    pane = page.locator(".rv-main").bounding_box()
+    for sel in ("[data-apply]", "[data-reject]", "#rvOpen"):
+        box = page.locator(f".rv-main .ed-bar {sel}").bounding_box()
+        assert box and box["x"] + box["width"] <= pane["x"] + pane["width"] + 0.5, f"{sel} is pushed out of reach"
+    assert long in page.locator(".rv-main .crumbs").text_content()
