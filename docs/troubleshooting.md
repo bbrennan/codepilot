@@ -78,6 +78,8 @@ Start with `make doctor`. It tests each piece and prints the fix for most proble
 | "At most 12 terminals can run at once" | Kill some from the Terminal menu (**Kill All Terminals**) |
 | A terminal shows "Exited with code N" | The shell ended with an error; read the output, then press any key to close it or click **Restart** |
 | `This session is already working` | A turn is still running in that session; wait or press Stop |
+| "The last step (…) was interrupted before it finished" | codepilot restarted or hit an internal error while a step ran. The model is told the step may not have happened, and the conversation carries on. Check what that step was meant to do. If it says "Internal error in …", please report it (**?** → **Report a problem**) |
+| Every message in one session fails with "tool_use ids were found without tool_result" | Fixed: older versions left a session like this after a crash. Update (`git pull && make restart`) and send any message; the session recovers |
 | `A tool call is waiting for approval` | Scroll the chat to the approval card and Approve or Deny |
 | Terminal says "Refused: reload the page" | The server restarted, so the page's terminal token is stale (and its shells ended); reload the page |
 | Terminal says "disabled" | `CODEPILOT_TERMINAL=0` is set |

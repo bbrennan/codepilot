@@ -394,3 +394,57 @@ def test_the_source_list_is_capped(cfg, store, repo):
     for i in range(30):
         list(agent._note_taint(sess.id, {"name": "library_docs", "input": {"library": f"lib{i}"}}, False))
     assert len(_taint(store, sess.id)) == 20
+
+
+# -- a tool call always gets a result, so a session never gets stuck ------------------------------------------------
+
+
+def _answered(messages):
+    """Every tool call in a request has its result: providers reject a conversation where one doesn't."""
+    uses = {b["toolUse"]["toolUseId"] for m in messages for b in m["content"] if "toolUse" in b}
+    results = {b["toolResult"]["toolUseId"] for m in messages for b in m["content"] if "toolResult" in b}
+    return uses - results == set()
+
+
+def test_a_github_call_with_an_unbalanced_quote_is_an_error_the_model_can_fix(cfg, store, repo, monkeypatch):
+    from codepilot import github
+    monkeypatch.setattr(github, "available", lambda: True)
+    llm = FakeLLM([[tool_use("t1", "github", args='pr comment 5 --body "it\'s fine')], [{"text": "fixed the quoting"}],
+                   [{"text": "ok"}]])
+    agent = Agent(replace(cfg, github=True), store, llm=llm)
+    sess = store.create_session(str(repo), "main")
+    events = list(agent.chat(sess.id, "comment on PR 5"))
+    result = next(e for e in events if e["type"] == "tool_result")
+    assert result["is_error"] and "quot" in result["output"]
+    assert types(events)[-1] == "done" and len(llm.calls) == 2  # the turn went on, with the error in front of the model
+    list(agent.chat(sess.id, "thanks"))
+    assert _answered(llm.calls[-1]["messages"])
+
+
+def test_an_unexpected_error_in_a_tool_becomes_its_result(cfg, store, repo):
+    llm = FakeLLM([[tool_use("t1", "list_files")], [{"text": "carrying on"}]])
+    agent = Agent(cfg, store, llm=llm)
+
+    def broken(ctx, **kwargs):
+        raise RuntimeError("a bug in the tool")
+
+    agent.tools["list_files"].fn = broken
+    sess = store.create_session(str(repo), "main")
+    events = list(agent.chat(sess.id, "list the files"))
+    result = next(e for e in events if e["type"] == "tool_result")
+    assert result["is_error"] and "a bug in the tool" in result["output"]
+    assert types(events)[-1] == "done" and _answered(llm.calls[-1]["messages"])
+
+
+def test_a_call_left_unanswered_by_a_crash_or_restart_is_closed_before_the_next_message(cfg, store, repo):
+    sess = store.create_session(str(repo), "main")
+    store.add_message(sess.id, "user", [{"text": "run the long build"}])
+    store.add_message(sess.id, "assistant", [{"text": "Building."}, tool_use("t1", "run_command", command="make all")])
+    llm = FakeLLM([[{"text": "It didn't finish; shall I run it again?"}]])
+    agent = Agent(cfg, store, llm=llm)  # a new process: the turn that made t1 is gone
+    events = list(agent.chat(sess.id, "what happened?"))
+    sent = llm.calls[0]["messages"]
+    assert _answered(sent) and [m["role"] for m in sent] == ["user", "assistant", "user", "assistant", "user"]
+    assert any(e["type"] == "notice" and "run_command" in e["message"] for e in events)
+    redrawn = [e for e in history_events(store, sess.id) if e["type"] == "user"]
+    assert redrawn[-1]["text"] == "what happened?" and "mid" in redrawn[-1]  # still a message you can edit or retry

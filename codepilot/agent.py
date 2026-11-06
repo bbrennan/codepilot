@@ -7,16 +7,18 @@ the terminal REPL render the same stream.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import threading
 import time
+import traceback
 import uuid
 from collections.abc import Callable, Generator, Iterator
 from pathlib import Path
 from typing import Any
 
 from . import (approval_policy, checkpoints, checks, gitstate, images, mentions, models, modes, plans, prompts, repomap,
-               router, skills, spec_profiles, spec_reminder, specs, spend, steering, verification, webtools)
+               router, skills, spec_profiles, spec_reminder, specs, spend, steering, unanswered, verification, webtools)
 from .bedrock import BedrockError, make_client
 from .config import Config
 from .context import CLEARED_PREFIX, ContextManager, is_overflow
@@ -24,6 +26,7 @@ from .store import QUEUED_PREFIX, Session, Store
 from .tools import (SKIP_DIRS, Tool, ToolContext, ToolError, build_tools, detect_test_cmd, execute, proposal_view,
                     trace_roots)
 
+log = logging.getLogger(__name__)
 UI_OUTPUT_LIMIT = 6000
 TAINT_SOURCES_KEPT = 20
 WARN_PERCENT = round(spend.WARN_AT * 100)
@@ -306,6 +309,10 @@ class Agent:
         route = self._start_turn(session_id, text)
         if route:
             yield route
+        closed = unanswered.close(self.store, session_id)
+        if closed:
+            yield {"type": "notice", "message": f"The last step ({', '.join(closed)}) was interrupted before it "
+                                                "finished, so codepilot was told it may not have run."}
         last = self.store.last_message(session_id)
         if last and last[1]["role"] == "user":
             # A stop or error left the conversation ending on our side; Bedrock needs alternating roles.
@@ -569,7 +576,10 @@ class Agent:
         for tu in pending["awaiting"]:
             if approve:
                 yield {"type": "tool_running", "id": tu["toolUseId"], "name": tu["name"]}
-                output, is_error, took = yield from self._exec(ctx, tu)
+                try:
+                    output, is_error, took = yield from self._exec(ctx, tu)
+                except Exception as exc:
+                    output, is_error, took = _internal_error(tu, exc), True, 0.0
             else:
                 output, is_error, took = ("The user declined this tool call" + (" and wrote the message below instead."
                                                                              if feedback else "."), True, 0.0)
@@ -778,23 +788,26 @@ class Agent:
             for tu in tool_uses:
                 yield {"type": "tool_call", "id": tu["toolUseId"], "name": tu["name"], "input": tu["input"]}
                 tool = self.tools.get(tu["name"])
-                if session_id in self._cancelled:
-                    output, is_error, took = "Cancelled: the user stopped this turn.", True, 0.0
-                elif self._spec_blocks(sess, ctx.root, tu):
-                    output, is_error, took = self._spec_blocks(sess, ctx.root, tu), True, 0.0
-                elif tu["name"] in mode.blocked:
-                    output, is_error, took = (f"{tu['name']} is disabled in {mode.label} mode. Work within the mode; "
-                                              "the user can switch modes if they want this."), True, 0.0
-                elif tu["toolUseId"] in invalid:
-                    output, is_error, took = ("Tool input was not valid JSON (possibly truncated by the token "
-                                              "limit). Retry with smaller input."), True, 0.0
-                elif tool is None:
-                    output, is_error, took = f"Unknown tool {tu['name']!r}.", True, 0.0
-                elif self._must_ask(session_id, sess, tool, tu, ctx):
-                    awaiting.append(tu)
-                    continue
-                else:
-                    output, is_error, took = yield from self._exec(ctx, tu)
+                try:  # the call is stored already: whatever happens, it must get a result
+                    if session_id in self._cancelled:
+                        output, is_error, took = "Cancelled: the user stopped this turn.", True, 0.0
+                    elif self._spec_blocks(sess, ctx.root, tu):
+                        output, is_error, took = self._spec_blocks(sess, ctx.root, tu), True, 0.0
+                    elif tu["name"] in mode.blocked:
+                        output, is_error, took = (f"{tu['name']} is disabled in {mode.label} mode. Work within the "
+                                                  "mode; the user can switch modes if they want this."), True, 0.0
+                    elif tu["toolUseId"] in invalid:
+                        output, is_error, took = ("Tool input was not valid JSON (possibly truncated by the token "
+                                                  "limit). Retry with smaller input."), True, 0.0
+                    elif tool is None:
+                        output, is_error, took = f"Unknown tool {tu['name']!r}.", True, 0.0
+                    elif self._must_ask(session_id, sess, tool, tu, ctx):
+                        awaiting.append(tu)
+                        continue
+                    else:
+                        output, is_error, took = yield from self._exec(ctx, tu)
+                except Exception as exc:
+                    output, is_error, took = _internal_error(tu, exc), True, 0.0
                 yield from self._drain(ctx)
                 yield self._result_event(tu, output, is_error, took)
                 output = yield from self._after_result(session_id, tu, output, is_error)
@@ -1022,6 +1035,12 @@ def render_transcript(messages: list[dict], limit: int = 120_000) -> str:
                 lines.append(f"{m['role'].upper()}: [image]")
     text = "\n".join(lines)
     return text if len(text) <= limit else text[-limit:]
+
+
+def _internal_error(tu: dict, exc: Exception) -> str:
+    """A bug in a tool or its checks: logged for problem reports, and told to the model so the turn can go on."""
+    log.error("%s failed:\n%s", tu["name"], traceback.format_exc())
+    return f"Internal error in {tu['name']}: {type(exc).__name__}: {exc}. This is a codepilot bug, not your input."
 
 
 def _with_note(output: str, note: str) -> str:
