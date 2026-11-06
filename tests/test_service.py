@@ -142,3 +142,47 @@ def test_server_restarts_itself_in_place(cfg, monkeypatch):
         assert service.is_up(info["url"]) and service.running(cfg)["pid"] == info["pid"]  # same process, new code
     finally:
         service.stop(cfg)
+
+
+# -- the app window has its own browser profile ---------------------------------------------------------------------
+
+
+def _launches(monkeypatch, platform):
+    """What open_window would run, with every browser installed."""
+    calls = []
+    monkeypatch.setattr(service.sys, "platform", platform)
+    monkeypatch.setattr(service.subprocess, "run", lambda argv, **kw: type("Done", (), {"returncode": 0})())
+    monkeypatch.setattr(service.subprocess, "Popen", lambda argv, **kw: calls.append(argv))
+    monkeypatch.setattr(service.shutil, "which", lambda exe: f"/usr/bin/{exe}")
+    monkeypatch.delenv("CODEPILOT_APP_BROWSER", raising=False)
+    return calls
+
+
+@pytest.mark.parametrize("platform", ["darwin", "linux"])
+def test_the_app_window_opens_in_its_own_browser_profile(cfg, monkeypatch, platform):
+    """No extensions in the page, and a window position of its own (per display), apart from your everyday browsing."""
+    calls = _launches(monkeypatch, platform)
+    monkeypatch.delenv("CODEPILOT_APP_PROFILE", raising=False)
+    service.open_window("http://127.0.0.1:8765", profile=service.app_profile(cfg))
+    argv = calls[0]
+    assert "--app=http://127.0.0.1:8765" in argv and f"--user-data-dir={cfg.home / 'chrome'}" in argv
+    assert "--no-first-run" in argv and "--no-default-browser-check" in argv
+
+
+def test_codepilot_app_profile_0_keeps_your_everyday_profile(cfg, monkeypatch):
+    calls = _launches(monkeypatch, "darwin")
+    monkeypatch.setenv("CODEPILOT_APP_PROFILE", "0")
+    assert service.app_profile(cfg) is None
+    service.open_window("http://127.0.0.1:8765", profile=service.app_profile(cfg))
+    assert not any(a.startswith("--user-data-dir") for a in calls[0])
+
+
+def test_start_opens_the_window_in_the_app_profile(cfg, monkeypatch):
+    seen = []
+    monkeypatch.delenv("CODEPILOT_APP_PROFILE", raising=False)
+    monkeypatch.setattr(service, "running", lambda cfg: None)
+    monkeypatch.setattr(service, "is_up", lambda url: True)  # already serving: start just opens the window
+    monkeypatch.setattr(service, "server_stale", lambda url: False)
+    monkeypatch.setattr(service, "open_window", lambda url, app_window=True, profile=None: seen.append(profile))
+    assert service.start(cfg, None) == 0
+    assert seen == [cfg.home / "chrome"]
