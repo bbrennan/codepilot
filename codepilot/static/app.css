@@ -610,9 +610,11 @@ a.loc:hover { text-decoration: underline; }
    conversation keeps its room; the verification result, when there is one, is the line under it. */
 .rb-changes { align-items: center; }
 .rb-changes > svg { margin-top: 0; }
-.rb-changes > .rb-main { flex-direction: row; align-items: center; gap: 8px; min-height: 26px; white-space: nowrap; overflow: hidden; }
-.rb-changes > .rb-main > b, .rb-changes > .rb-main > .dstat { flex: none; } /* only the file names give way */
-.rb-changes > .rb-main > .rb-files { min-width: 0; }
+/* The count and stats always fit: the summary is never narrower than them (the file names count for nothing, width: 0,
+   and take only the room left over). When the buttons don't fit beside it, they wrap under it. */
+.rb-changes > .rb-main { flex: 1 1 auto; min-width: min-content; flex-direction: row; align-items: center; gap: 8px; min-height: 26px; white-space: nowrap; }
+.rb-changes > .rb-main > b, .rb-changes > .rb-main > .dstat { flex: none; }
+.rb-changes > .rb-main > .rb-files { width: 0; flex: 1 1 0; min-width: 0; }
 .rb-acts { display: flex; gap: 6px; flex: none; align-items: center; }
 .rb-acts kbd { font-size: var(--fs-xs); opacity: .8; margin-left: 4px; }
 .dstat { font: var(--fs-sm) var(--mono); white-space: nowrap; }

@@ -36,3 +36,23 @@ def test_the_conversation_keeps_room_with_changes_and_a_plan_waiting(page, serve
     stats = page.locator(".rb-changes .dstat")
     assert stats.evaluate("(el) => el.getBoundingClientRect().right <= el.parentElement.getBoundingClientRect().right")
     assert "+2" in stats.text_content() and "−2" in stats.text_content()  # both, never cut: only file names give way
+
+
+def test_the_summary_keeps_its_count_and_stats_at_the_narrowest_chat(page, server, session):
+    """The chat can be dragged down to 300px. There the buttons wrap under the summary rather than clip it."""
+    from codepilot import tools
+    root = server.repo.resolve()
+    ctx = tools.ToolContext(root=root, cfg=server.cfg, store=server.store, session_id=session.id)
+    tools.propose_edit(ctx, "big_module.py", "", "".join(f"value_{i} = {i}\n" for i in range(1234)))
+    tools.propose_edit(ctx, "agent/core.py", "a - b", "a + b")
+    page.set_viewport_size({"width": 1280, "height": 800})
+    page.add_init_script("localStorage.setItem('cp--chat-w', '300px')")
+    open_app(page)
+    page.locator("#reviewBar .rb-changes").wait_for()
+    assert round(page.locator(".chat").bounding_box()["width"]) == 300
+    whole = page.evaluate("""() => { const main = document.querySelector('.rb-changes .rb-main').getBoundingClientRect();
+      return [...document.querySelectorAll('.rb-changes .rb-main > b, .rb-changes .rb-main > .dstat')]
+        .map((el) => ({ text: el.textContent, inside: el.getBoundingClientRect().right <= main.right + 0.5 })); }""")
+    assert all(w["inside"] for w in whole), f"clipped: {whole}"
+    assert "+1235" in whole[1]["text"] and "−1" in whole[1]["text"]
+    assert page.locator("#rbApplyAll").is_visible()  # the buttons are all still there, on their own line if need be
