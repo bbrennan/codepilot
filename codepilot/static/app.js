@@ -1067,13 +1067,13 @@ function renderMemory() {
     <div class="group-head" style="padding-left:2px">How memory works</div>
     <div class="hint" style="line-height:1.55">Each step resends this session's conversation (cached, so it's cheap). Before every model call codepilot checks the size: at ${c ? Math.round(c.prune_at * 100) : 60}% of the budget it clears old tool outputs, at ${c ? Math.round(c.compact_at * 100) : 80}% it summarises earlier turns, keeping recent turns, the plan and proposals exact. Workspace notes persist across every session on this folder.</div>
     <div class="group-head" style="padding-left:2px">Working memory</div>
-    <div style="display:flex;align-items:center;gap:8px"><span class="meter" style="width:100%"><i class="${ctxClass(c)}" style="width:${pct}%"></i></span><span class="mono" style="font-size:11.5px">${pct}%</span></div>
+    <div style="display:flex;align-items:center;gap:8px"><span class="meter" style="width:100%"><i class="${ctxClass(c)}" style="width:${pct}%"></i></span><span class="mono" style="font-size:var(--fs-sm)">${pct}%</span></div>
     <div class="hint">${c ? `~${fmtTok(c.tokens)} of a ${fmtTok(c.budget)}-token budget (model window ${fmtTok(c.window)})` : "—"}</div>
     <div style="display:flex;gap:6px;margin-top:6px"><button class="btn" id="compactBtn" ${state.sid ? "" : "disabled"}>${icon("collapse")}Compact now</button><button class="btn" id="handoffBtn" ${state.sid ? "" : "disabled"} title="Start a fresh session on this folder, seeded with this one's summary">${icon("plus")}Continue in new session</button></div>
     <div class="group-head" style="padding-left:2px">Conversation summary</div>
     <div class="hint">${state.summary ? esc(state.summary).replace(/\n/g, "<br>") : "None yet — appears when the conversation gets long."}</div>
     <div class="group-head" style="padding-left:2px">Workspace notes</div>
-    <textarea class="field mono" id="notesBox" rows="7" style="font-size:12px;resize:vertical" placeholder="${state.workspace ? "Facts codepilot should always know about this folder…" : "Open a folder to keep notes for it."}" ${state.workspace ? "" : "disabled"}></textarea>
+    <textarea class="field mono" id="notesBox" rows="7" style="font-size:var(--fs-ui);resize:vertical" placeholder="${state.workspace ? "Facts codepilot should always know about this folder…" : "Open a folder to keep notes for it."}" ${state.workspace ? "" : "disabled"}></textarea>
     <div style="display:flex;gap:6px;align-items:center;margin-top:6px"><button class="btn" id="saveNotes" ${state.workspace ? "" : "disabled"}>Save notes</button><span class="hint" id="notesPath" style="margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span></div>
     <div class="group-head" style="padding-left:2px">Always allowed in this session${allowPausedNote()}</div>
     <div class="hint" id="allowList">${(state.allow || []).length ? state.allow.map((r, i) => `<span class="allow-chip"><code>${esc(r.tool === "github" ? "gh " + r.prefix : r.prefix)}</code><button class="icon-btn sm" data-unallow="${i}" title="Ask again for these">${icon("x")}</button></span>`).join(" ") : "Nothing. Tick “always allow” when approving a command to skip asking for it in this session."}</div>
@@ -1086,7 +1086,7 @@ function renderMemory() {
     <div class="group-head" style="padding-left:2px">Skills</div>
     ${(w?.skills || []).map((s) => `<div class="hint" style="margin:3px 0"><b class="mono" style="color:var(--fg-2)">${esc(s.name)}</b> — ${esc(s.description)}</div>`).join("") || `<div class="hint">—</div>`}
     <div class="group-head" style="padding-left:2px">Steering (always on)</div>
-    <div class="hint">${w?.instructions ? `<pre class="mono" style="white-space:pre-wrap;margin:0;font-size:11.5px">${esc(w.instructions)}</pre>` : "None yet."} <a href="#" id="memSteering">Manage in the Steering view</a></div>`;
+    <div class="hint">${w?.instructions ? `<pre class="mono" style="white-space:pre-wrap;margin:0;font-size:var(--fs-sm)">${esc(w.instructions)}</pre>` : "None yet."} <a href="#" id="memSteering">Manage in the Steering view</a></div>`;
   $("#memSteering") && ($("#memSteering").onclick = (e) => { e.preventDefault(); setView("steering"); });
   renderUsage(state.usage);
   $("#allowList").onclick = async (e) => {
@@ -1112,7 +1112,7 @@ function renderUsage(u) {
   const tot = rows.reduce((a, r) => a + (r.input || 0) + (r.output || 0), 0);
   $("#sbTokens").textContent = `${fmtTok(tot)} tokens${costText(u)}`; $("#sbTokens").title = costTip(u);
   const el = $("#usageTable"); if (!el) return;
-  el.innerHTML = (rows.length ? rows.map((r) => `<div class="mono" style="font-size:11.5px">${esc(shortModel(r.model))}: ${r.calls} calls · in ${fmtTok(r.input)} · out ${fmtTok(r.output)}${r.cache_read ? ` · cache ${fmtTok(r.cache_read)}` : ""}${costCell(r, u)}</div>`).join("") : "—") + costFooter(u);
+  el.innerHTML = (rows.length ? rows.map((r) => `<div class="mono" style="font-size:var(--fs-sm)">${esc(shortModel(r.model))}: ${r.calls} calls · in ${fmtTok(r.input)} · out ${fmtTok(r.output)}${r.cache_read ? ` · cache ${fmtTok(r.cache_read)}` : ""}${costCell(r, u)}</div>`).join("") : "—") + costFooter(u);
 }
 const ctxPct = (c) => (c && c.budget ? Math.min(100, Math.round((c.tokens / c.budget) * 100)) : 0);
 const ctxClass = (c) => { const p = ctxPct(c) / 100; return !c ? "" : p >= c.compact_at ? "high" : p >= c.prune_at ? "mid" : ""; };
