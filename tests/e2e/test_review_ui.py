@@ -167,3 +167,19 @@ def test_a_double_click_on_apply_sends_one_request(page, server, session):
     held[0].continue_()
     page.locator("#transcript .card.prop .status.applied").wait_for()
     assert (server.repo / "agent/core.py").read_text().count("a + b") == 1
+
+
+def test_writing_instead_of_approving_keeps_an_attached_screenshot(page, server, session, tmp_path):
+    import base64
+    open_app(page)
+    send(page, "a long command please")  # a command waits for approval
+    page.locator("#reviewBar .rb-approval").wait_for()
+    (tmp_path / "shot.png").write_bytes(base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="))
+    page.set_input_files("#imgFile", str(tmp_path / "shot.png"))
+    page.locator("#attachTray img").wait_for()
+    send(page, "don't run that; look at this screenshot")
+    wait_idle(page)
+    page.locator("#transcript img[src^='/api/images/']").first.wait_for()  # shown in the chat
+    sent = server.llm.calls[-1]["messages"][-1]["content"]
+    assert any("image" in b for b in sent) and any("toolResult" in b for b in sent)  # with the decline

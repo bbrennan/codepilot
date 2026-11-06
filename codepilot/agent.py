@@ -264,9 +264,11 @@ class Agent:
         self._cancelled.discard(session_id)
         if sess.pending:
             # Like Claude Code: writing instead of approving declines the waiting call(s), and your message goes
-            # to the model with that decision.
+            # to the model with that decision, with everything it carries (images, @files, a skill, steering).
             yield {"type": "notice", "message": "Declined the waiting command; your message goes to codepilot instead."}
-            yield from self.resume(session_id, approve=False, feedback=text)
+            root = self._ctx(sess).root
+            extra = yield from self._attachments(session_id, root, text, pasted)
+            yield from self.resume(session_id, approve=False, feedback=text, attachments=extra)
             return
         if tier and tier != sess.tier:
             self.store.update_session(session_id, tier=tier)
@@ -276,27 +278,8 @@ class Agent:
             return
         if not sess.title:
             self.store.update_session(session_id, title=text.strip().splitlines()[0][:80])
-        content = [{"text": text}]
         root = self._ctx(sess).root
-        slash = skills.slash_command(text, root, self.cfg.home)
-        if slash:
-            skill, rest = slash
-            intro = f"The user invoked the /{skill.name} skill{': ' + rest if rest else ''}."
-            content.append({"text": f'<skill name="{skill.name}">\n{intro} Follow these instructions:\n\n'
-                                    f"{skill.body}\n</skill>"})
-            yield {"type": "skill", "name": skill.name}
-        block, labels = mentions.attachment_block(root, text)
-        if block:
-            content.append({"text": block})
-            yield {"type": "attached", "paths": labels}
-        linked, problems = images.from_message(text, root)
-        shown = [(b, "pasted") for b in (pasted or [])] + linked
-        for problem in problems:
-            yield {"type": "notice", "message": f"Couldn't attach image {problem}"}
-        if shown:
-            content += [b for b, _ in shown][:images.MAX_PER_MESSAGE]
-            yield {"type": "attached_images", "images": [{"url": images.save(self.cfg.home, b), "source": src}
-                                                         for b, src in shown[:images.MAX_PER_MESSAGE]]}
+        content = [{"text": text}, *(yield from self._attachments(session_id, root, text, pasted, steering=False))]
         started = self._spec_for_message(session_id, root, text)
         if started:
             yield started
@@ -320,6 +303,36 @@ class Agent:
             mid = self.store.add_message(session_id, "user", content)
         yield {"type": "turn", "mid": mid}
         yield from self._loop(session_id)
+
+    def _attachments(self, session_id: str, root: Path | None, text: str, pasted: list[dict] | None,
+                     steering: bool = True) -> Generator[dict, None, list[dict]]:
+        """What a message carries besides its text: an invoked /skill, @file contents, images (pasted, linked or
+        named) and, unless the caller adds it later, steering it asks for. Yields the chat's events for them."""
+        blocks = []
+        slash = skills.slash_command(text, root, self.cfg.home)
+        if slash:
+            skill, rest = slash
+            intro = f"The user invoked the /{skill.name} skill{': ' + rest if rest else ''}."
+            blocks.append({"text": f'<skill name="{skill.name}">\n{intro} Follow these instructions:\n\n'
+                                   f"{skill.body}\n</skill>"})
+            yield {"type": "skill", "name": skill.name}
+        block, labels = mentions.attachment_block(root, text)
+        if block:
+            blocks.append({"text": block})
+            yield {"type": "attached", "paths": labels}
+        linked, problems = images.from_message(text, root)
+        shown = [(b, "pasted") for b in (pasted or [])] + linked
+        for problem in problems:
+            yield {"type": "notice", "message": f"Couldn't attach image {problem}"}
+        if shown:
+            blocks += [b for b, _ in shown][:images.MAX_PER_MESSAGE]
+            yield {"type": "attached_images", "images": [{"url": images.save(self.cfg.home, b), "source": src}
+                                                         for b, src in shown[:images.MAX_PER_MESSAGE]]}
+        guide = self._message_steering(session_id, root, text) if steering else None
+        if guide:
+            blocks.append({"text": guide[0]})
+            yield {"type": "steering", "names": guide[1]}
+        return blocks
 
     # -- specs ----------------------------------------------------------------------------------
 
@@ -562,7 +575,9 @@ class Agent:
                                   title=f"{(old.title or 'Session')[:60]} (continued)")
         return new.id
 
-    def resume(self, session_id: str, approve: bool, remember: bool = False, feedback: str = "") -> Iterator[dict]:
+    def resume(self, session_id: str, approve: bool, remember: bool = False, feedback: str = "",
+               attachments: list[dict] | None = None) -> Iterator[dict]:
+        """`feedback`: a message written instead of approving, and `attachments`, what it carries."""
         sess = self.store.get_session(session_id)
         self._cancelled.discard(session_id)
         pending = sess.pending
@@ -591,7 +606,8 @@ class Agent:
         self.store.update_session(session_id, pending=None)
         ordered = _order_results(pending["order"], results)
         yield from self._remind(session_id, ctx.root, ordered)
-        self.store.add_message(session_id, "user", ordered + ([{"text": feedback}] if feedback else []))
+        self.store.add_message(session_id, "user", ordered + ([{"text": feedback}, *(attachments or [])]
+                                                              if feedback else []))
         yield from self._loop(session_id)
         yield from self._drain_queue_turns(session_id)
 
