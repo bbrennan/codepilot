@@ -394,3 +394,141 @@ def test_the_source_list_is_capped(cfg, store, repo):
     for i in range(30):
         list(agent._note_taint(sess.id, {"name": "library_docs", "input": {"library": f"lib{i}"}}, False))
     assert len(_taint(store, sess.id)) == 20
+
+
+# -- a tool call always gets a result, so a session never gets stuck ------------------------------------------------
+
+
+def _answered(messages):
+    """Every tool call in a request has its result: providers reject a conversation where one doesn't."""
+    uses = {b["toolUse"]["toolUseId"] for m in messages for b in m["content"] if "toolUse" in b}
+    results = {b["toolResult"]["toolUseId"] for m in messages for b in m["content"] if "toolResult" in b}
+    return uses - results == set()
+
+
+def test_a_github_call_with_an_unbalanced_quote_is_an_error_the_model_can_fix(cfg, store, repo, monkeypatch):
+    from codepilot import github
+    monkeypatch.setattr(github, "available", lambda: True)
+    llm = FakeLLM([[tool_use("t1", "github", args='pr comment 5 --body "it\'s fine')], [{"text": "fixed the quoting"}],
+                   [{"text": "ok"}]])
+    agent = Agent(replace(cfg, github=True), store, llm=llm)
+    sess = store.create_session(str(repo), "main")
+    events = list(agent.chat(sess.id, "comment on PR 5"))
+    result = next(e for e in events if e["type"] == "tool_result")
+    assert result["is_error"] and "quot" in result["output"]
+    assert types(events)[-1] == "done" and len(llm.calls) == 2  # the turn went on, with the error in front of the model
+    list(agent.chat(sess.id, "thanks"))
+    assert _answered(llm.calls[-1]["messages"])
+
+
+def test_an_unexpected_error_in_a_tool_becomes_its_result(cfg, store, repo):
+    llm = FakeLLM([[tool_use("t1", "list_files")], [{"text": "carrying on"}]])
+    agent = Agent(cfg, store, llm=llm)
+
+    def broken(ctx, **kwargs):
+        raise RuntimeError("a bug in the tool")
+
+    agent.tools["list_files"].fn = broken
+    sess = store.create_session(str(repo), "main")
+    events = list(agent.chat(sess.id, "list the files"))
+    result = next(e for e in events if e["type"] == "tool_result")
+    assert result["is_error"] and "a bug in the tool" in result["output"]
+    assert types(events)[-1] == "done" and _answered(llm.calls[-1]["messages"])
+
+
+def _interrupted(store, repo, *follow_ups):
+    """A session as a restart mid-command leaves it: the call stored, its result never, maybe messages after it."""
+    sess = store.create_session(str(repo), "main")
+    store.add_message(sess.id, "user", [{"text": "run the long build"}])
+    store.add_message(sess.id, "assistant", [{"text": "Building."}, tool_use("t1", "run_command", command="make all")])
+    for text in follow_ups:  # stored before the provider rejected them
+        store.add_message(sess.id, "user", [{"text": text}])
+    return sess
+
+
+def test_a_call_left_unanswered_by_a_restart_gets_a_result_before_the_next_message(cfg, store, repo):
+    sess = _interrupted(store, repo)
+    llm = FakeLLM([[{"text": "It didn't finish; shall I run it again?"}], [{"text": "ok"}]])
+    agent = Agent(cfg, store, llm=llm)  # a new process: the turn that made t1 is gone
+    events = list(agent.chat(sess.id, "what happened?"))
+    sent = llm.calls[0]["messages"]
+    assert _answered(sent) and [m["role"] for m in sent] == ["user", "assistant", "user"]
+    assert "toolResult" in sent[2]["content"][0]  # results lead the message, as providers require
+    # The card in the chat stops spinning: it gets its result, once, with one notice.
+    assert [e["id"] for e in events if e["type"] == "tool_result"] == ["t1"]
+    assert any(e["type"] == "notice" and "run_command" in e["message"] for e in events)
+    events = list(agent.chat(sess.id, "run it again"))
+    assert not any(e["type"] in ("tool_result", "notice") for e in events) and _answered(llm.calls[1]["messages"])
+
+
+def test_a_session_stuck_with_messages_after_the_unanswered_call_recovers(cfg, store, repo):
+    sess = _interrupted(store, repo, "hello?", "why does every message fail?")
+    llm = FakeLLM([[{"text": "Back now."}]])
+    events = list(Agent(cfg, store, llm=llm).chat(sess.id, "try again"))
+    assert types(events)[-1] == "done" and _answered(llm.calls[0]["messages"])
+    redrawn = [e for e in history_events(store, sess.id) if e["type"] == "user"]
+    assert "mid" in redrawn[1] and redrawn[1]["text"] == "hello?"  # your messages stay ones you can edit or retry
+
+
+def test_a_redrawn_session_shows_the_interrupted_call_as_not_run(cfg, store, repo):
+    sess = _interrupted(store, repo)
+    events = history_events(store, sess.id)
+    result = next(e for e in events if e["type"] == "tool_result")
+    assert result["id"] == "t1" and result["is_error"] and "Not run" in result["output"]
+
+
+def test_after_external_content_a_github_call_with_bad_quoting_is_an_error_not_an_approval(cfg, store, repo, monkeypatch):
+    from codepilot import github
+    monkeypatch.setattr(github, "available", lambda: True)
+    llm = FakeLLM([[tool_use("t1", "github", args='issue comment 3 --body "it\'s fine')], [{"text": "fixed it"}]])
+    agent = Agent(replace(cfg, github=True), store, llm=llm)
+    sess = store.create_session(str(repo), "main")
+    store.update_session(sess.id, context_state={"taint": [{"tool": "web_fetch", "detail": "fetch example.com"}]})
+    events = list(agent.chat(sess.id, "comment on issue 3"))
+    assert "approval_needed" not in types(events)
+    assert next(e for e in events if e["type"] == "tool_result")["is_error"]
+
+
+# -- a restart keeps each session's frozen system prompt ------------------------------------------------------------
+
+ONE_TURN_IN_A_NEW_PROCESS = """
+import json, sys
+from dataclasses import replace
+from pathlib import Path
+from fakes import FakeLLM
+from codepilot.agent import Agent
+from codepilot.config import Config
+from codepilot.store import Store
+
+home, sid, text = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+cfg = replace(Config.from_env(), provider="bedrock", home=home, trace_dirs=[], log_groups=[], context_tokens=None)
+llm = FakeLLM([[{"reasoningContent": {"reasoningText": {"text": "thinking", "signature": "sig-" + text}}},
+                {"text": "ok"}]])
+list(Agent(cfg, Store(home), llm=llm).chat(sid, text))
+sent = llm.calls[0]
+print(json.dumps({"system": sent["system"],
+                  "reasoning": sum("reasoningContent" in b for m in sent["messages"] for b in m["content"])}))
+"""
+
+
+def test_a_restart_keeps_the_system_prompt_and_earlier_reasoning(cfg, store, repo):
+    """Each turn runs in its own process, as after `make restart`. Python salts str hashes per process, so anything
+    hash()-based in the prompt's key would rebuild the prompt (a cache miss) and strip every reasoning block."""
+    import json
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    sess = store.create_session(str(repo), "main")
+    store.update_session(sess.id, summary="SUMMARY: earlier work")  # compacted once, as long sessions are
+
+    def turn(text, seed):
+        env = {**os.environ, "PYTHONHASHSEED": seed, "PYTHONPATH": str(Path(__file__).parent)}
+        out = subprocess.run([sys.executable, "-c", ONE_TURN_IN_A_NEW_PROCESS, str(cfg.home), sess.id, text],
+                             capture_output=True, text=True, env=env, cwd=repo, check=True).stdout
+        return json.loads(out.strip().splitlines()[-1])
+
+    first, second = turn("one", "1"), turn("two", "2")
+    assert second["system"] == first["system"]
+    assert second["reasoning"] == 1  # the first turn's reasoning is still there to replay

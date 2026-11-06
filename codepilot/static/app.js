@@ -136,24 +136,6 @@ $("#themeBtn").onclick = () => {
   document.documentElement.dataset.theme = next; store("cp-theme", next);
   for (const v of terms.views.values()) v.xterm.options.theme = termTheme();
 };
-function makeResizer(el, varName, axis, min, max, invert) {
-  el.addEventListener("mousedown", (e) => {
-    e.preventDefault(); el.classList.add("drag");
-    const start = axis === "x" ? e.clientX : e.clientY;
-    const startVal = parseFloat(getComputedStyle(ide).getPropertyValue(varName));
-    const move = (ev) => {
-      const delta = (axis === "x" ? ev.clientX : ev.clientY) - start;
-      const v = Math.max(min, Math.min(max, startVal + (invert ? -delta : delta)));
-      ide.style.setProperty(varName, v + "px");
-    };
-    const up = () => { el.classList.remove("drag"); document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); store("cp" + varName, ide.style.getPropertyValue(varName)); };
-    document.addEventListener("mousemove", move); document.addEventListener("mouseup", up);
-  });
-}
-makeResizer($("#sidebarResizer"), "--sidebar-w", "x", 180, 560, false);
-makeResizer($("#chatResizer"), "--chat-w", "x", 300, 820, true);
-makeResizer($("#panelResizer"), "--panel-h", "y", 90, 640, true);
-
 // bottom panel tabs
 $(".panel-tabs").addEventListener("click", (e) => {
   const b = e.target.closest("[data-ptab]"); if (!b) return;
@@ -171,8 +153,8 @@ $("#clearActivity").onclick = () => { $("#activity").innerHTML = ""; state.activ
 // ---------------------------------------------------------------- init
 async function init() {
   const theme = store("cp-theme"); if (theme) document.documentElement.dataset.theme = theme;
-  for (const v of ["--sidebar-w", "--chat-w", "--panel-h"]) { const s = store("cp" + v); if (s) ide.style.setProperty(v, s); }
   for (const c of ["no-sidebar", "no-panel", "no-chat"]) if (store("cp-" + c) === "1") ide.classList.add(c);
+  initLayout(); // layout.js: saved pane sizes, fitted to this window
   hydrateIcons(); renderQuick(); // before the first await, so the composer doesn't change height after first paint
   state.cfg = await api("/api/config");
   const c = state.cfg;
@@ -886,9 +868,18 @@ function decideApproval(approve) {
   if (row) { row.classList.remove("waiting"); row.classList.add(approve ? "approved" : "denied"); row.innerHTML = `${icon(approve ? "check" : "x")}<span>${approve ? "Approved" : "Denied"}: ${tools.map((t) => `<code>${esc(t.command)}</code>`).join(", ")}${remember ? ` · always allowed <code>${esc(tools[0].allow.prefix)}</code> this session` : ""}</span>`; }
   streamTo(state.sid, `/api/sessions/${state.sid}/approve`, { approve, remember });
 }
+// Changes with a request on its way. A second click, a held key or Apply all must not send another: the first may
+// still be writing the file. null means "already on its way", so the caller does nothing.
+const proposalsInFlight = new Set();
+async function proposalRequest(id, action) {
+  if (proposalsInFlight.has(+id)) return null;
+  proposalsInFlight.add(+id);
+  try { return await api(`/api/proposals/${id}/${action}`, { method: "POST" }); } finally { proposalsInFlight.delete(+id); }
+}
 async function proposalAction(p, action) {
   try {
-    const r = await api(`/api/proposals/${p.id}/${action}`, { method: "POST" }); state.proposals.set(r.id, r);
+    const r = await proposalRequest(p.id, action); if (!r) return false;
+    state.proposals.set(r.id, r);
     for (const o of r.outdated || []) { state.proposals.set(o.id, o); refreshProposalViews(o.id); }
     if (action === "apply" && r.checks) activity("error", "checks", r.path, r.checks);
     return true;
@@ -1033,7 +1024,9 @@ document.addEventListener("click", async (e) => {
   const id = ap.dataset.apply || ap.dataset.reject || ap.dataset.revert;
   const action = ap.dataset.apply ? "apply" : ap.dataset.reject ? "reject" : "revert";
   try {
-    const p = await api(`/api/proposals/${id}/${action}`, { method: "POST" }); state.proposals.set(p.id, p);
+    ap.disabled = true;
+    const p = await proposalRequest(id, action); if (!p) return;
+    state.proposals.set(p.id, p);
     for (const o of p.outdated || []) { state.proposals.set(o.id, o); refreshProposalViews(o.id); } // older versions of it
     toast({ apply: `Applied #${p.id} to ${p.path}`, reject: `Rejected #${p.id}`, revert: `Undid #${p.id}; ${p.path} restored` }[action]);
     if (action === "apply" && p.checks) { toast(`Checks found issues in ${p.path}; codepilot will see them next turn`, true); activity("error", "checks", p.path, p.checks); }
@@ -1435,6 +1428,7 @@ function updateBusy() {
   input.placeholder = busy ? `Working… Enter queues a message to run after · ${isMac ? "⌘" : "Ctrl+"}Enter steers it now` : state.placeholder || input.placeholder;
   $("#sendBtn").hidden = busy; $("#stopBtn").hidden = !busy; $("#steerBtn").hidden = $("#queueBtn").hidden = !busy;
   $("#sbBusy").innerHTML = busy ? '<span class="spinner"></span>working…' : "";
+  window.renderPinnedPlan?.(); // plan.js: the plan spins only while a turn runs
 }
 // body === null follows a turn that's already running (the page was opened or reloaded while it ran).
 async function streamTo(sid, url, body) {

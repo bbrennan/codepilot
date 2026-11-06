@@ -413,6 +413,10 @@ a.loc:hover { text-decoration: underline; }
 .plan .box { width: 12px; height: 12px; border-radius: 3px; border: 1.5px solid var(--line-2); flex: none; position: relative; top: 2px; }
 .plan .it.done .box { background: var(--ok); border-color: var(--ok); }
 .plan .it.doing .box { border-color: var(--accent); background: var(--accent-soft); }
+.plan .it .spinner { width: 12px; height: 12px; position: relative; top: 2px; }
+.plan-head .plan-status { color: var(--fg-2); }
+.plan-head .plan-status.paused { color: var(--warn); font-weight: 600; }
+.plan-acts { display: flex; gap: 6px; padding: 0 0 6px 18px; }
 .composer-box { border: 1px solid var(--line-2); border-radius: 10px; background: var(--bg-2); padding: 8px 8px 6px 10px; }
 .composer-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 .composer-box.drop { border-color: var(--accent); border-style: dashed; }

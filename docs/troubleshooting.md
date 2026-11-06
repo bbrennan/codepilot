@@ -78,12 +78,16 @@ Start with `make doctor`. It tests each piece and prints the fix for most proble
 | "At most 12 terminals can run at once" | Kill some from the Terminal menu (**Kill All Terminals**) |
 | A terminal shows "Exited with code N" | The shell ended with an error; read the output, then press any key to close it or click **Restart** |
 | `This session is already working` | A turn is still running in that session; wait or press Stop |
+| "An earlier step (…) was interrupted before it finished" | codepilot restarted or stopped while a step ran. Its card says **Not run**, the model is told it may not have happened, and the conversation carries on. Check what that step was meant to do |
+| A step's result says "Internal error in …" | A bug in codepilot, not your input; the turn carried on. Please report it (**?** → **Report a problem**) |
+| Every message in one session fails with "tool_use ids were found without tool_result" | Fixed: older versions left a session like this after a crash. Update (`git pull && make restart`) and send any message; the session recovers, including messages you sent while it was stuck |
 | `A tool call is waiting for approval` | Scroll the chat to the approval card and Approve or Deny |
 | Terminal says "Refused: reload the page" | The server restarted, so the page's terminal token is stale (and its shells ended); reload the page |
 | Terminal says "disabled" | `CODEPILOT_TERMINAL=0` is set |
 | `github off` in the status bar | `gh auth login` (or `CODEPILOT_GITHUB=0` to hide it) |
 | No test command detected | Set `CODEPILOT_TEST_CMD`, or tell codepilot in chat how to run the tests |
 | No traces listed | Traces must be `.json`, `.jsonl`, `.ndjson`, `.log` or `.txt` in a `traces/`, `logs/`, `results/` or `eval_results/` folder, or in `CODEPILOT_TRACE_DIRS` |
+| "… isn't UTF-8 text (perhaps Latin-1 or Windows-1252)" | codepilot only changes UTF-8 files: writing a Latin-1 file back as UTF-8 would corrupt characters such as `é`. That goes for proposals, Apply and the editor's Save, which refuse rather than corrupt the file. To convert it once, first confirm its encoding (your other editor's status bar shows it; `file -I old.py` is only a guess). Latin-1 and Windows-1252 differ in `€` and curly quotes, and the wrong one still gives valid UTF-8, so the damage would go unnoticed. Then `iconv -f windows-1252 -t utf-8 old.py > new.py` (or `-f latin1`), check `new.py`, and replace the original. Or edit it in an editor that keeps its encoding |
 | Apply says the file changed since the proposal | You (or a tool) edited the file after the proposal was made; ask codepilot to re-propose |
 | Undo refused | The file changed after the change was applied; undo by hand or ask codepilot |
 | Context meter near 100% | It clears old tool outputs at 60% and summarises at 80% automatically; click the meter (or `/compact`) to compact now; for a new topic, use Memory → Continue in new session |

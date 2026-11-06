@@ -44,7 +44,9 @@
   session's memory is, and tokens used.
 
 All panes resize by dragging their edges. The layout (sizes, hidden panes, the open sidebar view and
-bottom-panel tab) and the theme are remembered per browser.
+bottom-panel tab) and the theme are remembered per browser. Sizes always fit the window: when it gets smaller (say
+a laptop leaves its external monitor), the sidebar, chat and bottom panel shrink so the editor and the message box
+stay on screen, and your sizes come back when the window is big again.
 
 ## Start working on a folder
 
@@ -195,7 +197,13 @@ finishes or needs your approval (your browser asks permission the first time).
 **Stop:** the stop button halts a running turn at the next safe point.
 
 **The plan.** For multi-step work codepilot keeps a checklist, pinned above the message box with its progress
-("Plan · 2 of 5 done"). Click its header to fold it to that one line. A plan never just disappears:
+("Plan · 2 of 5 done"). Click its header to fold it to that one line. It says what's really happening:
+- while codepilot works, the step in progress spins (and only then);
+- while a command waits for you, it says **Waiting for your approval**;
+- if a turn ends with steps left, it says **Paused at step 3 of 5**, with **Continue** (asks codepilot to carry on from
+  that step) and **Dismiss** (puts the plan away, as a card in the chat; codepilot is told not to carry on with it).
+
+A plan never just disappears:
 - when every step is done it shows **✓ Plan complete**, and a card with the finished list stays in the chat;
 - when codepilot starts a different plan, or clears it, the old one becomes a **Plan replaced** card at that point,
   with the steps that weren't done still listed.
@@ -236,7 +244,9 @@ one is also a single line in the chat; click it to see its diff.
 - **Apply** writes it. codepilot then checks the file's syntax (and runs ruff on Python files, if
   installed) and tells the assistant what it found.
 - **Reject** discards it. The assistant is told on your next message.
-- **Undo** (on applied changes) restores the file exactly, as long as it hasn't changed since. To undo every
+- **Undo** (on applied changes) restores the file exactly, as long as it hasn't changed since.
+- Changes, Undo and the editor's **Save** keep a file's line endings: a Windows-style (`\r\n`) file stays that way, so
+  git shows only the lines that changed. To undo every
   change from one message onwards at once, use ↶ on that message (see [Talking to it](#talking-to-it)).
 
 Changes only wait while they can still be applied. One that can't be applied any more stops waiting, and
@@ -289,7 +299,9 @@ Approvals appear in the same **review bar** above the message box, with the exac
 A pending approval is still there after a page reload.
 
 **Always allow … in this session** (under the command) skips asking for commands that start the same way,
-such as `pytest`, `npm test` or `make eval-bedrock`, until the session ends. It's never offered for commands
+such as `pytest`, `npm test` or `make eval-bedrock`, until the session ends. For an interpreter it keeps the script:
+approving `python scripts/check.py` allows that script (with any arguments), not every `python …`, and `python -m pytest`
+allows that module. Inline code (`python -c`, `node -e`, `bash -c`) is never always allowed. It's never offered for commands
 that chain or redirect (`;`, `&&`, `|`, `$( )`, `>`), and those always ask even when they start with an
 allowed prefix. It's also never offered for `rm`, `sudo`, `git`, `curl` and similar, or for anything destructive
 (`terraform destroy`, `kubectl delete`, ...), which also gets a red warning. **Memory → Always allowed in this

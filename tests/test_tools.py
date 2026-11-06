@@ -310,3 +310,72 @@ def test_an_applied_manifest_change_warns_too(ctx, repo, cfg, monkeypatch):
     ctx.cfg = replace(cfg, auto_apply_edits=True)
     msg = propose_edit(ctx, "requirements.txt", "", "reqeusts\n", "")
     assert "Applied change" in msg and "`reqeusts` is not on PyPI" in msg
+
+
+# -- a file's line endings survive a change -------------------------------------------------------------------------
+
+WINDOWS = b"def add(a, b):\r\n    return a - b\r\n\r\n\r\ndef sub(a, b):\r\n    return a - b\r\n"
+
+
+def _apply_last(ctx):
+    p = ctx.store.list_proposals(ctx.session_id)[-1]
+    before, after = apply_proposal(ctx.root, p)
+    ctx.store.record_applied(p.id, before, after)
+    return ctx.store.get_proposal(p.id)
+
+
+def test_a_change_to_a_windows_file_keeps_its_line_endings_and_undo_restores_it_exactly(ctx):
+    from codepilot.tools import revert_proposal
+    path = ctx.root / "agent" / "core.py"
+    path.write_bytes(WINDOWS)
+    # The model read the file with \n line endings, so that's what it quotes and writes.
+    assert "Proposed" in propose_edit(ctx, "agent/core.py", "def add(a, b):\n    return a - b",
+                                      "def add(a, b):\n    # add, don't subtract\n    return a + b")
+    applied = _apply_last(ctx)
+    data = path.read_bytes()
+    assert b"# add, don't subtract\r\n    return a + b\r\n" in data
+    assert b"def sub(a, b):\r\n    return a - b\r\n" in data
+    assert data.count(b"\n") == data.count(b"\r\n")  # every line, the new ones too
+    revert_proposal(ctx.root, applied)
+    assert path.read_bytes() == WINDOWS  # exactly as it was
+
+
+def test_a_file_with_mixed_line_endings_changes_only_where_it_was_edited(ctx):
+    path = ctx.root / "notes.txt"
+    path.write_bytes(b"one\r\ntwo\r\nthree\nfour\r\n")
+    propose_edit(ctx, "notes.txt", "two", "TWO")
+    _apply_last(ctx)
+    assert path.read_bytes() == b"one\r\nTWO\r\nthree\nfour\r\n"
+
+
+def test_a_windows_file_change_shows_a_clean_diff_and_stays_applicable(ctx):
+    from codepilot.tools import retire_stale_proposals
+    (ctx.root / "agent" / "core.py").write_bytes(WINDOWS)
+    propose_edit(ctx, "agent/core.py", "    return a - b\n\n\ndef sub", "    return a + b\n\n\ndef sub")
+    diff = next(e for e in ctx.events if e["type"] == "proposal")["proposal"]["diff"]
+    assert "+    return a + b" in diff and "\r" not in diff
+    assert retire_stale_proposals(ctx.store, ctx.session_id, ctx.root) == []
+
+
+def test_undo_from_a_checkpoint_sees_a_windows_file_as_unchanged(ctx):
+    from codepilot import checkpoints
+    (ctx.root / "agent" / "core.py").write_bytes(WINDOWS)
+    propose_edit(ctx, "agent/core.py", "return a - b\n\n\ndef sub", "return a + b\n\n\ndef sub")
+    applied = _apply_last(ctx)
+    assert checkpoints.preview(ctx.root, [applied])[0].ok
+
+
+# -- files that aren't UTF-8 ----------------------------------------------------------------------------------------
+
+LATIN1 = "# café\nx = 1\n".encode("latin-1")
+
+
+def test_a_change_to_a_file_that_isnt_utf8_is_refused_with_a_reason(ctx):
+    (ctx.root / "legacy.py").write_bytes(LATIN1)
+    with pytest.raises(ToolError, match="UTF-8") as refused:
+        propose_edit(ctx, "legacy.py", "x = 1", "x = 2")
+    assert ctx.store.list_proposals(ctx.session_id) == [] and (ctx.root / "legacy.py").read_bytes() == LATIN1
+    # Latin-1 and Windows-1252 differ in € and curly quotes, and the wrong guess still makes valid UTF-8: the model
+    # must confirm the encoding before converting, not assume one.
+    hint = str(refused.value)
+    assert "confirm" in hint.lower() and "-f latin1" not in hint
