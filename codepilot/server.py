@@ -871,8 +871,13 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             base_mtime = data.get("base_mtime")
             if base_mtime and str(path.stat().st_mtime_ns) != str(base_mtime) and not data.get("force"):
                 raise FileOpError(f"{rel} changed on disk since you opened it.", 409)
+            try:
+                current = textfile.read(path)
+            except textfile.NotUTF8 as exc:  # the editor shows it with \ufffd: saving would make that permanent
+                raise FileOpError(f"{exc}. Saving would replace the characters UTF-8 can't read, so it wasn't saved; "
+                                  "edit it in an editor that keeps its encoding.", 409) from None
             # The editor works in "\n" (as a textarea does): write it back in the file's own line endings.
-            textfile.write(path, textfile.like(str(data.get("content") or ""), textfile.read(path, errors="replace")))
+            textfile.write(path, textfile.like(str(data.get("content") or ""), current))
             return {"path": rel, "mtime": str(path.stat().st_mtime_ns)}
         raise FileOpError(f"Unknown operation: {op}")
 
