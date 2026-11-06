@@ -44,7 +44,9 @@
   session's memory is, and tokens used.
 
 All panes resize by dragging their edges. The layout (sizes, hidden panes, the open sidebar view and
-bottom-panel tab) and the theme are remembered per browser.
+bottom-panel tab) and the theme are remembered per browser. Sizes always fit the window: when it gets smaller (say
+a laptop leaves its external monitor), the sidebar, chat and bottom panel shrink so the editor and the message box
+stay on screen, and your sizes come back when the window is big again.
 
 ## Start working on a folder
 
