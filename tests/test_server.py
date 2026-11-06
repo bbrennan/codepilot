@@ -449,3 +449,18 @@ def test_dismissing_the_plan(cfg, store, repo):
     assert resp.status_code == 200 and resp.json()["dismissed"] and resp.json()["retired"]["progress"] == [1, 2]
     events = client.get(f"/api/sessions/{sid}").json()["events"]
     assert [e for e in events if e["type"] == "plan"][-1]["dismissed"]
+
+
+def test_applying_to_a_file_that_is_no_longer_utf8_fails_cleanly(cfg, store, repo):
+    from codepilot import tools
+    root = repo.resolve()
+    sess = store.create_session(str(root), "main")
+    tools.propose_edit(tools.ToolContext(root=root, cfg=cfg, store=store, session_id=sess.id),
+                       "agent/core.py", "a - b", "a + b")
+    pid = store.list_proposals(sess.id)[-1].id
+    legacy = "# café\ndef add(a, b):\n    return a - b\n".encode("latin-1")  # re-saved by another editor
+    (root / "agent/core.py").write_bytes(legacy)
+    client = TestClient(create_app(replace(cfg, terminal=False), store, Agent(cfg, store, llm=FakeLLM([]))))
+    resp = client.post(f"/api/proposals/{pid}/apply", headers=H)
+    assert resp.status_code == 409 and "UTF-8" in resp.json()["error"]
+    assert store.get_proposal(pid).status == "failed" and (root / "agent/core.py").read_bytes() == legacy

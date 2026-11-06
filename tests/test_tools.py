@@ -363,3 +363,15 @@ def test_undo_from_a_checkpoint_sees_a_windows_file_as_unchanged(ctx):
     propose_edit(ctx, "agent/core.py", "return a - b\n\n\ndef sub", "return a + b\n\n\ndef sub")
     applied = _apply_last(ctx)
     assert checkpoints.preview(ctx.root, [applied])[0].ok
+
+
+# -- files that aren't UTF-8 ----------------------------------------------------------------------------------------
+
+LATIN1 = "# café\nx = 1\n".encode("latin-1")
+
+
+def test_a_change_to_a_file_that_isnt_utf8_is_refused_with_a_reason(ctx):
+    (ctx.root / "legacy.py").write_bytes(LATIN1)
+    with pytest.raises(ToolError, match="UTF-8"):
+        propose_edit(ctx, "legacy.py", "x = 1", "x = 2")
+    assert ctx.store.list_proposals(ctx.session_id) == [] and (ctx.root / "legacy.py").read_bytes() == LATIN1

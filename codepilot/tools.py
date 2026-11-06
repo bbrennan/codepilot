@@ -495,7 +495,11 @@ def cloudwatch_logs(ctx: ToolContext, log_group: str, filter_pattern: str = "", 
 def propose_edit(ctx: ToolContext, path: str, old_text: str, new_text: str, reason: str = "") -> str:
     target = ctx.resolve(path, must_exist=False)
     if target.exists():
-        content = textfile.read(target, errors="replace")
+        try:
+            content = textfile.read(target)
+        except textfile.NotUTF8 as exc:
+            raise ToolError(f"{exc}, so it can't be changed without corrupting it. Tell the user; with their OK it "
+                            "can be converted first (e.g. `iconv -f latin1 -t utf-8`).") from None
         if old_text == "":
             raise ToolError("old_text is empty but the file exists; quote the exact text to replace")
         count, after = textfile.find(content, old_text, new_text)
@@ -710,7 +714,10 @@ def apply_proposal(root: Path, proposal) -> tuple[str | None, str]:
         target.parent.mkdir(parents=True, exist_ok=True)
         textfile.write(target, proposal.new_text)
         return None, proposal.new_text
-    content = textfile.read(target)
+    try:
+        content = textfile.read(target)
+    except textfile.NotUTF8 as exc:  # it changed to another encoding since the proposal
+        raise ToolError(f"{exc}, so the change wasn't applied: it would corrupt the file") from None
     count, after = textfile.find(content, proposal.old_text, proposal.new_text)
     if count != 1:
         raise ToolError(f"{proposal.path} changed since the proposal (old text found {count} times); ask for a new one")
