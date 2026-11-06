@@ -1,5 +1,6 @@
 # Per-million-token prices (USD) for `codepilot bench run --prices bench/prices.toml`.
-# Keys match any model id that contains them. Copy to bench/prices.toml and check current prices:
+# Keys match any model id that contains them; when several do ("claude-opus-5" and "claude-opus-5-5"), the longest
+# wins, whatever their order here. Copy to bench/prices.toml and check current prices:
 #   Anthropic API: https://www.anthropic.com/pricing
 #   Amazon Bedrock: https://aws.amazon.com/bedrock/pricing/  (differs from Anthropic's direct prices)
 #   OpenAI:        https://openai.com/api/pricing/

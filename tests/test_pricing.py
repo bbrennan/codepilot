@@ -34,6 +34,14 @@ def test_price_for_matches_keys_inside_the_model_id():
     assert pricing.price_for("gpt-9", PRICES) is None and pricing.price_for("x", None) is None
 
 
+@pytest.mark.parametrize("keys", [["claude-opus-5", "claude-opus-5-5"], ["claude-opus-5-5", "claude-opus-5"]])
+def test_the_most_specific_price_wins_whatever_order_the_file_lists_them(keys):
+    """One key can be part of another ("claude-opus-5" in "claude-opus-5-5"): the longer one is the right model."""
+    prices = {k: {"input": 15.0 if k == "claude-opus-5" else 5.0} for k in keys}
+    assert pricing.price_for("us.anthropic.claude-opus-5-5-20261101-v1:0", prices)["input"] == 5.0
+    assert pricing.price_for("anthropic.claude-opus-5-20260301-v1:0", prices)["input"] == 15.0
+
+
 def test_cost_counts_every_kind_of_token():
     r = row(input=1_000_000, output=100_000, cache_read=1_000_000, cache_write=1_000_000)
     assert pricing.cost(r, PRICES) == pytest.approx(2.0 + 1.0 + 0.2 + 2.5)
