@@ -597,6 +597,7 @@ details.card.prop[open] > summary { border-bottom: 1px solid var(--line); }
 .wait-row.waiting { color: var(--warn); }
 .wait-row.approved svg { color: var(--ok); } .wait-row.denied svg { color: var(--err); }
 .wait-row code { font-size: 11.5px; }
+.wait-row > span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } /* one line: the bar has the rest */
 .review { display: grid; grid-template-columns: minmax(200px, 280px) 1fr; flex: 1; min-height: 0; }
 .rv-list { border-right: 1px solid var(--line); overflow: auto; display: flex; flex-direction: column; }
 .rv-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px; font-size: 11px; font-weight: 650; letter-spacing: .5px; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--line); }

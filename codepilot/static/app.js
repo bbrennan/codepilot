@@ -870,13 +870,17 @@ function maybeResumeAfterReview() {
   add(`<div class="wait-row approved">${icon("refresh")}<span>Continuing after your review…</span></div>`);
   streamTo(sid, `/api/sessions/${sid}/chat`, { message: REVIEW_DONE, tier: selectedTier() });
 }
+// The chat keeps a one-line marker of a command waiting for approval: its first line, cut short. The whole command is
+// in the review bar, on hover, and in the tool card above.
+const cmdShort = (c) => { const all = String(c), first = all.split("\n")[0].slice(0, 80); return first === all ? first : `${first} …`; };
+const cmdCodes = (tools) => tools.map((t) => `<code>${esc(cmdShort(t.command))}</code>`).join(", ");
 function decideApproval(approve) {
   if (!state.approval || !state.sid) return;
   const remember = approve && !!$("#rbAllow")?.checked;
   const tools = state.approval.tools;
   state.approval = null; renderReviewBar();
   const row = $("#transcript .wait-row.waiting");
-  if (row) { row.classList.remove("waiting"); row.classList.add(approve ? "approved" : "denied"); row.innerHTML = `${icon(approve ? "check" : "x")}<span>${approve ? "Approved" : "Denied"}: ${tools.map((t) => `<code>${esc(t.command)}</code>`).join(", ")}${remember ? ` · always allowed <code>${esc(tools[0].allow.prefix)}</code> this session` : ""}</span>`; }
+  if (row) { row.classList.remove("waiting"); row.classList.add(approve ? "approved" : "denied"); row.innerHTML = `${icon(approve ? "check" : "x")}<span>${approve ? "Approved" : "Denied"}: ${cmdCodes(tools)}${remember ? ` · always allowed <code>${esc(tools[0].allow.prefix)}</code> this session` : ""}</span>`; }
   streamTo(state.sid, `/api/sessions/${state.sid}/approve`, { approve, remember });
 }
 // Changes with a request on its way. A second click, a held key or Apply all must not send another: the first may
@@ -1347,7 +1351,7 @@ function render(ev, replay) {
     case "approval_needed": {
       endText();
       $$("#transcript .wait-row.waiting").forEach((w) => w.remove());
-      add(`<div class="wait-row waiting">${icon("alert")}<span>Waiting for your approval: ${ev.tools.map((t) => `<code>${esc(t.command)}</code>`).join(", ")}</span><span class="muted">(see the bar below)</span></div>`);
+      add(`<div class="wait-row waiting" title="${esc(ev.tools.map((t) => t.command).join("\n\n"))}">${icon("alert")}<span>Waiting for your approval: ${cmdCodes(ev.tools)}</span></div>`);
       state.approval = { tools: ev.tools }; renderReviewBar();
       break;
     }
@@ -1528,7 +1532,7 @@ async function send(when = "after") {
   if (!state.sid) { try { await newSession(state.workspace); } catch (err) { toast(err.message, true); return; } }
   if (state.approval) { // writing instead of approving declines the waiting command (the server does the same)
     const row = $("#transcript .wait-row.waiting");
-    if (row) { row.classList.remove("waiting"); row.classList.add("denied"); row.innerHTML = `${icon("x")}<span>Declined (you wrote a message instead): ${state.approval.tools.map((t) => `<code>${esc(t.command)}</code>`).join(", ")}</span>`; }
+    if (row) { row.classList.remove("waiting"); row.classList.add("denied"); row.innerHTML = `${icon("x")}<span>Declined (you wrote a message instead): ${cmdCodes(state.approval.tools)}</span>`; }
     state.approval = null; renderReviewBar();
   }
   if ($("#input").value.trim() === text) $("#input").value = ""; // (not something typed since: see queueMessage)
