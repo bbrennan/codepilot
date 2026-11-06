@@ -136,7 +136,8 @@ class ScriptedLLM:
                     if "slow" in user_text:
                         time.sleep(0.5 if "very slow" in user_text else 0.15)
                     yield {"type": "text", "text": word}
-        sent = len(json.dumps(system)) + len(json.dumps(messages)) + len(json.dumps(tools or []))
+        size = lambda v: len(json.dumps(v, default=lambda b: f"<{len(b)} bytes>"))  # noqa: E731  (images are bytes)
+        sent = size(system) + size(messages) + size(tools or [])
         yield {"type": "message", "content": content,
                "stop_reason": "tool_use" if any("toolUse" in b for b in content) else "end_turn",
                "usage": {"inputTokens": sent // 3, "outputTokens": 40}}

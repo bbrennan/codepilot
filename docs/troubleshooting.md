@@ -72,7 +72,7 @@ Start with `make doctor`. It tests each piece and prints the fix for most proble
 | `address already in use` | Another codepilot is running, or something else uses the port: `codepilot status`; `codepilot stop` for a background one; otherwise `CODEPILOT_PORT=8766 make serve`, or stop the other one (`pkill -f "codepilot serve"`) |
 | Page loads but nothing works | Hard-reload the browser (an old cached UI); check the log (`codepilot logs`, or the terminal where `make serve` runs) |
 | The terminal fills with `HTTP Request: POST https://bedrock-…` or `Loading cached SSO token` | Older versions logged every request. Update (`git pull && make install`); set `CODEPILOT_VERBOSE=1` only when you want those lines |
-| Codepilot.app is blocked by your company's security software | You don't need it: run `make start` once and close the terminal, then use a bookmark or Chrome's **Install page as app** ([details](setup.md#run-without-a-terminal)) |
+| Codepilot.app is blocked by your company's security software | You don't need it: run `make start` once and close the terminal, then install it from Chrome or Edge (**Install** in the address bar) or use a bookmark ([details](setup.md#run-without-a-terminal)) |
 | Codepilot.app opens nothing | See `~/.codepilot/launcher.log` and `codepilot logs`. If you moved the checkout or rebuilt `.venv`, run `codepilot app` again |
 | From Codepilot.app, tests or `gh` aren't found, or the wrong AWS profile is used | The launcher imports your login shell's environment. Check that `zsh -ilc 'echo $PATH'` shows what you expect, or put the settings in `.env` |
 | "At most 12 terminals can run at once" | Kill some from the Terminal menu (**Kill All Terminals**) |

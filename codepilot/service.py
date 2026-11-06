@@ -67,19 +67,28 @@ def running(cfg: Config) -> dict | None:
     return None
 
 
-def open_window(url: str, app_window: bool = True) -> None:
+def app_profile(cfg: Config) -> Path | None:
+    """The browser profile the app window uses: its own (no extensions in the page, and a window position Chrome
+    remembers per display, apart from your everyday windows), unless CODEPILOT_APP_PROFILE=0 keeps your usual one."""
+    return None if os.environ.get("CODEPILOT_APP_PROFILE", "1").strip() == "0" else cfg.home / "chrome"
+
+
+def open_window(url: str, app_window: bool = True, profile: Path | None = None) -> None:
     """Open codepilot in its own chromeless window if a Chromium browser is available, else the default browser."""
+    args = [f"--app={url}"]
+    if profile is not None:
+        args += [f"--user-data-dir={profile}", "--no-first-run", "--no-default-browser-check"]
     if app_window and sys.platform == "darwin":
         for name in ([os.environ["CODEPILOT_APP_BROWSER"]] if os.environ.get("CODEPILOT_APP_BROWSER") else []) \
                 + APP_BROWSERS:
             if subprocess.run(["open", "-Ra", name], capture_output=True).returncode == 0:
-                subprocess.Popen(["open", "-na", name, "--args", f"--app={url}"],
+                subprocess.Popen(["open", "-na", name, "--args", *args],
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 return
     elif app_window:
         for exe in ("google-chrome", "microsoft-edge", "brave-browser", "chromium", "chromium-browser"):
             if shutil.which(exe):
-                subprocess.Popen([exe, f"--app={url}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                subprocess.Popen([exe, *args], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                  start_new_session=True)
                 return
     webbrowser.open(url)
@@ -131,7 +140,7 @@ def start(cfg: Config, env_path: Path | None, port: int | None = None, open_ui: 
             print("  Note: that server runs older code than this checkout (it wasn't started with `codepilot start`).\n"
                   "  Stop it where it runs (Ctrl+C), then run `codepilot start` again.")
         if open_ui:
-            open_window(info["url"] if info else url, app_window)
+            open_window(info["url"] if info else url, app_window, app_profile(cfg))
         return 0
     cfg.home.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ)
@@ -152,7 +161,7 @@ def start(cfg: Config, env_path: Path | None, port: int | None = None, open_ui: 
             print(f"codepilot is running in the background at {url}")
             print(f"  log: {log_file}   stop: codepilot stop")
             if open_ui:
-                open_window(url, app_window)
+                open_window(url, app_window, app_profile(cfg))
             return 0
         if proc.poll() is not None:
             break

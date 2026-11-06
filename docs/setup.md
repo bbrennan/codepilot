@@ -345,6 +345,11 @@ Brave, Chromium or Arc is installed, it opens in its own window, without tabs or
 desktop app. Otherwise it uses your default browser; `--browser-tab` forces a normal tab. Running it
 again while the server is up just opens the window.
 
+That window uses a browser profile of its own (`~/.codepilot/chrome`), apart from your everyday browsing: your
+extensions don't run in the page, and the browser remembers the window's size and position separately, for each set of
+displays. The first time, it asks again for what you allowed before: clipboard access (for Ctrl+V on a Mac) and
+notifications. `CODEPILOT_APP_PROFILE=0` uses your usual profile instead.
+
 | Command | What it does |
 |---|---|
 | `codepilot start` | Start in the background (if needed) and open the UI |
@@ -369,9 +374,10 @@ rather not use it, you don't need it:
 
 1. Run `make start` (or `codepilot start`) in any terminal, once per login. You can close the terminal
    straight away: the server keeps running in the background until you run `codepilot stop` or log out.
-2. Bookmark `http://127.0.0.1:8765`, or in Chrome or Edge use **⋮ → Cast, save and share → Install page
-   as app** (Edge: **Apps → Install this site as an app**). That gives codepilot its own window and Dock icon
-   through the browser, with no separate app to install.
+2. Open `http://127.0.0.1:8765` in Chrome or Edge and click **Install** in the address bar (or **⋮ → Cast, save and
+   share → Install Codepilot**; Edge: **Apps → Install Codepilot**). That gives codepilot its own window, name, icon
+   and Dock icon through the browser, with no separate app to install. It opens the page, so the server must be
+   running (step 1); if it isn't, the window says it can't connect. Or just bookmark the address.
 3. Optional shortcut, in `~/.zshrc`: `alias cp-up='~/path/to/codepilot/.venv/bin/codepilot start'`.
 
 ## 8. Updating

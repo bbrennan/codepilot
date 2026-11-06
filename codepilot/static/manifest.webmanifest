@@ -1,0 +1,15 @@
+{
+  "id": "/",
+  "name": "Codepilot",
+  "short_name": "Codepilot",
+  "description": "Your local, IDE-style AI pair programmer",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0d0f13",
+  "theme_color": "#0d0f13",
+  "icons": [
+    { "src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/static/favicon.png", "sizes": "64x64", "type": "image/png" }
+  ]
+}
