@@ -34,7 +34,7 @@ from starlette.staticfiles import StaticFiles
 
 from .http_input import HANDLERS, json_body
 from . import (checkpoints, checks, diagnostics, github, images, mentions, models, modes, plans, skills, specs, steering,
-               traces, uploads, version)
+               textfile, traces, uploads, version)
 from .agent import Agent, history_events
 from .config import TIER_CHOICES, TIERS, Config
 from .store import Store
@@ -871,7 +871,8 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             base_mtime = data.get("base_mtime")
             if base_mtime and str(path.stat().st_mtime_ns) != str(base_mtime) and not data.get("force"):
                 raise FileOpError(f"{rel} changed on disk since you opened it.", 409)
-            path.write_text(str(data.get("content") or ""))
+            # The editor works in "\n" (as a textarea does): write it back in the file's own line endings.
+            textfile.write(path, textfile.like(str(data.get("content") or ""), textfile.read(path, errors="replace")))
             return {"path": rel, "mtime": str(path.stat().st_mtime_ns)}
         raise FileOpError(f"Unknown operation: {op}")
 
@@ -1253,10 +1254,11 @@ def _proposal_json(prop, root: Path | None = None) -> dict:
     if root is not None and prop.status == "pending":
         target = root / prop.path
         try:
-            current = target.read_text() if target.exists() else ""
+            current = textfile.read(target, errors="replace") if target.exists() else ""
         except OSError:
             current = None
-        if current is not None and (prop.old_text == "" and not current or current.count(prop.old_text) == 1):
-            after = prop.new_text if prop.old_text == "" else current.replace(prop.old_text, prop.new_text, 1)
+        found = textfile.find(current, prop.old_text, prop.new_text) if current and prop.old_text else (0, None)
+        if current is not None and (prop.old_text == "" and not current or found[0] == 1):
+            after = prop.new_text if prop.old_text == "" else found[1]
             return proposal_view(prop, unified_diff(prop.path, current, after))
     return proposal_view(prop, unified_diff(prop.path, prop.old_text, prop.new_text))

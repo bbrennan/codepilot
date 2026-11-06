@@ -16,8 +16,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import (checks, deps_guard, github, gitcmd, images, plans, procenv, skills, spec_profiles, specs, steering, traces,
-               webtools)
+from . import (checks, deps_guard, github, gitcmd, images, plans, procenv, skills, spec_profiles, specs, steering,
+               textfile, traces, webtools)
 from .config import Config
 from .store import Store
 
@@ -495,15 +495,14 @@ def cloudwatch_logs(ctx: ToolContext, log_group: str, filter_pattern: str = "", 
 def propose_edit(ctx: ToolContext, path: str, old_text: str, new_text: str, reason: str = "") -> str:
     target = ctx.resolve(path, must_exist=False)
     if target.exists():
-        content = target.read_text(errors="replace")
+        content = textfile.read(target, errors="replace")
         if old_text == "":
             raise ToolError("old_text is empty but the file exists; quote the exact text to replace")
-        count = content.count(old_text)
+        count, after = textfile.find(content, old_text, new_text)
         if count == 0:
             raise ToolError("old_text not found in file; re-read the file and quote it exactly (including indentation)")
         if count > 1:
             raise ToolError(f"old_text occurs {count} times; include more surrounding lines so it is unique")
-        after = content.replace(old_text, new_text, 1)
     else:
         if old_text != "":
             raise ToolError(f"{path!r} does not exist; to create it pass old_text as an empty string")
@@ -515,7 +514,8 @@ def propose_edit(ctx: ToolContext, path: str, old_text: str, new_text: str, reas
             ctx.events.append({"type": "proposal", "proposal": proposal_view(ctx.store.get_proposal(older.id), "")})
     proposal = ctx.store.add_proposal(ctx.session_id, rel, old_text, new_text, reason)
     diff = unified_diff(rel, content, after)
-    advice = deps_guard.check(deps_guard.added(rel, content, after)) if ctx.cfg.deps_check else []
+    advice = deps_guard.check(deps_guard.added(rel, textfile.lf(content), textfile.lf(after))) if ctx.cfg.deps_check \
+        else []
     if advice:
         ctx.store.set_proposal_advice(proposal.id, advice)
         proposal = ctx.store.get_proposal(proposal.id)
@@ -686,8 +686,9 @@ def remember(ctx: ToolContext, note: str) -> str:
 
 def unified_diff(rel: str, before: str, after: str) -> str:
     def lines(text: str) -> list[str]:
-        # Terminate every line so a missing final newline can't glue a - line to the next + line.
-        return [ln if ln.endswith("\n") else ln + "\n" for ln in text.splitlines(keepends=True)]
+        # Terminate every line so a missing final newline can't glue a - line to the next + line. Shown in "\n": a
+        # change keeps the file's line endings, so "\r" would only add noise to every line.
+        return [ln if ln.endswith("\n") else ln + "\n" for ln in textfile.lf(text).splitlines(keepends=True)]
 
     return "".join(difflib.unified_diff(lines(before), lines(after), fromfile=f"a/{rel}", tofile=f"b/{rel}"))
 
@@ -707,14 +708,13 @@ def apply_proposal(root: Path, proposal) -> tuple[str | None, str]:
         if target.exists():
             raise ToolError(f"{proposal.path} now exists; refusing to overwrite")
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(proposal.new_text)
+        textfile.write(target, proposal.new_text)
         return None, proposal.new_text
-    content = target.read_text()
-    count = content.count(proposal.old_text)
+    content = textfile.read(target)
+    count, after = textfile.find(content, proposal.old_text, proposal.new_text)
     if count != 1:
         raise ToolError(f"{proposal.path} changed since the proposal (old text found {count} times); ask for a new one")
-    after = content.replace(proposal.old_text, proposal.new_text, 1)
-    target.write_text(after)
+    textfile.write(target, after)
     return content, after
 
 
@@ -726,7 +726,7 @@ def can_apply(root: Path, proposal) -> bool:
     if proposal.old_text == "":
         return not target.exists()
     try:
-        return target.read_text(errors="replace").count(proposal.old_text) == 1
+        return textfile.find(textfile.read(target, errors="replace"), proposal.old_text, proposal.new_text)[0] == 1
     except OSError:
         return False
 
@@ -749,12 +749,12 @@ def revert_proposal(root: Path, proposal) -> None:
     target = (root / proposal.path).resolve()
     if target != root and root not in target.parents:
         raise ToolError("proposal path escapes the repository")
-    if not target.exists() or target.read_text() != proposal.after_text:
+    if not target.exists() or textfile.read(target, errors="replace") != proposal.after_text:
         raise ToolError(f"{proposal.path} has changed since it was applied; undo it by hand or ask codepilot")
     if proposal.before_text is None:
         target.unlink()
     else:
-        target.write_text(proposal.before_text)
+        textfile.write(target, proposal.before_text)
 
 
 # -- registry -------------------------------------------------------------------------------------
