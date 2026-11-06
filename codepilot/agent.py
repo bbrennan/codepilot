@@ -1059,7 +1059,24 @@ def _tool_result(tool_use_id: str, output: str, is_error: bool) -> dict:
 SHELL_CHAINING = re.compile(r"[;&|`$<>\n\\]")
 # Programs whose next word says what runs ("npm test" vs "npm publish"), so a rule keeps that word too.
 RUNNERS = {"npm", "npx", "pnpm", "yarn", "bun", "uv", "uvx", "poetry", "pipenv", "make", "go", "cargo", "bundle",
-           "dotnet", "mvn", "gradle", "./gradlew", "docker", "terraform", "kubectl", "aws", "node", "deno"}
+           "dotnet", "mvn", "gradle", "./gradlew", "docker", "terraform", "kubectl", "aws", "deno"}
+# Interpreters run whatever they're given, so a rule keeps the script (or `python -m module`), never just the program.
+INTERPRETERS = re.compile(r"python[\d.]*|bash|sh|zsh|dash|ruby|perl|node")
+
+
+def _interpreter_rule_words(words: list[str]) -> int | None:
+    """How many words an interpreter's rule keeps: the script (2), or `python -m module` (3). None: no rule at all,
+    for inline code, a bare REPL or flags (python -c, node -e, bash -c, perl -pi -e, python3 -u ...)."""
+    if len(words) > 2 and Path(words[0]).name.startswith("python") and words[1] == "-m":
+        return 3
+    return 2 if len(words) > 1 and not words[1].startswith("-") else None
+
+
+def _too_broad(prefix: str) -> bool:
+    """A rule for an interpreter alone, or with a flag: saved before rules kept the script, it would cover anything."""
+    words = prefix.split()
+    return bool(words) and bool(INTERPRETERS.fullmatch(Path(words[0]).name)) \
+        and _interpreter_rule_words(words) != len(words)
 
 
 def allow_rule(tu: dict) -> dict | None:
@@ -1077,8 +1094,12 @@ def allow_rule(tu: dict) -> dict | None:
             return None
         if words[0] in ("sudo", "rm", "git", "chmod", "chown", "dd", "mv", "curl", "wget", "ssh", "scp"):
             return None  # destructive or outward-facing: always ask
-        n = 3 if len(words) > 2 and words[0].startswith("python") and words[1] == "-m" else \
-            2 if words[0] in RUNNERS and len(words) > 1 else 1
+        if INTERPRETERS.fullmatch(Path(words[0]).name):
+            n = _interpreter_rule_words(words)
+            if n is None:
+                return None
+        else:
+            n = 2 if words[0] in RUNNERS and len(words) > 1 else 1
         return {"tool": "run_command", "prefix": " ".join(words[:n])}
     if tu["name"] == "github":
         args = str(tu["input"].get("args", "")).removeprefix("gh ").split()
@@ -1099,6 +1120,8 @@ def rule_matches(rule: dict, tu: dict) -> bool:
     if tu["name"] == "run_command" and (SHELL_CHAINING.search(value) or approval_policy.destructive(value)):
         return False  # including rules saved before a command was known to be destructive
     prefix = rule.get("prefix", "")
+    if tu["name"] == "run_command" and _too_broad(prefix):
+        return False
     return bool(prefix) and (value == prefix or value.startswith(prefix + " "))
 
 

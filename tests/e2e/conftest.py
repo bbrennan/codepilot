@@ -100,7 +100,10 @@ class ScriptedLLM:
             content = [{"toolUse": {"toolUseId": f"p{n}", "name": "update_plan", "input": {"items": [
                 {"text": f"Step {i} of the plan", "status": "todo"} for i in range(1, 9)]}}},
                 {"toolUse": {"toolUseId": f"t{n}", "name": "run_command", "input": {"command": script}}}]
-        elif "run python" in user_text:
+        elif "run a module" in user_text:  # a command "always allow" can cover: python -m <module>
+            content = [{"toolUse": {"toolUseId": f"t{n}", "name": "run_command",
+                                    "input": {"command": "python -m platform"}}}]
+        elif "run python" in user_text:  # inline code: asks every time
             content = [{"toolUse": {"toolUseId": f"t{n}", "name": "run_command",
                                     "input": {"command": "python -c \"print('ran-' + str(6*7))\""}}}]
         elif "run ls" in user_text:

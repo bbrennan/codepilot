@@ -291,7 +291,9 @@ Approvals appear in the same **review bar** above the message box, with the exac
 A pending approval is still there after a page reload.
 
 **Always allow … in this session** (under the command) skips asking for commands that start the same way,
-such as `pytest`, `npm test` or `make eval-bedrock`, until the session ends. It's never offered for commands
+such as `pytest`, `npm test` or `make eval-bedrock`, until the session ends. For an interpreter it keeps the script:
+approving `python scripts/check.py` allows that script (with any arguments), not every `python …`, and `python -m pytest`
+allows that module. Inline code (`python -c`, `node -e`, `bash -c`) is never always allowed. It's never offered for commands
 that chain or redirect (`;`, `&&`, `|`, `$( )`, `>`), and those always ask even when they start with an
 allowed prefix. It's also never offered for `rm`, `sudo`, `git`, `curl` and similar, or for anything destructive
 (`terraform destroy`, `kubectl delete`, ...), which also gets a red warning. **Memory → Always allowed in this

@@ -41,14 +41,14 @@ def test_deny(page, server, session):
 
 def test_always_allow_for_the_session(page, server, session):
     open_app(page)
-    send(page, "run python once")
-    page.locator("#reviewBar .rb-allow", has_text="always allow python").wait_for()
+    send(page, "run a module once")
+    page.locator("#reviewBar .rb-allow", has_text="always allow python -m platform").wait_for()
     page.check("#rbAllow")
     page.click("#rbApprove")
     wait_idle(page)
     assert "always allowed" in page.locator("#transcript .wait-row").text_content()
-    send(page, "run python again")
-    page.locator("#transcript .tool pre", has_text="ran-42").nth(1).wait_for(state="attached")  # no prompt
+    send(page, "run a module again")
+    page.locator("#transcript .tool .st.ok").nth(1).wait_for()  # ran, with no prompt
     wait_idle(page)
     assert page.locator("#reviewBar").is_hidden()
     send(page, "run ls")  # a different command still asks
@@ -93,6 +93,13 @@ def test_ask_for_a_change_from_the_review_tab(page, server, session):
     page.fill("#rvAsk", "also add a docstring")
     page.press("#rvAsk", "Enter")
     page.locator(".msg.user", has_text="About change #1 to agent/core.py: also add a docstring").wait_for()
+
+
+def test_inline_code_is_never_offered_always_allow(page, server, session):
+    open_app(page)
+    send(page, "run python please")  # python -c "...": a rule for it would cover any code
+    page.locator("#reviewBar .rb-approval").wait_for()
+    assert page.locator("#rbAllow").count() == 0
 
 
 def test_pending_approval_survives_a_reload(page, server, session):
