@@ -417,6 +417,9 @@ class Agent:
         spec = specs.get(root, spec_name) if spec_name and root else None
         if spec:
             lines.append(specs.turn_text(root, spec))
+        dismissed = plans.dismissal_note(state)
+        if dismissed:
+            lines.append(dismissed)
         receipt = self.store.latest_receipt(sess.id)
         if receipt and not receipt["told"]:
             if receipt["fingerprint"] == verification.current_fingerprint(self.store, sess.id):
@@ -1135,7 +1138,8 @@ def history_events(store: Store, session_id: str) -> list[dict]:
     home = store.home
     events: list[dict] = []
     names: dict[str, str] = {}
-    plan, applied = plans.Tracker(), plans.applied_ids(store, session_id)  # the same lifecycle as live
+    plan = plans.Tracker(plans.dismissed_ids(store, session_id))  # the same lifecycle as live
+    applied = plans.applied_ids(store, session_id)
     live = {mid for mid, _ in store.messages(session_id)}
     missing = {tu["toolUseId"] for _, calls in unanswered.find(store.live_messages(session_id)) for tu in calls}
     for mid, m in store.messages(session_id, include_archived=True):
@@ -1167,7 +1171,8 @@ def history_events(store: Store, session_id: str) -> list[dict]:
                 if tu["toolUseId"] in missing:  # a crash left it without a result: show what the model is told
                     events.append(unanswered.result_event(tu))
                 if tu["name"] == "update_plan" and tu["toolUseId"] in applied:
-                    events.append(plan.push(tu["input"].get("items")))
+                    events.append(plan.push(tu["input"].get("items"), tu["toolUseId"]))
+                    events += [e for e in [plan.dismissal()] if e]
             elif "image" in b and m["role"] == "user":
                 url = images.save(home, b)
                 if events and events[-1]["type"] == "attached_images":

@@ -33,8 +33,8 @@ from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 
 from .http_input import HANDLERS, json_body
-from . import (checkpoints, checks, diagnostics, github, images, mentions, models, modes, skills, specs, steering, traces,
-               uploads, version)
+from . import (checkpoints, checks, diagnostics, github, images, mentions, models, modes, plans, skills, specs, steering,
+               traces, uploads, version)
 from .agent import Agent, history_events
 from .config import TIER_CHOICES, TIERS, Config
 from .store import Store
@@ -522,6 +522,19 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         except KeyError:
             return err("No such session", 404)
         return stream(sid, agent.verify(sid))
+
+    async def plan_dismiss(request: Request) -> Response:
+        """Put away the plan a turn left unfinished (the Dismiss button on a paused plan)."""
+        sid = request.path_params["sid"]
+        try:
+            store.get_session(sid)
+        except KeyError:
+            return err("No such session", 404)
+        with busy_lock:
+            if sid in busy:
+                return err("This session is working; its plan isn't paused.", 409)
+            event = plans.dismiss(store, sid)
+        return JSONResponse(event) if event else err("There's no unfinished plan to dismiss.", 409)
 
     async def checkpoint(request: Request) -> Response:
         """The changes applied from a message onwards, and whether each can still be undone."""
@@ -1124,6 +1137,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         Route("/api/sessions/{sid}/follow", follow),
         Route("/api/sessions/{sid}/rewind", rewind, methods=["POST"]),
         Route("/api/sessions/{sid}/checkpoint", checkpoint),
+        Route("/api/sessions/{sid}/plan/dismiss", plan_dismiss, methods=["POST"]),
         Route("/api/sessions/{sid}/verify", verify, methods=["POST"]),
         Route("/api/sessions/{sid}/restore", restore, methods=["POST"]),
         Route("/api/sessions/{sid}/compact", compact, methods=["POST"]),

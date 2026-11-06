@@ -108,3 +108,52 @@ def test_two_updates_in_one_response_follow_each_other(cfg, store, repo):
     live = [e for e in agent.chat(sess.id, "plan twice") if e["type"] == "plan"]
     assert [e["kind"] for e in live] == ["new", "update"]
     assert [e for e in history_events(store, sess.id) if e["type"] == "plan"] == live
+
+
+# -- dismissing a paused plan --------------------------------------------------------------------------------------
+
+
+def _paused(cfg, store, repo, *more):
+    """A turn that ended with its plan unfinished: step 2 of 2 still in progress."""
+    agent = Agent(cfg, store, llm=FakeLLM([[tool_use("p1", "update_plan", items=A_DOING)], [{"text": "stopped"}],
+                                           *more]))
+    sess = store.create_session(str(repo), "main")
+    list(agent.chat(sess.id, "make a plan"))
+    return agent, sess
+
+
+def test_dismissing_a_paused_plan_retires_it_and_a_reload_agrees(cfg, store, repo):
+    agent, sess = _paused(cfg, store, repo)
+    event = plans.dismiss(store, sess.id)
+    assert event["kind"] == "clear" and event["dismissed"] and event["retired"]["progress"] == [1, 2]
+    assert plans.current(store, sess.id)["items"] == []
+    redrawn = [e for e in history_events(store, sess.id) if e["type"] == "plan"]
+    assert redrawn[-1]["kind"] == "clear" and redrawn[-1]["dismissed"]
+    assert plans.dismiss(store, sess.id) is None  # nothing left to dismiss
+
+
+def test_after_a_dismissal_the_next_update_starts_a_new_plan(cfg, store, repo):
+    agent, sess = _paused(cfg, store, repo, [tool_use("p2", "update_plan", items=A)], [{"text": "ok"}])
+    plans.dismiss(store, sess.id)
+    plan = next(e for e in agent.chat(sess.id, "start over") if e["type"] == "plan")
+    assert plan["kind"] == "new" and plan["retired"] is None  # not an update of the plan you put away
+
+
+def test_a_dismissal_belongs_to_that_plan_even_after_an_edit(cfg, store, repo):
+    agent, sess = _paused(cfg, store, repo, [tool_use("p2", "update_plan", items=B)], [{"text": "ok"}])
+    plans.dismiss(store, sess.id)
+    first = next(mid for mid, m in store.messages(sess.id) if m["role"] == "user")
+    list(agent.rewind(sess.id, first, "make a different plan"))  # the dismissed update is gone with its turn
+    assert plans.current(store, sess.id)["items"] == B
+
+
+def test_the_model_is_told_once_that_its_plan_was_dismissed(cfg, store, repo):
+    agent, sess = _paused(cfg, store, repo, [{"text": "ok"}], [{"text": "ok"}])
+    plans.dismiss(store, sess.id)
+    list(agent.chat(sess.id, "thanks"))
+    list(agent.chat(sess.id, "bye"))
+
+    def told(call):
+        return sum("dismissed your plan" in b.get("text", "") for b in call["messages"][-1]["content"])
+
+    assert told(agent.llm.calls[-2]) == 1 and told(agent.llm.calls[-1]) == 0

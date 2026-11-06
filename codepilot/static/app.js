@@ -1428,6 +1428,7 @@ function updateBusy() {
   input.placeholder = busy ? `Working… Enter queues a message to run after · ${isMac ? "⌘" : "Ctrl+"}Enter steers it now` : state.placeholder || input.placeholder;
   $("#sendBtn").hidden = busy; $("#stopBtn").hidden = !busy; $("#steerBtn").hidden = $("#queueBtn").hidden = !busy;
   $("#sbBusy").innerHTML = busy ? '<span class="spinner"></span>working…' : "";
+  window.renderPinnedPlan?.(); // plan.js: the plan spins only while a turn runs
 }
 // body === null follows a turn that's already running (the page was opened or reloaded while it ran).
 async function streamTo(sid, url, body) {

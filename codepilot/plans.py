@@ -3,6 +3,9 @@
 Every update is classified against the plan before it: a new plan, an update, completion, or a clear. A new plan or
 a clear retires the previous one (kept in the transcript with its progress), so a plan never silently disappears.
 The same Tracker runs live (the tool), on reload (history_events) and after a rewind, so the three always agree.
+
+You can dismiss a plan a turn left unfinished. That's a clear made by you instead of the model, tied to the update it
+followed (by tool use id, so editing an earlier message can't make it apply to another plan). The model is told once.
 """
 
 from __future__ import annotations
@@ -85,15 +88,38 @@ def summary(event: dict) -> str:
 
 
 class Tracker:
-    """Steps through a session's plan updates in order."""
+    """Steps through a session's plan updates in order. `dismissed`: updates after which you dismissed the plan."""
 
-    def __init__(self):
+    def __init__(self, dismissed=()):
         self.items: list[dict] | None = None
+        self.dismissed = set(dismissed)
+        self.last = ""
 
-    def push(self, raw) -> dict:
+    def push(self, raw, tool_use_id: str = "") -> dict:
         event = {"type": "plan", **step(self.items, normalize(raw))}
         self.items = event["items"] or None
+        self.last = tool_use_id
         return event
+
+    def dismissal(self) -> dict | None:
+        """After the update you dismissed the plan at: it's cleared, as if the model had cleared it."""
+        if self.last not in self.dismissed or not self.items:
+            return None
+        event = {"type": "plan", **step(self.items, []), "dismissed": True}
+        self.items = None
+        return event
+
+
+def dismissed_ids(store, sid: str) -> list[str]:
+    return list((store.get_session(sid).context_state or {}).get("plan_dismissed", []))
+
+
+def _replay(store, sid: str, calls) -> Tracker:
+    tracker = Tracker(dismissed_ids(store, sid))
+    for tid, items in calls:
+        tracker.push(items, tid)
+        tracker.dismissal()
+    return tracker
 
 
 def applied_ids(store, sid: str) -> set[str]:
@@ -125,17 +151,35 @@ def event_for(store, sid: str, tool_use_id: str, raw, pending: list[tuple[str, o
     in this agent loop, whose results may not be stored yet (several tool calls in one response)."""
     stored = updates(store, sid)
     seen = {tid for tid, _ in stored}
-    tracker = Tracker()
-    for _, items in stored + [(tid, items) for tid, items in pending if tid not in seen]:
-        tracker.push(items)
-    return tracker.push(raw)
+    tracker = _replay(store, sid, stored + [(tid, items) for tid, items in pending if tid not in seen])
+    return tracker.push(raw, tool_use_id)
 
 
 def current(store, sid: str) -> dict:
     """The plan as it stands now (after a rewind, say), as a 'restore' event."""
-    tracker = Tracker()
-    for _, items in updates(store, sid):
-        tracker.push(items)
-    items = tracker.items or []
+    items = _replay(store, sid, updates(store, sid)).items or []
     return {"type": "plan", "kind": "restore", "items": items, "changes": [], "progress": progress(items),
             "retired": None}
+
+
+def dismiss(store, sid: str) -> dict | None:
+    """Put away the plan a turn left unfinished. Returns its 'clear' event, or None if no unfinished plan is shown."""
+    calls = updates(store, sid)
+    tracker = _replay(store, sid, calls)
+    if not calls or not tracker.items or _complete(tracker.items):
+        return None
+    state = dict(store.get_session(sid).context_state or {})
+    state["plan_dismissed"] = [*state.get("plan_dismissed", []), calls[-1][0]]
+    state["plan_dismissed_told"] = False
+    store.update_session(sid, context_state=state)
+    tracker.dismissed.add(calls[-1][0])
+    return tracker.dismissal()
+
+
+def dismissal_note(state: dict) -> str | None:
+    """For the turn context, once after you dismiss a plan. Updates `state` (the caller saves it)."""
+    if not state.get("plan_dismissed") or state.get("plan_dismissed_told", True):
+        return None
+    state["plan_dismissed_told"] = True
+    return ("The user dismissed your plan (update_plan). Don't carry on with its remaining steps unless they ask; if "
+            "new multi-step work needs a plan, start a new one.")
