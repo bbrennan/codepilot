@@ -498,8 +498,10 @@ def propose_edit(ctx: ToolContext, path: str, old_text: str, new_text: str, reas
         try:
             content = textfile.read(target)
         except textfile.NotUTF8 as exc:
-            raise ToolError(f"{exc}, so it can't be changed without corrupting it. Tell the user; with their OK it "
-                            "can be converted first (e.g. `iconv -f latin1 -t utf-8`).") from None
+            raise ToolError(f"{exc}, so it can't be changed without corrupting it. Tell the user. It can be converted "
+                            "to UTF-8 first, but only once they confirm its encoding: guessing wrong (Latin-1 for "
+                            "Windows-1252, whose € and curly quotes differ) still gives valid UTF-8, with the damage "
+                            "hidden.") from None
         if old_text == "":
             raise ToolError("old_text is empty but the file exists; quote the exact text to replace")
         count, after = textfile.find(content, old_text, new_text)

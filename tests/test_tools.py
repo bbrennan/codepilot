@@ -372,6 +372,10 @@ LATIN1 = "# café\nx = 1\n".encode("latin-1")
 
 def test_a_change_to_a_file_that_isnt_utf8_is_refused_with_a_reason(ctx):
     (ctx.root / "legacy.py").write_bytes(LATIN1)
-    with pytest.raises(ToolError, match="UTF-8"):
+    with pytest.raises(ToolError, match="UTF-8") as refused:
         propose_edit(ctx, "legacy.py", "x = 1", "x = 2")
     assert ctx.store.list_proposals(ctx.session_id) == [] and (ctx.root / "legacy.py").read_bytes() == LATIN1
+    # Latin-1 and Windows-1252 differ in € and curly quotes, and the wrong guess still makes valid UTF-8: the model
+    # must confirm the encoding before converting, not assume one.
+    hint = str(refused.value)
+    assert "confirm" in hint.lower() and "-f latin1" not in hint
