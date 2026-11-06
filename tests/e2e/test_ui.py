@@ -132,7 +132,7 @@ def test_chat_streams_markdown_and_updates_context_meter(page, server, session):
     page.locator(".msg.assistant strong", has_text="Hello").wait_for()
     wait_idle(page)
     assert page.locator(".msg.assistant pre code").count() >= 1
-    assert re.match(r"context \d+% · ", page.locator("#ctxText").text_content())
+    assert re.match(r"context \d+%$", page.locator("#ctxText").text_content())  # the token numbers are on hover
     assert page.locator("#sbTokens").text_content() != "0 tokens"
     assert page.locator("#chatTitle").text_content() == "hello there"
     page.reload()  # the transcript is stored, not just painted
@@ -280,11 +280,12 @@ def test_theme_and_layout_persist(page, server, session):
     after = page.evaluate("document.documentElement.dataset.theme")
     assert after and after != before
     page.click("#toggleSidebar")
+    panel_was_closed = page.evaluate("document.querySelector('#ide').classList.contains('no-panel')")
     page.click("#togglePanel")
     page.reload()
     page.wait_for_function("(t) => document.documentElement.dataset.theme === t", arg=after)
     assert page.evaluate("document.querySelector('#ide').classList.contains('no-sidebar')")
-    assert page.evaluate("document.querySelector('#ide').classList.contains('no-panel')")
+    assert page.evaluate("document.querySelector('#ide').classList.contains('no-panel')") != panel_was_closed
     page.click("[data-view=search]")  # choosing a view reveals the sidebar again, and that sticks too
     page.reload()
     page.wait_for_function("() => !document.querySelector('#ide').classList.contains('no-sidebar')")
@@ -292,6 +293,7 @@ def test_theme_and_layout_persist(page, server, session):
 
 def test_run_command_from_the_output_panel(page, server, session):
     open_app(page)
+    page.click("#togglePanel")  # the bottom panel starts closed
     page.click("[data-ptab=output]")
     page.fill("#cmdInput", "echo panel-$((2+3))")
     page.press("#cmdInput", "Enter")

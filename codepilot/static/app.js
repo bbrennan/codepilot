@@ -164,6 +164,7 @@ async function init() {
   const theme = store("cp-theme"); if (theme) document.documentElement.dataset.theme = theme;
   syncThemeColor();
   for (const c of ["no-sidebar", "no-panel", "no-chat"]) if (store("cp-" + c) === "1") ide.classList.add(c);
+  if (store("cp-no-panel") === null) ide.classList.add("no-panel"); // closed until you open it: no empty "Activity 0"
   initLayout(); // layout.js: saved pane sizes, fitted to this window
   hydrateIcons(); renderQuick(); // before the first await, so the composer doesn't change height after first paint
   state.cfg = await api("/api/config");
@@ -175,8 +176,8 @@ async function init() {
   loadModels(false);
   if (c.eval_cmd) $("#cmdInput").value = c.eval_cmd;
   api("/api/github").then((g) => {
-    $("#sbGithub").innerHTML = g.available ? `${icon("branch")}github: ${esc(g.user)}${g.host !== "github.com" ? " @ " + esc(g.host) : ""}` : `<span title="${esc(g.reason || "")}">${icon("alert")}github off</span>`;
-    $("#sbGithub").className = "sb-item " + (g.available ? "" : "warn");
+    $("#sbGithub").innerHTML = g.available ? `${icon("branch")}github: ${esc(g.user)}${g.host !== "github.com" ? " @ " + esc(g.host) : ""}` : `<span title="GitHub isn't connected: ${esc(g.reason || "")}">${icon("branch")}github off</span>`;
+    $("#sbGithub").className = "sb-item"; // not connected is a state you chose, not a warning
   }).catch(() => {});
   setView(store("cp-view") || "explorer", false); // keep a hidden sidebar hidden
   const list = await loadSessions();
@@ -472,7 +473,9 @@ async function loadWorkspaceInfo() {
   const w = await api(`/api/sessions/${state.sid}/workspace`).catch(() => null);
   state.wsInfo = w;
   state.testCmd = w?.test_cmd || "";
-  $("#sbTest").innerHTML = state.workspace ? `${icon("beaker")}${esc(state.testCmd || "no test command")}` : "";
+  const cmd = state.testCmd || "no test command";
+  $("#sbTest").innerHTML = state.workspace ? `${icon("beaker")}${esc(cmd.length > 24 ? cmd.slice(0, 23) + "…" : cmd)}` : "";
+  $("#sbTest").title = state.workspace && state.testCmd ? `Test command: ${state.testCmd}` : "";
   renderModes();
   // The Traces view only appears when this folder has trace or log folders (traces/, logs/, results/...).
   const hasTraces = !!(w?.trace_roots || []).length;
@@ -522,11 +525,13 @@ function renderEditor() {
 function welcomeHtml() {
   const recent = (state.sessionList || []).slice(0, 5).map((s) => `<div class="link" data-open-session="${s.id}">${icon("history")}${esc(s.title || "New session")} <span class="muted">${esc(s.repo ? base(s.repo) : "")}</span></div>`).join("");
   const mod = isMac ? "⌘" : "Ctrl+";
+  const model = { ollama: "a local model (Ollama)", bedrock: "Claude via Amazon Bedrock", anthropic: "Claude via the Anthropic API",
+    openai: "the OpenAI API" }[state.cfg?.provider] || "your model";
   return `<div class="ed-scroll" style="display:flex"><div class="welcome">
     <h1>${icon("logo")}codepilot</h1>
-    <p>Your coding copilot on ${{ ollama: "a local model (Ollama)", bedrock: "Claude via Amazon Bedrock", anthropic: "Claude via the Anthropic API", openai: "the OpenAI API" }[state.cfg?.provider] || "your model"}. Open a folder, then ask in chat. Reference files with <kbd>@</kbd>, drag them in from the explorer, or select lines in a file.</p>
+    <p>Your coding copilot on ${model}. ${state.workspace ? `Working in <b>${esc(base(state.workspace))}</b>: ask in chat.` : "Open a folder, then ask in chat."} Reference files with <kbd>@</kbd>, drag them in from the explorer, or select lines in a file.</p>
     <h3>Start</h3>
-    <div class="link" id="wOpen">${icon("folderOpen")}Open folder…</div>
+    <div class="link" id="wOpen">${icon("folderOpen")}${state.workspace ? "Open another folder…" : "Open folder…"}</div>
     <div class="link" id="wNew">${icon("plus")}New session</div>
     <div class="link" id="wFind">${icon("search")}Go to file…</div>
     ${recent ? `<h3>Recent sessions</h3>${recent}` : ""}
@@ -1121,7 +1126,7 @@ function setContext(c) {
   state.context = c;
   const pct = ctxPct(c);
   const bar = $("#ctxBar"); bar.style.width = pct + "%"; bar.className = ctxClass(c);
-  $("#ctxText").textContent = `context ${pct}% · ${fmtTok(c.tokens)}/${fmtTok(c.budget)}${c.has_summary ? " · summarised" : ""}`;
+  $("#ctxText").textContent = `context ${pct}%${c.has_summary ? " · summarised" : ""}`;
   $("#sbContext").title = `~${c.tokens.toLocaleString()} prompt tokens of a ${c.budget.toLocaleString()}-token budget (window ${c.window.toLocaleString()}). Old tool outputs are cleared at ${Math.round(c.prune_at * 100)}%, earlier turns summarised at ${Math.round(c.compact_at * 100)}%. Click to compact now.`;
 }
 async function compactNow() {
