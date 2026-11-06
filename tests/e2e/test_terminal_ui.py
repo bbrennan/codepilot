@@ -2,9 +2,17 @@
 
 import re
 
+import pytest
+
 from uihelpers import open_app
 
 PANE = ".term-pane:not([hidden])"
+
+
+@pytest.fixture(autouse=True)
+def panel_open(page):
+    """As for someone who has opened the bottom panel before (it starts closed), so its Terminal tab is there."""
+    page.add_init_script("localStorage.setItem('cp-no-panel', '0')")
 
 
 def menu(page, label):

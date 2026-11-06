@@ -35,7 +35,8 @@
   Memory. Click the active icon to collapse the sidebar.
 - **Editor:** opens files (with syntax highlighting), trace timelines and diffs as tabs.
 - **Chat (right):** the conversation, with every tool call shown as a card you can expand.
-- **Bottom panel:** **Activity** lists every model call and tool call with timings and tokens. **Output**
+- **Bottom panel** (closed until you open it: ⌘J, the toggle in the title bar, or the Terminal menu; then it remembers):
+  **Activity** lists every model call and tool call with timings and tokens. **Output**
   runs tests, analyser checks or any command yourself. **Terminal** holds your shells (see
   [the terminal](#the-terminal)).
 - **Title bar:** the open folder, file search (⌘P), the **Terminal** menu, and buttons to show or hide the

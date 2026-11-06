@@ -112,6 +112,7 @@ def test_a_reminder_shows_in_activity_only(page, server, session):
     page.fill("#input", "long task")
     page.press("#input", "Enter")
     wait_idle(page)
+    page.click("#togglePanel")  # Activity is in the bottom panel, which starts closed
     page.locator(".act", has_text="reminder: task 1").wait_for()
     assert page.locator(".act", has_text="reminder: task 1").count() == 1
     assert "spec_reminder" in str(server.llm.calls[-1]["messages"])
