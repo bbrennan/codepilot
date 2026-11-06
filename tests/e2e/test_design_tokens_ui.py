@@ -58,3 +58,35 @@ def test_keyboard_focus_is_always_visible(page, server, session):
           return { what: el.id || el.className || el.tagName, shown: ring || field }; }"""))
     hidden = [s["what"] for s in seen if not s["shown"]]
     assert not hidden, f"no visible focus on: {hidden}"
+
+
+# Is focus visible on this element: a ring in a colour other than its own fill, or a field's accent border?
+VISIBLE = """(el) => { const cs = getComputedStyle(el);
+  const probe = document.createElement('i'); probe.style.color = 'var(--accent)'; document.body.append(probe);
+  const accent = getComputedStyle(probe).color; probe.remove();
+  const ring = cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) >= 2 && cs.outlineColor !== cs.backgroundColor;
+  const edge = cs.borderTopColor === accent || cs.borderBottomColor === accent;
+  return ring || edge; }"""
+
+
+def test_the_focus_ring_shows_on_solid_accent_buttons(page, server, session):
+    open_app(page)
+    page.keyboard.press("Tab")  # keyboard mode: a focus() now shows the ring as it would from Tab
+    send = page.locator("#sendBtn")
+    send.evaluate("(el) => el.focus()")
+    assert send.evaluate(VISIBLE), "Send: the ring is the same colour as the button"
+
+
+def test_focus_shows_in_the_file_palette_and_the_code_editor(page, server, session):
+    open_app(page)
+    page.keyboard.press("Meta+p" if page.evaluate("navigator.platform").startswith("Mac") else "Control+p")
+    box = page.locator("#paletteInput")
+    box.wait_for()
+    assert box.evaluate(VISIBLE), "the palette's search box shows no focus"
+    page.keyboard.press("Escape")
+    page.locator("#tree [data-file]", has_text="Makefile").click()
+    page.locator(".ed-bar button", has_text="Edit").click()
+    editor = page.locator(".code-edit")
+    editor.wait_for()
+    editor.focus()
+    assert editor.evaluate(VISIBLE), "the code editor shows no focus"
