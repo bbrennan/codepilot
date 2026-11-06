@@ -176,7 +176,7 @@ it, and **Edit** or **Remove** work until codepilot picks it up. **Stop** puts w
 the box. A turn keeps running if you reload or close the page: open the session again and it picks up
 where it is, with Stop, Steer and Queue working as before. If codepilot is waiting for you to approve a
 command, writing a message instead declines the command, and your message goes to codepilot with that
-decision.
+decision, with everything you attached to it (images, `@files`, a skill, steering).
 
 **Edit or retry:** hover over one of your messages for ✎ **Edit** and ↻ **Retry**. Both rewind the
 conversation to that message: everything after it is removed, then the (edited) message is sent again. A

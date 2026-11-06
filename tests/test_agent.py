@@ -532,3 +532,43 @@ def test_a_restart_keeps_the_system_prompt_and_earlier_reasoning(cfg, store, rep
     first, second = turn("one", "1"), turn("two", "2")
     assert second["system"] == first["system"]
     assert second["reasoning"] == 1  # the first turn's reasoning is still there to replay
+
+
+# -- a message that declines a waiting approval keeps what you attached ----------------------------------------------
+
+
+def test_declining_an_approval_by_writing_keeps_your_attachments(cfg, store, repo):
+    import base64
+
+    from codepilot import images, mentions
+    png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+    llm = FakeLLM([[tool_use("t1", "run_command", command="make deploy")], [{"text": "Looking at the screenshot."}]])
+    agent = Agent(cfg, store, llm=llm)
+    sess = store.create_session(str(repo), "main")
+    assert types(agent.chat(sess.id, "deploy it"))[-1] == "approval_needed"
+    events = list(agent.chat(sess.id, "don't deploy; see this and @agent/core.py", pasted=[images.block(png)]))
+    assert {"attached", "attached_images"} <= set(types(events))
+    sent = llm.calls[-1]["messages"][-1]["content"]  # the decline and your message, as the model gets them
+    assert sent[0]["toolResult"]["status"] == "error" and "declined" in sent[0]["toolResult"]["content"][0]["text"]
+    assert any(b.get("text", "").startswith(mentions.ATTACH_OPEN) and "a - b" in b["text"] for b in sent)
+    assert any("image" in b for b in sent)
+    redrawn = types(history_events(store, sess.id))
+    assert "attached" in redrawn and "attached_images" in redrawn
+
+
+def test_stop_while_your_message_loads_its_attachments_stops_the_turn(cfg, store, repo, monkeypatch):
+    from codepilot import images
+    llm = FakeLLM([[tool_use("t1", "run_command", command="make deploy")],
+                   [tool_use("t2", "list_files")], [{"text": "carried on"}]])
+    agent = Agent(cfg, store, llm=llm)
+    sess = store.create_session(str(repo), "main")
+    list(agent.chat(sess.id, "deploy it"))  # a command waits for approval
+
+    def slow_link(text, root):  # an image link still downloading when you press Stop
+        agent.cancel(sess.id)
+        return [], []
+
+    monkeypatch.setattr(images, "from_message", slow_link)
+    events = list(agent.chat(sess.id, "no, see https://example.com/shot.png"))
+    assert any(e["type"] == "notice" and e["message"] == "Stopped." for e in events)
+    assert not any(e["type"] == "tool_call" for e in events)  # nothing ran after Stop
