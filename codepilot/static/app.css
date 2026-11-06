@@ -296,7 +296,7 @@ kbd { font: 11px var(--mono); padding: 1px 6px; border: 1px solid var(--line-2);
 /* ---------- chat ---------- */
 .chat { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--bg-1); }
 .chat-head { display: flex; align-items: center; gap: 6px; height: 35px; padding: 0 8px 0 14px; border-bottom: 1px solid var(--line); flex: none; }
-.chat-title { flex: 1; min-width: 48px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-title { flex: 1 1 0; min-width: 6.5em; font-weight: 600; /* the free space, and room for "New session": the model picker gives way first */ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .transcript { flex: 1; overflow: auto; padding: 14px 14px 6px; min-height: 0; }
 .msg { margin: 0 0 12px; }
 .msg.user { background: var(--bg-3); border: 1px solid var(--line); border-radius: 10px; padding: 8px 11px; white-space: pre-wrap; word-break: break-word; }

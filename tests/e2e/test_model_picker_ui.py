@@ -22,3 +22,30 @@ def test_unavailable_models_are_listed_disabled_with_their_reason(page, server, 
     assert "pending onboarding" in off.get_attribute("title")
     assert "pending onboarding" in off.text_content()  # also visible text, so keyboard and screen-reader users get it
     assert page.locator("#tier option[value='model:anthropic.claude-sonnet-5-5']").is_enabled()
+
+
+# -- a narrow chat header, and what a page load says ----------------------------------------------------------------
+
+
+def test_the_header_shows_the_session_title_and_short_model_names_on_a_narrow_window(page, server, session):
+    page.set_viewport_size({"width": 1024, "height": 640})
+    open_app(page)
+    page.wait_for_function("() => document.querySelector('#tier option[value=\"tier:main\"]')")
+    title = page.locator("#chatTitle")
+    assert title.evaluate("(el) => el.scrollWidth <= el.clientWidth"), f"title cut: {title.bounding_box()}"
+    shown = page.evaluate("() => document.querySelector('#tier').selectedOptions[0].textContent")
+    assert "anthropic." not in shown and "sonnet-5-5" in shown  # the model, not its provider's prefix
+
+
+def test_a_page_load_doesnt_toast_what_the_model_picker_already_shows(page, server, session):
+    open_app(page)
+    page.wait_for_function("() => document.querySelector('#tier option[value=\"tier:fast\"]')")
+    page.wait_for_timeout(400)
+    assert page.locator(".toast", has_text="not enabled").count() == 0  # it covered the bottom panel at every load
+    assert "(fallback)" in page.locator("#tier option[value='tier:fast']").text_content()  # still said where it belongs
+    fallback = {**MODELS, "tiers": {"fast": {"model": "anthropic.claude-haiku-4-5", "fallback": True,
+                                             "configured": "anthropic.claude-haiku-5-5"}}}
+    page.route("**/api/models?refresh=1", lambda route: route.fulfill(status=200, content_type="application/json",
+                                                                      body=json.dumps(fallback)))
+    page.select_option("#tier", "refresh")  # asking for a check still reports it
+    page.locator(".toast", has_text="fast: claude-haiku-5-5 not enabled, using claude-haiku-4-5").wait_for()
