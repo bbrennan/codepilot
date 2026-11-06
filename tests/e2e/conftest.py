@@ -65,8 +65,15 @@ class ScriptedLLM:
         quick = 'profile="quick"' in full
         task = re.search(r"implement task ([\d.]+)", user_text)
         steps = sum("toolResult" in b for m in messages for b in m["content"])
+        turn_text = next((" ".join(b["text"] for b in m["content"] if "text" in b) for m in reversed(messages)
+                          if m["role"] == "user" and any("text" in b for b in m["content"])), "").lower()
         if "long task" in " ".join(b.get("text", "") for b in messages[0]["content"]) and steps < 7:
             content = [{"toolUse": {"toolUseId": f"t{n}", "name": "read_file", "input": {"path": "agent/core.py"}}}]
+        elif "plan slowly" in turn_text and any("toolResult" in b for b in last):  # the step takes a while
+            time.sleep(1.5)
+            content = [{"text": "Stopped partway."}]
+        elif "plan slowly" in user_text:  # a plan with step 2 in progress
+            content = [{"toolUse": {"toolUseId": f"t{n}", "name": "update_plan", "input": {"items": PLANS["progress"]}}}]
         elif any("toolResult" in b for b in last):
             content = [{"text": "Please review it in the Spec tab." if phase else "Done."}]
         elif phase and phase.group(1) == "requirements" and quick:  # a quick spec's whole plan, in one turn

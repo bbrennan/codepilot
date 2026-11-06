@@ -197,7 +197,13 @@ finishes or needs your approval (your browser asks permission the first time).
 **Stop:** the stop button halts a running turn at the next safe point.
 
 **The plan.** For multi-step work codepilot keeps a checklist, pinned above the message box with its progress
-("Plan · 2 of 5 done"). Click its header to fold it to that one line. A plan never just disappears:
+("Plan · 2 of 5 done"). Click its header to fold it to that one line. It says what's really happening:
+- while codepilot works, the step in progress spins (and only then);
+- while a command waits for you, it says **Waiting for your approval**;
+- if a turn ends with steps left, it says **Paused at step 3 of 5**, with **Continue** (asks codepilot to carry on from
+  that step) and **Dismiss** (puts the plan away, as a card in the chat; codepilot is told not to carry on with it).
+
+A plan never just disappears:
 - when every step is done it shows **✓ Plan complete**, and a card with the finished list stays in the chat;
 - when codepilot starts a different plan, or clears it, the old one becomes a **Plan replaced** card at that point,
   with the steps that weren't done still listed.

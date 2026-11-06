@@ -436,3 +436,16 @@ def test_two_applies_of_one_change_at_once_write_it_once(cfg, store, repo, monke
     assert (root / "agent" / "core.py").read_text().count("import math") == 1
     assert codes == [200] and second.status_code == 409 and "already" in second.json()["error"]
     assert store.get_proposal(pid).status == "applied"
+
+
+def test_dismissing_the_plan(cfg, store, repo):
+    agent = Agent(cfg, store, llm=FakeLLM([[tool_use("p1", "update_plan", items=[
+        {"text": "Write tests", "status": "done"}, {"text": "Implement it", "status": "doing"}])], [{"text": "paused"}]]))
+    client = TestClient(create_app(replace(cfg, terminal=False), store, agent))
+    sid = client.post("/api/sessions", json={"repo": str(repo)}, headers=H).json()["id"]
+    assert client.post(f"/api/sessions/{sid}/plan/dismiss", headers=H).status_code == 409  # no plan yet
+    client.post(f"/api/sessions/{sid}/chat", json={"message": "plan it"}, headers=H)
+    resp = client.post(f"/api/sessions/{sid}/plan/dismiss", headers=H)
+    assert resp.status_code == 200 and resp.json()["dismissed"] and resp.json()["retired"]["progress"] == [1, 2]
+    events = client.get(f"/api/sessions/{sid}").json()["events"]
+    assert [e for e in events if e["type"] == "plan"][-1]["dismissed"]
