@@ -1064,12 +1064,11 @@ function renderMemory() {
   const c = state.context, w = state.wsInfo;
   const pct = ctxPct(c);
   $("#memoryView").innerHTML = `
-    <div class="group-head" style="padding-left:2px">How memory works</div>
-    <div class="hint" style="line-height:1.55">Each step resends this session's conversation (cached, so it's cheap). Before every model call codepilot checks the size: at ${c ? Math.round(c.prune_at * 100) : 60}% of the budget it clears old tool outputs, at ${c ? Math.round(c.compact_at * 100) : 80}% it summarises earlier turns, keeping recent turns, the plan and proposals exact. Workspace notes persist across every session on this folder.</div>
+    <details class="explain"><summary class="group-head" style="padding-left:2px">How memory works</summary><div class="hint" style="line-height:1.55">Each step resends this session's conversation (cached, so it's cheap). Before every model call codepilot checks the size: at ${c ? Math.round(c.prune_at * 100) : 60}% of the budget it clears old tool outputs, at ${c ? Math.round(c.compact_at * 100) : 80}% it summarises earlier turns, keeping recent turns, the plan and proposals exact. Workspace notes persist across every session on this folder.</div></details>
     <div class="group-head" style="padding-left:2px">Working memory</div>
     <div style="display:flex;align-items:center;gap:8px"><span class="meter" style="width:100%"><i class="${ctxClass(c)}" style="width:${pct}%"></i></span><span class="mono" style="font-size:var(--fs-sm)">${pct}%</span></div>
     <div class="hint">${c ? `~${fmtTok(c.tokens)} of a ${fmtTok(c.budget)}-token budget (model window ${fmtTok(c.window)})` : "—"}</div>
-    <div style="display:flex;gap:6px;margin-top:6px"><button class="btn" id="compactBtn" ${state.sid ? "" : "disabled"}>${icon("collapse")}Compact now</button><button class="btn" id="handoffBtn" ${state.sid ? "" : "disabled"} title="Start a fresh session on this folder, seeded with this one's summary">${icon("plus")}Continue in new session</button></div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px"><button class="btn" id="compactBtn" ${state.sid ? "" : "disabled"}>${icon("collapse")}Compact now</button><button class="btn" id="handoffBtn" ${state.sid ? "" : "disabled"} title="Start a fresh session on this folder, seeded with this one's summary">${icon("plus")}Continue in new session</button></div>
     <div class="group-head" style="padding-left:2px">Conversation summary</div>
     <div class="hint">${state.summary ? esc(state.summary).replace(/\n/g, "<br>") : "None yet — appears when the conversation gets long."}</div>
     <div class="group-head" style="padding-left:2px">Workspace notes</div>
@@ -1102,7 +1101,7 @@ function renderMemory() {
     const key = state.workspace;
     if (state.notesDraft?.key === key) $("#notesBox").value = state.notesDraft.text;
     $("#notesBox").oninput = () => { state.notesDraft = { key, text: $("#notesBox").value }; };
-    api(`/api/sessions/${state.sid}/notes`).then((n) => { if (state.notesDraft?.key !== key) $("#notesBox").value = n.notes; $("#notesPath").textContent = n.path; }).catch(() => {});
+    api(`/api/sessions/${state.sid}/notes`).then((n) => { if (state.notesDraft?.key !== key) $("#notesBox").value = n.notes; $("#notesPath").textContent = tilde(n.path); $("#notesPath").title = n.path; }).catch(() => {});
     $("#saveNotes").onclick = async () => { await api(`/api/sessions/${state.sid}/notes`, { method: "PUT", body: { notes: $("#notesBox").value } }); state.notesDraft = null; toast("Notes saved"); };
   }
 }
@@ -1638,9 +1637,11 @@ function setMode(mode) {
   const m = (state.wsInfo?.modes || DEFAULT_MODES).find((x) => x.name === mode);
   const readonly = !!m && m.blocked.includes("propose_edit");
   $("#modeSelect").value = mode; $("#modeSelect").classList.toggle("readonly", readonly);
-  $("#modeSelect").title = m ? `${m.label}: ${m.description}` : mode;
+  // A mode named once: "Spec-driven: …", not "Spec: Spec-driven: …".
+  const said = m && (m.description.toLowerCase().startsWith(m.label.toLowerCase()) ? m.description : `${m.label}: ${m.description}`);
+  $("#modeSelect").title = m ? said : mode;
   $("#composerBox").classList.toggle("readonly", readonly);
-  $("#input").placeholder = state.placeholder = m && mode !== "build" ? `${m.label}: ${m.description}` : "Ask codepilot…  @ files · / skills · # steering";
+  $("#input").placeholder = state.placeholder = m && mode !== "build" ? said : "Ask codepilot…  @ files · / skills · # steering";
 }
 $("#modeSelect").addEventListener("change", async () => {
   const mode = $("#modeSelect").value; setMode(mode);
