@@ -135,6 +135,9 @@ svg.i { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none;
 .view-body { overflow: auto; flex: 1; min-height: 0; padding-bottom: 12px; }
 .view-body.pad { padding: 0 10px 12px; }
 .group-head { font-size: var(--fs-sm); font-weight: 650; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); padding: 10px 14px 4px; }
+.group-head .mono { text-transform: none; letter-spacing: 0; } /* a path in a heading is shown as written */
+details.explain > summary { cursor: pointer; list-style: none; }
+details.explain > summary::after { content: " ▸"; } details.explain[open] > summary::after { content: " ▾"; }
 .hint { color: var(--muted); font-size: var(--fs-ui); margin: 6px 2px; }
 .field { background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--r-md); padding: 5px 8px; outline: none; width: 100%; }
 .field.sm { width: auto; padding: 2px 6px; font-size: var(--fs-ui); height: 24px; }
