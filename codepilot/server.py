@@ -1065,7 +1065,10 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         # symbolic-ref works before the first commit too; a detached HEAD shows its short hash.
         branch = run("symbolic-ref", "--short", "-q", "HEAD").strip() or run("rev-parse", "--short", "HEAD").strip()
         return JSONResponse({"git": True, "branch": branch,
-                             "status": run("status", "--short"), "diff": run("diff")[:MAX_VIEW_BYTES]})
+                             "status": run("status", "--short"),
+                             # The page reads names from a/ and b/: settings like diff.noprefix mustn't change them.
+                             "diff": run("-c", "diff.noprefix=false", "-c", "diff.mnemonicPrefix=false", "diff",
+                                         "--src-prefix=a/", "--dst-prefix=b/")[:MAX_VIEW_BYTES]})
 
     async def notes(request: Request) -> Response:
         sess = store.get_session(request.path_params["sid"])
