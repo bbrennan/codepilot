@@ -50,11 +50,15 @@ function setTaskItems(card, items, count) {
 
 const stepsIn = (item) => [...item.querySelector(":scope > .pi-steps").children];
 
-// Marks and counts. Only the item in progress of a card that's filing spins, and only while a turn runs.
+// Marks and counts. Only the item in progress of a card that's filing spins, and only while a turn runs. The mark says
+// its status in words too, for a screen reader.
+const MARK_LABEL = { done: "Done", doing: "In progress", todo: "To do", before: "Before any step", gone: "Dropped from the plan" };
 function refreshTaskCard(card, running = state.streams.has(state.sid)) {
   for (const item of card.querySelectorAll(":scope > .plan-list > .pi")) {
     const spin = running && card === filingCard && item.classList.contains("doing");
-    item.querySelector(".mk").innerHTML = spin ? '<span class="spinner"></span>' : '<span class="box"></span>';
+    const mk = item.querySelector(".mk"), status = Object.keys(MARK_LABEL).find((c) => item.classList.contains(c));
+    mk.innerHTML = spin ? '<span class="spinner"></span>' : '<span class="box"></span>';
+    mk.setAttribute("role", "img"); mk.setAttribute("aria-label", MARK_LABEL[status] || "");
     const n = stepsIn(item).length;
     item.querySelector(".n").textContent = n ? `${n} step${n === 1 ? "" : "s"}` : "";
   }
@@ -94,8 +98,8 @@ function fileStep(el) {
   refreshTaskCard(card);
 }
 
-// After a rewind: the work from the removed messages leaves the cards, and a card ended by them is live again (the
-// server's restore event then says where its plan stands).
+// After a rewind: the work from the removed messages leaves the cards. A card they ended may be live again, which the
+// server's restore event decides (reviveTaskCard): a plan you dismissed after them stays dismissed.
 function unfileRewound() {
   for (const el of document.querySelectorAll("#transcript .pi-steps [data-filed]")) if (!el._turn?.isConnected) el.remove();
   for (const g of document.querySelectorAll("#transcript .pi-steps details.step-group")) refreshReadGroup(g);
@@ -103,12 +107,17 @@ function unfileRewound() {
   for (const card of document.querySelectorAll("#transcript .plan-card")) {
     card._actives = (card._actives || []).filter((a) => a.by?.isConnected);
     if (card._actives.length) card.dataset.active = card._actives.at(-1).key; else delete card.dataset.active;
-    if (card._endedBy && !card._endedBy.isConnected) {
-      card.classList.remove("retired", "complete"); card.classList.add("live"); card.open = true;
-      card.querySelector(".ttl").textContent = card.dataset.title; card._endedBy = null;
-    }
+    card._rewound = !!card._endedBy && !card._endedBy.isConnected; // may come back: the restore event decides
     refreshTaskCard(card);
   }
 }
+
+// After a rewind, the card whose plan the server says is live again (not one you dismissed, which stays put away).
+function reviveTaskCard(card) {
+  if (!card?._rewound) return;
+  card.classList.remove("retired", "complete"); card.classList.add("live"); card.open = true;
+  card.querySelector(".ttl").textContent = card.dataset.title; card._endedBy = null;
+}
+function settleRewound() { for (const card of document.querySelectorAll("#transcript .plan-card")) card._rewound = false; }
 
 function resetTaskCards() { filingCard = null; }

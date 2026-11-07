@@ -34,8 +34,11 @@ function onPlanEvent(ev) {
   }
   const live = openCard();
   if (!ev.items.length) state.planCard = null;
-  else if (ev.kind === "restore") state.planCard = [...$$("#transcript .plan-card")].at(-1) || placePlanCard(null);
-  else if (ev.kind === "new" || !live) state.planCard = placePlanCard(row); // a new plan starts where it was made
+  else if (ev.kind === "restore") {
+    state.planCard = [...$$("#transcript .plan-card")].at(-1) || placePlanCard(null);
+    reviveTaskCard(state.planCard); // live again only if the server says so
+  } else if (ev.kind === "new" || !live) state.planCard = placePlanCard(row); // a new plan starts where it was made
+  if (ev.kind === "restore") settleRewound();
   if (row?.isConnected) row.remove(); // its update is on the card
   const done = ev.items.length > 0 && ev.items.every((i) => i.status === "done");
   const card = state.planCard;
