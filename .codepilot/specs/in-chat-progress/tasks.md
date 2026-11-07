@@ -14,7 +14,7 @@
     between reads splits the group.
   - `groupReads` in `steps.js`.
   - _Requirements: 1.3_
-- [ ] 4. The plan card
+- [x] 4. The plan card
   - Test first: "plan slowly" shows a card; its "doing" item spins only while the turn runs; steps are filed under it
     and expand on click; the pinned plan is one line that scrolls to the card; the same after a reload.
   - `static/taskcard.js`; `plan.js` pins the header only.

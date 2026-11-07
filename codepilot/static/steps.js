@@ -67,6 +67,7 @@ function foldChangeStep(id) {
   const card = document.querySelector(`#transcript .card.prop[data-prop="${id}"]`);
   if (!step || !card) return;
   if (step.dataset.note) card.insertAdjacentHTML("beforeend", `<pre class="step-note">${esc(step.dataset.note)}</pre>`);
+  if (step.dataset.filed) { card.dataset.filed = "1"; card._turn = step._turn; } // filed in a task card: so is the change
   step.replaceWith(card);
 }
 

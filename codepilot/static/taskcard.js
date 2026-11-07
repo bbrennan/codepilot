@@ -1,0 +1,104 @@
+"use strict";
+// Task cards: a list of steps in the chat (a plan's items; a spec run's tasks), each holding the work done under it.
+// While a card is filing, each step row that arrives (a tool call, a group of reads, a change) goes under the card's
+// item in progress, or the last one that was, or "Before the plan" while none has started. codepilot's words stay in
+// the chat. Each filed row remembers the message it came from, so Edit and Retry, which rewind the chat to a message,
+// take that work back out of the card, and a card that ended after that message comes back to life.
+
+let filingCard = null;
+const itemKey = (text) => String(text).toLowerCase().split(/\s+/).filter(Boolean).join(" ");
+const lastUserMsg = () => [...document.querySelectorAll("#transcript > .msg.user:not(.queued)")].at(-1) || null;
+
+function newTaskCard(title) {
+  const d = document.createElement("div");
+  d.innerHTML = `<details class="card plan-card live" open><summary class="hd">${icon("list")}<span class="ttl"></span><span class="muted cnt"></span></summary><div class="plan-list"></div></details>`;
+  const card = d.firstElementChild;
+  card.dataset.title = title; card.querySelector(".ttl").textContent = title;
+  return card;
+}
+
+function taskItemEl(text, cls) {
+  const d = document.createElement("div");
+  d.innerHTML = `<details class="pi it ${cls}"><summary><span class="mk"></span><span class="t"></span><span class="n muted"></span></summary><div class="pi-steps"></div></details>`;
+  const el = d.firstElementChild; el.querySelector(".t").textContent = text;
+  return el;
+}
+
+// The card's items, in order, keeping the work already filed under each (matched by text). An item dropped from the
+// list keeps its work, marked as dropped; one with no work just goes.
+function setTaskItems(card, items, count) {
+  const list = card.querySelector(":scope > .plan-list");
+  const old = new Map([...list.querySelectorAll(":scope > .pi[data-key]")].map((e) => [e.dataset.key, e]));
+  const keep = [];
+  for (const it of items) {
+    const key = itemKey(it.text);
+    const el = old.get(key) || taskItemEl(it.text, ""); old.delete(key);
+    el.dataset.key = key; el.className = `pi it ${it.status}`; el.querySelector(".t").textContent = it.text;
+    if (it.status === "doing") card.dataset.active = key;
+    keep.push(el);
+  }
+  for (const el of old.values()) if (stepsIn(el).length) { el.className = "pi it gone"; keep.push(el); } else el.remove();
+  list.append(...keep);
+  card.querySelector(".cnt").textContent = count ? `· ${count}` : "";
+  refreshTaskCard(card);
+}
+
+const stepsIn = (item) => [...item.querySelector(":scope > .pi-steps").children];
+
+// Marks and counts. Only the item in progress of a card that's filing spins, and only while a turn runs.
+function refreshTaskCard(card, running = state.streams.has(state.sid)) {
+  for (const item of card.querySelectorAll(":scope > .plan-list > .pi")) {
+    const spin = running && card === filingCard && item.classList.contains("doing");
+    item.querySelector(".mk").innerHTML = spin ? '<span class="spinner"></span>' : '<span class="box"></span>';
+    const n = stepsIn(item).length;
+    item.querySelector(".n").textContent = n ? `${n} step${n === 1 ? "" : "s"}` : "";
+  }
+}
+
+function startFiling(card) { if (filingCard && filingCard !== card) refreshTaskCard(filingCard, false); filingCard = card; }
+function stopFiling(card) { if (!card || card === filingCard) { const was = filingCard; filingCard = null; if (was) refreshTaskCard(was, false); } }
+
+// A card that's done (finished, replaced, dismissed): its title says how, it folds away, and it stops filing.
+function endTaskCard(card, title, cls) {
+  stopFiling(card);
+  card.classList.remove("live", "retired", "complete"); card.classList.add(cls);
+  card.querySelector(".ttl").textContent = title; card.open = false;
+  card._endedBy = lastUserMsg();
+}
+
+// A tool step as it's drawn. update_plan steps make the plan card rather than work under it (plan.js).
+function fileToolStep(el, ev) {
+  if (ev.name === "update_plan") el.dataset.plan = "1";
+  else fileStep(el);
+}
+
+function fileStep(el) {
+  const card = filingCard;
+  if (!card?.isConnected || !el) return;
+  const list = card.querySelector(":scope > .plan-list");
+  let item = card.dataset.active && list.querySelector(`:scope > .pi[data-key="${CSS.escape(card.dataset.active)}"]`);
+  if (!item) {
+    item = list.querySelector(":scope > .pi.before");
+    if (!item) { item = taskItemEl(card.dataset.before || "Before the plan", "before"); list.prepend(item); }
+  }
+  item.querySelector(":scope > .pi-steps").append(el);
+  el.dataset.filed = "1"; el._turn = lastUserMsg();
+  refreshTaskCard(card);
+}
+
+// After a rewind: the work from the removed messages leaves the cards, and a card ended by them is live again (the
+// server's restore event then says where its plan stands).
+function unfileRewound() {
+  for (const el of document.querySelectorAll("#transcript .pi-steps [data-filed]")) if (!el._turn?.isConnected) el.remove();
+  for (const g of document.querySelectorAll("#transcript .pi-steps details.step-group")) refreshReadGroup(g);
+  for (const item of document.querySelectorAll("#transcript .pi.before, #transcript .pi.gone")) if (!stepsIn(item).length) item.remove();
+  for (const card of document.querySelectorAll("#transcript .plan-card")) {
+    if (card._endedBy && !card._endedBy.isConnected) {
+      card.classList.remove("retired", "complete"); card.classList.add("live"); card.open = true;
+      card.querySelector(".ttl").textContent = card.dataset.title; card._endedBy = null;
+    }
+    refreshTaskCard(card);
+  }
+}
+
+function resetTaskCards() { filingCard = null; }

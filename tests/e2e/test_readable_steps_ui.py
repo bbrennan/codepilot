@@ -23,16 +23,14 @@ def summaries(page):
 
 def test_steps_read_as_plain_words_with_the_tool_one_click_away(page, server, session):
     open_app(page)
-    send(page, "plan progress")  # update_plan
     send(page, "slow tool please")  # read_file
     send(page, "run python please")  # run_command, waiting for approval
     rows = summaries(page)
     said = [r["summary"] for r in rows]
-    assert any(s.startswith("Updated the plan") and "1 of 2" in s for s in said), said
     assert any(s.startswith("Read agent/core.py") for s in said), said
     assert any(s.startswith("Ran python -c") for s in said), said
     for r in rows:
-        assert not re.search(r"\b(update_plan|read_file|run_command)\b", r["summary"]), r  # no tool names up front
+        assert not re.search(r"\b(read_file|run_command)\b", r["summary"]), r  # no tool names up front
         assert r["raw"] and not r["open"]  # but there, folded away: the name and the arguments
     assert any("read_file" in r["raw"] and '"path": "agent/core.py"' in r["raw"] for r in rows)
 
@@ -46,7 +44,7 @@ def test_a_tool_without_a_phrasing_still_reads_sensibly(page, server, session):
 
 def test_a_reload_shows_the_same_steps(page, server, session):
     open_app(page)
-    send(page, "plan progress")
+    send(page, "slow tool please")
     send(page, "slow tool please")
     live = [r["summary"] for r in summaries(page)]
     page.reload()
