@@ -399,6 +399,7 @@ a.loc:hover { text-decoration: underline; }
 .card .hd .path:hover { color: var(--accent); }
 .card .pacts { display: inline-flex; gap: 6px; flex: none; }
 .card .reason { padding: 6px 10px; color: var(--muted); font-size: var(--fs-ui); border-bottom: 1px solid var(--line); }
+.card .step-note { margin: 0; padding: 6px 10px; border-top: 1px solid var(--line); font-size: var(--fs-sm); color: var(--warn); white-space: pre-wrap; }
 .card .diff { max-height: 280px; overflow: auto; padding: 4px 0; }
 .dep-mark { color: var(--warn); display: inline-flex; flex: none; }
 .dep-mark .i { width: 13px; height: 13px; }
