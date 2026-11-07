@@ -191,3 +191,29 @@ def test_the_paused_plan_and_its_buttons_share_one_line(page, server, session):
     page.click("#plan .plan-head")  # the line still takes you to the card, and the buttons still work
     page.click("#planContinue")
     page.locator(".msg.user", has_text='next is step 2, "Implement export"').wait_for()
+
+
+def test_editing_a_later_turn_keeps_a_dismissed_plan_dismissed(page, server, session):
+    # Dismissed after a later turn; editing that turn leaves the dismissal standing (the server says no plan is live).
+    open_app(page)
+    send(page, "plan and work")
+    send(page, "slow tool please")
+    page.click("#planDismiss")
+    page.wait_for_function("() => document.querySelector('#plan').hidden")
+    msg = page.locator(".msg.user", has_text="slow tool please")
+    msg.hover()
+    msg.locator("[data-act=edit]").click()
+    msg.locator(".edit-box textarea").fill("just say hi")
+    msg.locator(".edit-box textarea").press("Enter")
+    page.locator(".msg.user", has_text="just say hi").wait_for()
+    wait_idle(page)
+    [card] = cards(page)
+    assert not card["live"] and "Plan dismissed" in card["title"] and page.locator("#plan").is_hidden()
+
+
+def test_each_step_says_its_status_to_a_screen_reader(page, server, session):
+    open_app(page)
+    send(page, "plan and work")
+    marks = page.locator("#transcript .plan-card .pi > summary .mk")
+    said = marks.evaluate_all("els => els.map((e) => [e.getAttribute('role'), e.getAttribute('aria-label')])")
+    assert said == [["img", "Before any step"], ["img", "Done"], ["img", "In progress"]]
