@@ -145,3 +145,18 @@ def test_every_form_of_file_header_names_the_right_file(page, server, session):
     for header, name in headers.items():
         seen = _rows(page, header + "\n")
         assert seen["files"] == [name], (header, seen["files"])
+
+
+def test_rename_sources_and_unusual_names_come_out_as_written(page, server, session):
+    open_app(page)
+    # A rename whose source contains " b/": the "rename to" line, not the header, says which file it is.
+    seen = _rows(page, "\n".join(["diff --git a/docs b/old.txt b/docs b/new.txt", "similarity index 100%",
+                                    "rename from docs b/old.txt", "rename to docs b/new.txt", ""]))
+    assert seen["files"] == ["docs b/new.txt"] and seen["meta"] == ["renamed from docs b/old.txt"], seen
+    # Git quotes the source of a rename too.
+    seen = _rows(page, "\n".join(['diff --git "a/caf\\303\\251.py" b/cafe.py', "similarity index 100%",
+                                    'rename from "caf\\303\\251.py"', "rename to cafe.py", ""]))
+    assert seen["files"] == ["cafe.py"] and seen["meta"] == ["renamed from café.py"], seen
+    # With core.quotePath=false, Unicode stays literal inside quotes; only the tab is escaped.
+    seen = _rows(page, 'diff --git "a/x\\t😀.txt" "b/x\\t😀.txt"\n')
+    assert seen["files"] == ["x\t😀.txt"], seen

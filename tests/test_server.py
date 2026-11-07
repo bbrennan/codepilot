@@ -464,3 +464,16 @@ def test_applying_to_a_file_that_is_no_longer_utf8_fails_cleanly(cfg, store, rep
     resp = client.post(f"/api/proposals/{pid}/apply", headers=H)
     assert resp.status_code == 409 and "UTF-8" in resp.json()["error"]
     assert store.get_proposal(pid).status == "failed" and (root / "agent/core.py").read_bytes() == legacy
+
+
+@pytest.mark.parametrize("setting", ["diff.noprefix", "diff.mnemonicPrefix"])
+def test_the_working_tree_diff_has_the_usual_prefixes_whatever_git_is_set_to(cfg, store, repo, setting):
+    """The page reads file names from `a/` and `b/`; a user's git settings mustn't change them."""
+    import subprocess
+    for args in (["add", "-A"], ["commit", "-qm", "start"], ["config", setting, "true"]):
+        subprocess.run(["git", "-C", str(repo), *args], check=True)
+    (repo / "agent" / "core.py").write_text("def add(a, b):\n    return a + b\n")
+    client = TestClient(create_app(replace(cfg, terminal=False), store, Agent(cfg, store, llm=FakeLLM([]))))
+    sid = client.post("/api/sessions", json={"repo": str(repo)}, headers=H).json()["id"]
+    diff = client.get(f"/api/sessions/{sid}/git").json()["diff"]
+    assert "diff --git a/agent/core.py b/agent/core.py" in diff and "+++ b/agent/core.py" in diff, diff[:200]
