@@ -18,16 +18,20 @@ function gitUnquote(q) {
   return new TextDecoder().decode(new Uint8Array(bytes));
 }
 
-// The file a `diff --git` / `diff --cc` header names. Git quotes names with unusual characters, but not spaces: an
-// unquoted "a/my file b/my file" is read as two equal halves, and a rename as what follows " b/".
+// The file a `diff --git` / `diff --cc` header names: the destination. Git quotes each side on its own when it has
+// unusual characters, but never for spaces, so: a quoted destination is read from the end; after a quoted source, the
+// rest is the destination; two plain sides are equal halves ("a/X b/X"), or for a rename, what follows " b/".
+const QUOTED = String.raw`"(?:[^"\\]|\\.)*"`;
 function fileName(line) {
   const rest = line.replace(/^diff --(git|cc|combined) /, "");
   if (!line.startsWith("diff --git ")) return rest.startsWith('"') ? gitUnquote(rest.slice(1, -1)) : rest;
-  const m = rest.match(/^"a\/(?:[^"\\]|\\.)*" "b\/((?:[^"\\]|\\.)*)"$/) || rest.match(/^a\/\S+ "b\/((?:[^"\\]|\\.)*)"$/);
+  let m = rest.match(new RegExp(String.raw` "b\/((?:[^"\\]|\\.)*)"$`));
   if (m) return gitUnquote(m[1]);
-  const half = (rest.length - 3) / 2; // "a/X b/X": both halves the same
-  if (Number.isInteger(half) && rest.startsWith("a/") && rest.slice(half, half + 3) === " b/" && rest.slice(2, half) === rest.slice(half + 3))
-    return rest.slice(half + 3);
+  m = rest.match(new RegExp(`^${QUOTED} b\\/(.+)$`));
+  if (m) return m[1];
+  const sep = (rest.length - 1) / 2; // "a/" + X + " b/" + X: the separator sits at 2 + |X|
+  if (Number.isInteger(sep) && rest.startsWith("a/") && rest.slice(sep, sep + 3) === " b/" && rest.slice(2, sep) === rest.slice(sep + 3))
+    return rest.slice(sep + 3);
   const renamed = rest.match(/^a\/.+? b\/(.+)$/);
   return renamed ? renamed[1] : rest;
 }

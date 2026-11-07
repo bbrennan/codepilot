@@ -131,3 +131,17 @@ def test_a_merge_in_progress_shows_its_combined_diff(page, server, session):
     texts = [t for _, t in seen["lines"]]
     assert "<<<<<<< HEAD" in texts and "    return a + b" in texts and "def add(a, b):" in texts, texts
     assert any("merge" in m.lower() for m in seen["meta"]), seen["meta"]
+
+
+def test_every_form_of_file_header_names_the_right_file(page, server, session):
+    """Mixed quoting in renames (git quotes each side on its own), and a path that itself contains " b/"."""
+    open_app(page)
+    headers = {
+        'diff --git "a/caf\\303\\251.py" b/cafe.py': "cafe.py",  # quoted source, plain destination
+        'diff --git a/old name.txt "b/caf\\303\\251.py"': "café.py",  # plain source with a space, quoted destination
+        "diff --git a/docs b/file.txt b/docs b/file.txt": "docs b/file.txt",  # " b/" inside the path itself
+        "diff --git a/my notes.txt b/my notes.txt": "my notes.txt",
+    }
+    for header, name in headers.items():
+        seen = _rows(page, header + "\n")
+        assert seen["files"] == [name], (header, seen["files"])
