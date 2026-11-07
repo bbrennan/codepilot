@@ -9,11 +9,13 @@ const DIFF_SKIP = /^(index |similarity index |dissimilarity index )/;
 function gitUnquote(q) {
   const bytes = [];
   const named = { n: 10, t: 9, r: 13, b: 8, f: 12, a: 7, v: 11, '"': 34, "\\": 92 };
-  for (let i = 0; i < q.length; i++) {
-    const c = q[i];
+  const cps = Array.from(q); // whole code points: an emoji is one, not two halves
+  for (let i = 0; i < cps.length; i++) {
+    const c = cps[i];
     if (c !== "\\") { bytes.push(...new TextEncoder().encode(c)); continue; }
-    const oct = q.slice(i + 1, i + 4);
-    if (/^[0-7]{3}$/.test(oct)) { bytes.push(parseInt(oct, 8)); i += 3; } else { bytes.push(named[q[i + 1]] ?? q.charCodeAt(i + 1)); i += 1; }
+    const oct = cps.slice(i + 1, i + 4).join("");
+    if (/^[0-7]{3}$/.test(oct)) { bytes.push(parseInt(oct, 8)); i += 3; }
+    else { const e = cps[i + 1] ?? ""; named[e] !== undefined ? bytes.push(named[e]) : bytes.push(...new TextEncoder().encode(e)); i += 1; }
   }
   return new TextDecoder().decode(new Uint8Array(bytes));
 }
@@ -22,6 +24,8 @@ function gitUnquote(q) {
 // unusual characters, but never for spaces, so: a quoted destination is read from the end; after a quoted source, the
 // rest is the destination; two plain sides are equal halves ("a/X b/X"), or for a rename, what follows " b/".
 const QUOTED = String.raw`"(?:[^"\\]|\\.)*"`;
+const metaPath = (p) => (p.startsWith('"') && p.endsWith('"') ? gitUnquote(p.slice(1, -1)) : p);
+
 function fileName(line) {
   const rest = line.replace(/^diff --(git|cc|combined) /, "");
   if (!line.startsWith("diff --git ")) return rest.startsWith('"') ? gitUnquote(rest.slice(1, -1)) : rest;
@@ -39,7 +43,8 @@ function fileName(line) {
 function diffHtml(diff) {
   const rows = [];
   let o = 0, n = 0, hunks = 0, header = true; // `---`/`+++` are headers only before a file's first @@
-  let oldMode = "", renamedFrom = "", copiedFrom = "", combined = false, sides = 2;
+  let oldMode = "", renamedFrom = "", copiedFrom = "", combined = false, sides = 2, fileRow = -1;
+  const setName = (name) => { if (fileRow >= 0) rows[fileRow] = `<div class="f">${esc(name)}</div>`; };
   const gutter = (oldNo, newNo, sign) => `<span class="ln o">${oldNo}</span><span class="ln n">${newNo}</span><span class="sg">${sign}</span>`;
   const row = (cls, oldNo, newNo, sign, text) => `<div class="dl ${cls}">${gutter(oldNo, newNo, sign)}<span class="code">${esc(text) || " "}</span></div>`;
   const meta = (text) => rows.push(`<div class="meta">${esc(text)}</div>`); // what a change is when it has no lines
@@ -47,21 +52,27 @@ function diffHtml(diff) {
     let m;
     if (/^diff --(git|cc|combined) /.test(l)) { // a new file, and a fresh start
       combined = !l.startsWith("diff --git ");
+      fileRow = rows.length; // the header's name is a first guess: "rename to" / "copy to" / "+++ b/" settle it
       rows.push(`<div class="f">${esc(fileName(l))}</div>`);
       if (combined) meta("merge in progress: both sides' changes, combined");
       header = true; hunks = 0; oldMode = renamedFrom = copiedFrom = "";
       continue;
     }
     if (header) {
+      // The destination, as git wrote it. Git ends an unquoted name that has spaces with a separator tab (a tab in a
+      // name itself is always quoted), so that tab isn't part of the name.
+      if ((m = l.match(/^\+\+\+ (?:"b\/(.+)"|b\/(.+?))\t?$/)) && fileRow >= 0) {
+        rows[fileRow] = `<div class="f">${esc(m[1] !== undefined ? gitUnquote(m[1]) : m[2])}</div>`; continue;
+      }
       if (l.startsWith("--- ") || l.startsWith("+++ ") || DIFF_SKIP.test(l)) continue;
       if ((m = l.match(/^new file mode (\d+)/))) { meta("new file"); continue; }
       if ((m = l.match(/^deleted file mode (\d+)/))) { meta("deleted"); continue; }
       if ((m = l.match(/^old mode (\d+)/))) { oldMode = m[1]; continue; }
       if ((m = l.match(/^new mode (\d+)/))) { meta(`mode ${oldMode} → ${m[1]}${/755$/.test(m[1]) ? " (now executable)" : /755$/.test(oldMode) ? " (no longer executable)" : ""}`); continue; }
-      if ((m = l.match(/^rename from (.+)/))) { renamedFrom = m[1]; continue; }
-      if (l.startsWith("rename to ")) { meta(`renamed from ${renamedFrom}`); continue; }
-      if ((m = l.match(/^copy from (.+)/))) { copiedFrom = m[1]; continue; }
-      if (l.startsWith("copy to ")) { meta(`copied from ${copiedFrom}`); continue; }
+      if ((m = l.match(/^rename from (.+)/))) { renamedFrom = metaPath(m[1]); continue; }
+      if ((m = l.match(/^rename to (.+)/))) { setName(metaPath(m[1])); meta(`renamed from ${renamedFrom}`); continue; }
+      if ((m = l.match(/^copy from (.+)/))) { copiedFrom = metaPath(m[1]); continue; }
+      if ((m = l.match(/^copy to (.+)/))) { setName(metaPath(m[1])); meta(`copied from ${copiedFrom}`); continue; }
       if (l.startsWith("Binary files ")) { meta("binary file changed (not shown)"); continue; }
     }
     if (combined && (m = l.match(/^(@@@+) .*? \1 ?(.*)$/))) { // a merge's hunk: one prefix column per side
