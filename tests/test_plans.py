@@ -132,6 +132,33 @@ def test_dismissing_a_paused_plan_retires_it_and_a_reload_agrees(cfg, store, rep
     assert plans.dismiss(store, sess.id) is None  # nothing left to dismiss
 
 
+
+def test_a_reload_puts_a_dismissal_where_it_happened_after_the_turn(cfg, store, repo):
+    # You dismiss once the turn has ended, so the work after the plan's last update came before the dismissal.
+    agent = Agent(cfg, store, llm=FakeLLM([[tool_use("p1", "update_plan", items=A_DOING)],
+                                           [tool_use("r1", "read_file", path="agent/core.py")], [{"text": "stopped"}]]))
+    sess = store.create_session(str(repo), "main")
+    list(agent.chat(sess.id, "make a plan"))
+    plans.dismiss(store, sess.id)
+    order = [(e["type"], e.get("kind") or e.get("name")) for e in history_events(store, sess.id)
+             if e["type"] in ("plan", "tool_call")]
+    assert order == [("tool_call", "update_plan"), ("plan", "new"), ("tool_call", "read_file"), ("plan", "clear")]
+
+
+
+def test_a_dismissal_after_a_later_turn_is_replayed_after_that_turn(cfg, store, repo):
+    # The plan is made in one turn, a later turn works without updating it, then you dismiss: that work was in the card.
+    agent = Agent(cfg, store, llm=FakeLLM([[tool_use("p1", "update_plan", items=A_DOING)], [{"text": "stopped"}],
+                                           [tool_use("r1", "read_file", path="agent/core.py")], [{"text": "ok"}]]))
+    sess = store.create_session(str(repo), "main")
+    list(agent.chat(sess.id, "make a plan"))
+    list(agent.chat(sess.id, "look at core"))
+    plans.dismiss(store, sess.id)
+    order = [(e["type"], e.get("kind") or e.get("name") or e.get("text")) for e in history_events(store, sess.id)
+             if e["type"] in ("plan", "tool_call", "user")]
+    assert order == [("user", "make a plan"), ("tool_call", "update_plan"), ("plan", "new"),
+                     ("user", "look at core"), ("tool_call", "read_file"), ("plan", "clear")]
+
 def test_after_a_dismissal_the_next_update_starts_a_new_plan(cfg, store, repo):
     agent, sess = _paused(cfg, store, repo, [tool_use("p2", "update_plan", items=A)], [{"text": "ok"}])
     plans.dismiss(store, sess.id)

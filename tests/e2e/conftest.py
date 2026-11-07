@@ -49,6 +49,31 @@ PLANS = {
 }
 
 
+def _read(path):
+    return {"name": "read_file", "input": {"path": path}}
+
+
+# "plan and work": one turn that reads, makes a plan, works through step 1 and pauses in step 2. One reply per entry;
+# the last reply is slow, so step 2 is visibly in progress while the turn runs.
+PLAN_WORK = [
+    _read("agent/core.py"),  # before there is a plan: stays in the chat
+    {"name": "update_plan", "input": {"items": PLANS["start"]}},
+    _read("tests/test_core.py"),  # a plan, but no step in progress yet: "Before the plan"
+    {"name": "update_plan", "input": {"items": [{"text": "Write tests", "status": "doing"},
+                                                {"text": "Implement export", "status": "todo"}]}},
+    {"name": "search_code", "input": {"pattern": "def add"}},
+    {"name": "update_plan", "input": {"items": PLANS["progress"]}},
+    _read("Makefile"),
+]
+
+
+def _replies_this_turn(messages):
+    """How many replies the model has made since the user last wrote."""
+    start = max(i for i, m in enumerate(messages) if m["role"] == "user" and any("text" in b for b in m["content"])
+                and not any("toolResult" in b for b in m["content"]))
+    return sum(m["role"] == "assistant" for m in messages[start:])
+
+
 class ScriptedLLM:
     """A deterministic stand-in for the model, driven by what the user typed."""
 
@@ -69,6 +94,9 @@ class ScriptedLLM:
                           if m["role"] == "user" and any("text" in b for b in m["content"])), "").lower()
         if "long task" in " ".join(b.get("text", "") for b in messages[0]["content"]) and steps < 7:
             content = [{"toolUse": {"toolUseId": f"t{n}", "name": "read_file", "input": {"path": "agent/core.py"}}}]
+        elif "plan and work" in turn_text and (k := _replies_this_turn(messages)) < len(PLAN_WORK):
+            time.sleep(1.5 if k == len(PLAN_WORK) - 1 else 0)
+            content = [{"toolUse": {"toolUseId": f"t{n}", **copy.deepcopy(PLAN_WORK[k])}}]
         elif "plan slowly" in turn_text and any("toolResult" in b for b in last):  # the step takes a while
             time.sleep(1.5)
             content = [{"text": "Stopped partway."}]
@@ -115,6 +143,10 @@ class ScriptedLLM:
                                     "input": {"command": "python -c \"print('ran-' + str(6*7))\""}}}]
         elif "run ls" in user_text:
             content = [{"toolUse": {"toolUseId": f"t{n}", "name": "run_command", "input": {"command": "ls"}}}]
+        elif "read, explain, read" in user_text:  # one reply with words between two calls; live, the words come first
+            content = [{"toolUse": {"toolUseId": f"t{n}a", "name": "read_file", "input": {"path": "agent/core.py"}}},
+                       {"text": "Now the tests."},
+                       {"toolUse": {"toolUseId": f"t{n}b", "name": "read_file", "input": {"path": "tests/test_core.py"}}}]
         elif "fix two" in user_text:
             content = [
                 {"toolUse": {"toolUseId": f"t{n}a", "name": "propose_edit", "input": {
@@ -231,3 +263,4 @@ def page(browser, server):
 def session(server):
     """A session already pointed at the sample repo, so the UI opens straight into it."""
     return server.store.create_session(str(server.repo), "main")
+

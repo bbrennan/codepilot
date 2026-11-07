@@ -114,6 +114,11 @@ def dismissed_ids(store, sid: str) -> list[str]:
     return list((store.get_session(sid).context_state or {}).get("plan_dismissed", []))
 
 
+def dismissed_after(store, sid: str) -> dict[str, int]:
+    """For each dismissed update: the id of the last message when you dismissed it."""
+    return dict((store.get_session(sid).context_state or {}).get("plan_dismissed_after", {}))
+
+
 def _replay(store, sid: str, calls) -> Tracker:
     tracker = Tracker(dismissed_ids(store, sid))
     for tid, items in calls:
@@ -170,6 +175,8 @@ def dismiss(store, sid: str) -> dict | None:
         return None
     state = dict(store.get_session(sid).context_state or {})
     state["plan_dismissed"] = [*state.get("plan_dismissed", []), calls[-1][0]]
+    # Where it happened, for a reload: after the last message so far (a later turn may have worked on the plan).
+    state["plan_dismissed_after"] = {**state.get("plan_dismissed_after", {}), calls[-1][0]: store.messages(sid)[-1][0]}
     state["plan_dismissed_told"] = False
     store.update_session(sid, context_state=state)
     tracker.dismissed.add(calls[-1][0])

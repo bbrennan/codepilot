@@ -25,7 +25,7 @@
 │act│ sidebar          │ editor tabs (files, traces, diffs)            │ chat                  │
 │bar│ Sessions         │                                               │ mode · tier           │
 │   │ Explorer         │                                               │ transcript            │
-│   │ Search           ├───────────────────────────────────────────────┤ plan checklist        │
+│   │ Search           ├───────────────────────────────────────────────┤ pinned plan line      │
 │   │ Traces           │ bottom panel:                                 │ message box (@ and /) │
 │   │ Changes · Memory │ Activity · Output (run) · Terminal            │                       │
 └ status bar: provider · git branch · test command · GitHub user · context meter · tokens ────┘
@@ -197,17 +197,22 @@ finishes or needs your approval (your browser asks permission the first time).
 
 **Stop:** the stop button halts a running turn at the next safe point.
 
-**The plan.** For multi-step work codepilot keeps a checklist, pinned above the message box with its progress
-("Plan · 2 of 5 done"). Click its header to fold it to that one line. It says what's really happening:
-- while codepilot works, the step in progress spins (and only then);
+**The plan.** For multi-step work codepilot keeps a checklist. It shows as a card in the chat where the plan started,
+listing its steps: ○ to do, a spinner for the step in progress (only while codepilot works), ✓ done. The work codepilot
+does goes under the step it was doing then; click a step to see it ("Read 3 files", "Ran the tests", the changes it
+proposed). Work done after the plan was made but before any step started is under **Before the plan**. codepilot's
+replies stay in the chat.
+
+While the plan is live, one line is pinned above the message box with its progress ("Plan · 2 of 5 done"); click it to
+go to the card, opened at the step in progress. It says what's really happening:
+- while codepilot works, it says **working…**;
 - while a command waits for you, it says **Waiting for your approval**;
 - if a turn ends with steps left, it says **Paused at step 3 of 5**, with **Continue** (asks codepilot to carry on from
-  that step) and **Dismiss** (puts the plan away, as a card in the chat; codepilot is told not to carry on with it).
+  that step) and **Dismiss** (puts the plan away; codepilot is told not to carry on with it).
 
-A plan never just disappears:
-- when every step is done it shows **✓ Plan complete**, and a card with the finished list stays in the chat;
-- when codepilot starts a different plan, or clears it, the old one becomes a **Plan replaced** card at that point,
-  with the steps that weren't done still listed.
+A plan never just disappears: when every step is done its card says **✓ Plan complete**; when codepilot starts a
+different plan, clears it, or you dismiss it, the card says **Plan replaced**, **Plan cleared** or **Plan dismissed**,
+with the steps that weren't done still listed. A finished card folds to one line; click it to open it again.
 
 After a reload, or after you edit an earlier message, the plan is the one from that point in the conversation.
 

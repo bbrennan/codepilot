@@ -1243,6 +1243,7 @@ function rewindTo(el, text, undo = null) { // undo: {ids, keep} of file changes 
   const mid = +el.dataset.mid, sid = state.sid;
   while (el.nextElementSibling) el.nextElementSibling.remove();
   el.remove();
+  unfileRewound(); // taskcard.js: the rewound work also leaves the task cards above
   const fresh = add(userMessageHtml(text)); scrollEnd(true);
   state.prompts = (state.prompts || []).concat(text); resetHistory();
   streamTo(sid, `/api/sessions/${sid}/rewind`, { mid, message: text, tier: selectedTier(), ...(undo ? { restore: undo.ids, keep: undo.keep } : {}) }).then(() => { if (undo) afterRestoreRewind(sid, fresh, undo.ids); return fresh; });
@@ -1281,9 +1282,10 @@ function argSummary(name, input) {
   return input.path || input.pattern || input.query || input.command || input.task || input.args || input.name || input.log_group || input.note || JSON.stringify(input).slice(0, 120);
 }
 function toolEl(ev) {
-  const el = add(`<details class="tool"><summary><span class="ticon">${icon(TOOL_ICONS[ev.name] || "tool")}</span><span class="tname">${esc(ev.name)}</span>
-    <span class="targ">${esc(argSummary(ev.name, ev.input))}</span><span class="st"><span class="spinner"></span></span></summary>
-    <pre>${esc(JSON.stringify(ev.input, null, 2))}</pre></details>`);
+  const [verb, object] = stepText(ev.name, ev.input); // steps.js: plain words; the tool and its arguments are inside
+  const el = add(`<details class="tool"><summary><span class="ticon">${icon(TOOL_ICONS[ev.name] || "tool")}</span><span class="tverb">${esc(verb)}</span>
+    <span class="targ">${esc(object)}</span><span class="st"><span class="spinner"></span></span></summary>
+    <div class="traw"><code>${esc(ev.name)}</code><pre>${esc(JSON.stringify(ev.input, null, 2))}</pre></div></details>`);
   state.toolEls.set(ev.id, el); return el;
 }
 function render(ev, replay) {
@@ -1301,8 +1303,8 @@ function render(ev, replay) {
     case "route": endText(); add(`<div class="skill-chip route-chip" title="Auto picked this model because: ${esc(ev.reason)}">${icon("sparkle")}auto → ${esc(shortModel(ev.model))} · ${esc(ev.reason)}</div>`); if (!replay) activity("model", "auto", `${shortModel(ev.model)} (${ev.tier}): ${ev.reason}`); break;
     case "spec": {
       endText();
-      const what = ev.created ? `started ${ev.kind === "bugfix" ? "bugfix " : ""}spec` : ev.doc ? `wrote ${ev.doc}` : ev.task ? `task ${ev.task} → ${ev.status.replace("_", " ")}` : "updated";
-      add(`<div class="skill-chip spec-chip" data-spec-open="${esc(ev.name)}">${icon("list")}spec ${esc(ev.name)}: ${esc(what)}</div>`);
+      // A document written or a task marked already has its step row ("Wrote design.md"); only a new spec needs a line.
+      if (ev.created) add(`<div class="skill-chip spec-chip" data-spec-open="${esc(ev.name)}">${icon("list")}spec ${esc(ev.name)}: started ${ev.kind === "bugfix" ? "bugfix " : ""}spec</div>`);
       if (!replay) { loadSpecs(true).then(() => { if (ev.created || ev.doc === "requirements") openSpec(ev.name); }); }
       break;
     }
@@ -1318,7 +1320,7 @@ function render(ev, replay) {
     case "thinking":
       if (!curThink) curThink = add(`<div class="thinking"></div>`);
       curThink.textContent += ev.text; curThink.scrollTop = curThink.scrollHeight; break;
-    case "tool_call": endText(); toolEl(ev); if (!replay) activity("call", ev.name, argSummary(ev.name, ev.input), JSON.stringify(ev.input, null, 2)); break;
+    case "tool_call": { endText(); const el = toolEl(ev); fileToolStep(el, ev); readStepAdded(el, ev); } if (!replay) activity("call", ev.name, argSummary(ev.name, ev.input), JSON.stringify(ev.input, null, 2)); break;
     case "tool_running": { const el = state.toolEls.get(ev.id); if (el) $(".st", el).innerHTML = '<span class="spinner"></span>'; break; }
     case "tool_result": {
       const el = state.toolEls.get(ev.id) || toolEl({ id: ev.id, name: ev.name, input: null });
@@ -1327,6 +1329,8 @@ function render(ev, replay) {
       const st = $(".st", el); st.className = "st " + (ev.is_error ? "err" : failedRun ? "warn" : "ok");
       st.innerHTML = `${icon(ev.is_error || failedRun ? "alert" : "check")}${failedRun ? "exit " + exit[1] + " · " : ""}${ev.seconds ? ev.seconds + "s" : ""}`;
       el.insertAdjacentHTML("beforeend", `<pre>${esc(ev.output)}</pre>`);
+      changeStepDone(el, ev); // steps.js: a change made shows as its change row, not twice
+      readStepDone(el, ev); // steps.js: an error splits a group of reads; the group's status follows its steps
       if (ev.images?.length) { el.insertAdjacentHTML("beforeend", `<div class="img-row">${ev.images.map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="image" loading="lazy"></a>`).join("")}</div>`); el.open = true; }
       if (!replay) activity(ev.is_error ? "error" : "result", ev.name, `${ev.output.length.toLocaleString()} chars${ev.seconds ? " · " + ev.seconds + "s" : ""}`, ev.output);
       break;
@@ -1342,10 +1346,10 @@ function render(ev, replay) {
       const known = state.proposals.get(ev.proposal.id);
       state.proposals.set(ev.proposal.id, { ...known, ...ev.proposal, diff: ev.proposal.diff || known?.diff || "" });
       if ($(`#transcript [data-prop="${ev.proposal.id}"]`)) refreshProposalViews(ev.proposal.id); // e.g. superseded
-      else { renderProposalCard(state.proposals.get(ev.proposal.id)); renderProposalList(); renderReviewBar(); }
+      else { renderProposalCard(state.proposals.get(ev.proposal.id)); foldChangeStep(ev.proposal.id); renderProposalList(); renderReviewBar(); }
       break;
     }
-    case "proposal_ref": { const p = state.proposals.get(ev.id); if (p && !$(`#transcript [data-prop="${p.id}"]`)) renderProposalCard(p); break; }
+    case "proposal_ref": { const p = state.proposals.get(ev.id); if (p && !$(`#transcript [data-prop="${p.id}"]`)) { renderProposalCard(p); foldChangeStep(p.id); } break; }
     case "proposals_changed": for (const id of ev.ids) { const p = state.proposals.get(id); if (p) { p.status = "discarded"; refreshProposalViews(id); } } break;
     case "approval_needed": {
       endText();
