@@ -63,7 +63,7 @@
 :where(button, .btn, .icon-btn, .row, .tab, .opt, .mi, .rv-item, .chip-btn, .seg button) {
   transition: background-color var(--ease), color var(--ease), border-color var(--ease);
 }
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } } /* the switch knob too */
 html, body { height: 100%; margin: 0; }
 body { background: var(--bg-2); color: var(--fg); font: var(--fs-body)/1.45 var(--sans); overflow: hidden; -webkit-font-smoothing: antialiased; }
 button, input, select, textarea { font: inherit; color: inherit; }
