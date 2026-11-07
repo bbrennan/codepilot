@@ -96,8 +96,9 @@ function renderPinnedPlan() {
     paused: next >= 0 ? `<span class="plan-status paused">Paused at step ${next + 1} of ${p.items.length}</span>` : "", complete: "" }[status];
   el.hidden = false;
   el.classList.toggle("complete", p.complete);
-  el.innerHTML = `<div class="plan-head" role="button" tabindex="0" title="Show the plan in the chat">${icon("list")}<b>${p.complete ? "✓ Plan complete" : "Plan"}</b>${said}<span class="muted">${planCount(p.progress)}</span><span class="spacer"></span><span class="pbar"><i style="width:${pct}%"></i></span></div>
-    ${status === "paused" && next >= 0 ? `<div class="plan-acts"><button class="btn sm" id="planContinue" title="Ask codepilot to carry on from step ${next + 1}">Continue</button><button class="btn sm ghost" id="planDismiss" title="Put this plan away; codepilot is told">Dismiss</button></div>` : ""}`;
+  // One line: the header (a click goes to the card) and, when paused, its buttons beside it.
+  el.innerHTML = `<div class="plan-line"><div class="plan-head" role="button" tabindex="0" title="Show the plan in the chat">${icon("list")}<b>${p.complete ? "✓ Plan complete" : "Plan"}</b>${said}<span class="muted">${planCount(p.progress)}</span><span class="spacer"></span><span class="pbar"><i style="width:${pct}%"></i></span></div>
+    ${status === "paused" && next >= 0 ? `<div class="plan-acts"><button class="btn sm" id="planContinue" title="Ask codepilot to carry on from step ${next + 1}">Continue</button><button class="btn sm ghost" id="planDismiss" title="Put this plan away; codepilot is told">Dismiss</button></div>` : ""}</div>`;
   const head = $(".plan-head", el);
   head.onclick = showPlanCard;
   head.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); showPlanCard(); } };

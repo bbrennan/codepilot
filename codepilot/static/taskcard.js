@@ -24,17 +24,22 @@ function taskItemEl(text, cls) {
   return el;
 }
 
-// The card's items, in order, keeping the work already filed under each (matched by text). An item dropped from the
-// list keeps its work, marked as dropped; one with no work just goes.
+// The card's items, in order, keeping the work already filed under each (matched by text, and by which occurrence
+// for two steps of the same name). An item dropped from the list keeps its work, marked as dropped; one with no work
+// just goes. The item in progress becomes where work is filed, and the card remembers which message made it so: a
+// rewind past that message files under the one before again.
 function setTaskItems(card, items, count) {
   const list = card.querySelector(":scope > .plan-list");
   const old = new Map([...list.querySelectorAll(":scope > .pi[data-key]")].map((e) => [e.dataset.key, e]));
-  const keep = [];
+  const keep = [], seen = new Map();
   for (const it of items) {
-    const key = itemKey(it.text);
+    const base = itemKey(it.text), nth = (seen.get(base) || 0) + 1; seen.set(base, nth);
+    const key = `${base}#${nth}`;
     const el = old.get(key) || taskItemEl(it.text, ""); old.delete(key);
     el.dataset.key = key; el.className = `pi it ${it.status}`; el.querySelector(".t").textContent = it.text;
-    if (it.status === "doing") card.dataset.active = key;
+    if (it.status === "doing" && card.dataset.active !== key) {
+      card.dataset.active = key; (card._actives ||= []).push({ key, by: lastUserMsg() });
+    }
     keep.push(el);
   }
   for (const el of old.values()) if (stepsIn(el).length) { el.className = "pi it gone"; keep.push(el); } else el.remove();
@@ -81,6 +86,9 @@ function fileStep(el) {
     item = list.querySelector(":scope > .pi.before");
     if (!item) { item = taskItemEl(card.dataset.before || "Before the plan", "before"); list.prepend(item); }
   }
+  // What the chat showed just before this step (thinking aside): two reads are a run only if nothing came between.
+  let tail = el.previousElementSibling; while (tail?.matches(".thinking")) tail = tail.previousElementSibling;
+  el._tail = tail;
   item.querySelector(":scope > .pi-steps").append(el);
   el.dataset.filed = "1"; el._turn = lastUserMsg();
   refreshTaskCard(card);
@@ -93,6 +101,8 @@ function unfileRewound() {
   for (const g of document.querySelectorAll("#transcript .pi-steps details.step-group")) refreshReadGroup(g);
   for (const item of document.querySelectorAll("#transcript .pi.before, #transcript .pi.gone")) if (!stepsIn(item).length) item.remove();
   for (const card of document.querySelectorAll("#transcript .plan-card")) {
+    card._actives = (card._actives || []).filter((a) => a.by?.isConnected);
+    if (card._actives.length) card.dataset.active = card._actives.at(-1).key; else delete card.dataset.active;
     if (card._endedBy && !card._endedBy.isConnected) {
       card.classList.remove("retired", "complete"); card.classList.add("live"); card.open = true;
       card.querySelector(".ttl").textContent = card.dataset.title; card._endedBy = null;

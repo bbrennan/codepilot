@@ -131,3 +131,63 @@ def test_a_dismissed_plan_keeps_its_work_after_a_reload(page, server, session):
 
 IN_VIEW = """(el) => { const r = el.getBoundingClientRect(), t = document.querySelector('#transcript').getBoundingClientRect();
   return r.top >= t.top - 1 && r.top < t.bottom - 10; }"""
+
+
+# -- review fixes ------------------------------------------------------------------------------------------------------
+
+def _plan(items, kind="new"):
+    """A plan event as the server sends it."""
+    done = sum(i["status"] == "done" for i in items)
+    return f"render({{ type: 'plan', kind: '{kind}', items: {items!r}, progress: [{done}, {len(items)}], changes: [], retired: null }});"
+
+
+def _read(id_, path):
+    return (f"render({{ type: 'tool_call', id: '{id_}', name: 'read_file', input: {{ path: '{path}' }} }});"
+            f"render({{ type: 'tool_result', id: '{id_}', name: 'read_file', output: 'ok', is_error: false }});")
+
+
+def test_words_between_reads_keep_them_apart_inside_a_step_too(page, server, session):
+    open_app(page)
+    page.evaluate("() => {" + _plan([{"text": "Look", "status": "doing"}])
+                  + _read("r1", "a.py") + "render({ type: 'assistant', text: 'Now b.' });" + _read("r2", "b.py")
+                  + "render({ type: 'user', text: 'and c and d' });" + _read("r3", "c.py") + _read("r4", "d.py") + "}")
+    rows = page.locator("#transcript .pi.doing > .pi-steps > details.tool > summary .tverb").all_text_contents()
+    assert rows == ["Read", "Read", "Read 2 files"]  # c and d, with nothing between them, still fold
+
+
+def test_steps_with_the_same_name_stay_one_row_each(page, server, session):
+    open_app(page)
+    twice = [{"text": "Run tests", "status": "todo"}, {"text": "Fix it", "status": "doing"},
+             {"text": "Run tests", "status": "todo"}]
+    later = [{"text": "Run tests", "status": "done"}, {"text": "Fix it", "status": "done"},
+             {"text": "Run tests", "status": "doing"}]
+    page.evaluate("() => {" + _plan(twice) + _plan(later, "update") + _plan(later, "update") + "}")
+    assert page.locator("#transcript .plan-card .pi.it").all_text_contents() == ["Run tests", "Fix it", "Run tests"]
+    page.evaluate("() => {" + _read("r1", "a.py") + "}")  # filed under the second "Run tests", the one in progress
+    assert page.locator("#transcript .pi.it").nth(2).locator(".pi-steps details.tool").count() == 1
+
+
+def test_after_editing_away_the_turn_a_step_started_in_work_goes_before_the_plan(page, server, session):
+    open_app(page)
+    send(page, "plan start")  # all to do
+    send(page, "plan progress")  # step 2 in progress
+    msg = page.locator(".msg.user", has_text="plan progress")
+    msg.hover()
+    msg.locator("[data-act=edit]").click()
+    msg.locator(".edit-box textarea").fill("slow tool please")  # a read, while no step has started
+    msg.locator(".edit-box textarea").press("Enter")
+    page.locator(".msg.user", has_text="slow tool please").wait_for()
+    wait_idle(page)
+    [card] = cards(page)
+    assert card["groups"][0] == ["Before the plan", "before", ["Read agent/core.py"]], card["groups"]
+
+
+def test_the_paused_plan_and_its_buttons_share_one_line(page, server, session):
+    open_app(page)
+    send(page, "plan progress")
+    box = lambda sel: page.locator(sel).bounding_box()  # noqa: E731
+    head, cont = box("#plan .plan-head"), box("#planContinue")
+    assert abs((head["y"] + head["height"] / 2) - (cont["y"] + cont["height"] / 2)) < 6, (head, cont)
+    page.click("#plan .plan-head")  # the line still takes you to the card, and the buttons still work
+    page.click("#planContinue")
+    page.locator(".msg.user", has_text='next is step 2, "Implement export"').wait_for()
