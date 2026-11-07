@@ -59,7 +59,9 @@ function diffHtml(diff) {
       continue;
     }
     if (header) {
-      if ((m = l.match(/^\+\+\+ (?:"b\/(.+)"|b\/(.+))$/)) && fileRow >= 0) { // the destination, as git wrote it
+      // The destination, as git wrote it. Git ends an unquoted name that has spaces with a separator tab (a tab in a
+      // name itself is always quoted), so that tab isn't part of the name.
+      if ((m = l.match(/^\+\+\+ (?:"b\/(.+)"|b\/(.+?))\t?$/)) && fileRow >= 0) {
         rows[fileRow] = `<div class="f">${esc(m[1] !== undefined ? gitUnquote(m[1]) : m[2])}</div>`; continue;
       }
       if (l.startsWith("--- ") || l.startsWith("+++ ") || DIFF_SKIP.test(l)) continue;

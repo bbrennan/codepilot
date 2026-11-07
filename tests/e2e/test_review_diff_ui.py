@@ -7,7 +7,8 @@ from uihelpers import open_app
 
 ROWS = """() => [...document.querySelectorAll('.review .diff > div')].map((r) => ({
   cls: r.className, text: r.textContent,
-  old: r.querySelector('.ln.o')?.textContent.trim() || '', new: r.querySelector('.ln.n')?.textContent.trim() || '' }))"""
+  old: r.querySelector('.ln.o')?.textContent.trim() || '',
+  new: r.querySelector('.ln.n')?.textContent.trim() || '' }))"""
 
 
 def send(page, text):
@@ -41,18 +42,21 @@ def test_the_review_diff_has_line_numbers_and_no_raw_headers(page, server, sessi
 def test_a_working_tree_diff_names_each_file(page, server, session):
     repo = server.repo
     (repo / "café.py").write_text("x = 1\n")
+    (repo / "my notes.txt").write_text("one\n")  # git ends its ---/+++ lines with a tab for names with spaces
     for args in (["add", "-A"], ["commit", "-qm", "start"]):
         subprocess.run(["git", "-C", str(repo), *args], check=True)
     (repo / "agent" / "core.py").write_text("def add(a, b):\n    return a + b\n")
     (repo / "Makefile").write_text("eval-bedrock:\n\techo evals\n")
     (repo / "café.py").write_text("x = 2\n")  # git quotes this name: "b/caf\303\251.py"
+    (repo / "my notes.txt").write_text("two\n")
     open_app(page)
     page.click("[data-view=changes]")
     page.locator("#openGitDiff").click()
     page.locator(".diff").wait_for()
     files = page.locator(".diff .f").all_text_contents()
-    assert [f.strip() for f in files] == ["Makefile", "agent/core.py", "café.py"]
-    assert "diff --git" not in page.locator(".diff").text_content() and "index " not in page.locator(".diff").text_content()
+    assert files == ["Makefile", "agent/core.py", "café.py", "my notes.txt"]  # exactly: no trailing tab
+    text = page.locator(".diff").text_content()
+    assert "diff --git" not in text and "index " not in text
 
 
 def test_a_removed_line_that_starts_with_dashes_is_not_taken_for_a_header(page, server, session):
@@ -73,7 +77,8 @@ def test_every_kind_of_change_is_named_and_explained(page, server, session):
         'diff --git "a/caf\\303\\251.py" "b/caf\\303\\251.py"', "index 3333333..4444444 100644",
         '--- "a/caf\\303\\251.py"', '+++ "b/caf\\303\\251.py"', "@@ -1 +1 @@", "-x = 1", "+x = 2",
         "diff --git a/run.sh b/run.sh", "old mode 100644", "new mode 100755",
-        "diff --git a/logo.png b/logo.png", "index 5555555..6666666 100644", "Binary files a/logo.png and b/logo.png differ",
+        "diff --git a/logo.png b/logo.png", "index 5555555..6666666 100644",
+        "Binary files a/logo.png and b/logo.png differ",
         "diff --git a/old_name.py b/new_name.py", "similarity index 100%", "rename from old_name.py",
         "rename to new_name.py", ""])
     seen = page.evaluate("""(d) => { const el = document.createElement('div'); el.innerHTML = diffHtml(d);
@@ -106,7 +111,8 @@ def _rows(page, diff):
     return page.evaluate("""(d) => { const el = document.createElement('div'); el.innerHTML = diffHtml(d);
       return { files: [...el.querySelectorAll('.f')].map((r) => r.textContent),
                lines: [...el.querySelectorAll('.dl')].map((r) => [r.className, r.querySelector('.code').textContent]),
-               hunks: el.querySelectorAll('.hunk').length, meta: [...el.querySelectorAll('.meta')].map((r) => r.textContent) }; }""",
+               hunks: el.querySelectorAll('.hunk').length,
+               meta: [...el.querySelectorAll('.meta')].map((r) => r.textContent) }; }""",
         diff)
 
 
