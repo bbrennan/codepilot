@@ -66,3 +66,11 @@ def test_keyboard_focus_shows_on_a_switch_that_is_on(page, server, session):
     ring = switch.evaluate("""(el) => { const cs = getComputedStyle(el);
       return { style: cs.outlineStyle, offset: parseFloat(cs.outlineOffset), color: cs.outlineColor, bg: cs.backgroundColor }; }""")
     assert ring["style"] != "none" and (ring["offset"] >= 0 or ring["color"] != ring["bg"]), ring
+
+
+def test_switches_dont_animate_when_the_system_asks_for_less_motion(page, server, session):
+    page.emulate_media(reduced_motion="reduce")
+    open_app(page)
+    durations = page.locator("#autoApprove").evaluate("""(el) => [getComputedStyle(el).transitionDuration,
+      getComputedStyle(el, '::before').transitionDuration]""")
+    assert all(set(d.replace("s", "").split(", ")) <= {"0"} for d in durations), durations  # the knob too

@@ -100,3 +100,34 @@ def test_a_long_path_keeps_the_review_buttons_in_reach(page, server, session):
         box = page.locator(f".rv-main .ed-bar {sel}").bounding_box()
         assert box and box["x"] + box["width"] <= pane["x"] + pane["width"] + 0.5, f"{sel} is pushed out of reach"
     assert long in page.locator(".rv-main .crumbs").text_content()
+
+
+def _rows(page, diff):
+    return page.evaluate("""(d) => { const el = document.createElement('div'); el.innerHTML = diffHtml(d);
+      return { files: [...el.querySelectorAll('.f')].map((r) => r.textContent),
+               lines: [...el.querySelectorAll('.dl')].map((r) => [r.className, r.querySelector('.code').textContent]),
+               hunks: el.querySelectorAll('.hunk').length, meta: [...el.querySelectorAll('.meta')].map((r) => r.textContent) }; }""",
+        diff)
+
+
+def test_file_names_with_spaces_are_shown_as_they_are(page, server, session):
+    open_app(page)
+    seen = _rows(page, "\n".join([
+        "diff --git a/my notes.txt b/my notes.txt", "index 1..2 100644", "--- a/my notes.txt", "+++ b/my notes.txt",
+        "@@ -1 +1 @@", "-old", "+new",
+        "diff --git a/old name.txt b/new name.txt", "similarity index 90%", "rename from old name.txt",
+        "rename to new name.txt", ""]))
+    assert seen["files"] == ["my notes.txt", "new name.txt"], seen
+
+
+def test_a_merge_in_progress_shows_its_combined_diff(page, server, session):
+    """During an unresolved merge, `git diff` gives a combined diff; its changes must show, not an empty view."""
+    open_app(page)
+    seen = _rows(page, "\n".join([
+        "diff --cc agent/core.py", "index 1111111,2222222..0000000", "--- a/agent/core.py", "+++ b/agent/core.py",
+        "@@@ -1,2 -1,2 +1,6 @@@", "  def add(a, b):", "++<<<<<<< HEAD", " +    return a + b", "++=======",
+        "+     return b + a", "++>>>>>>> other", ""]))
+    assert seen["files"] == ["agent/core.py"], seen
+    texts = [t for _, t in seen["lines"]]
+    assert "<<<<<<< HEAD" in texts and "    return a + b" in texts and "def add(a, b):" in texts, texts
+    assert any("merge" in m.lower() for m in seen["meta"]), seen["meta"]
