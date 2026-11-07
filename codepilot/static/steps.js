@@ -51,3 +51,21 @@ function stepText(name, input) {
   }
   return [`Used ${name}`, input ? argSummary(name, input) : ""];
 }
+
+// One row per change: a propose_edit step that made a change gives its place to the change's own row (file, +/−,
+// Apply/Reject), which says what the step would. Live, the change arrives before the step's result; on reload, after
+// it; so whichever comes second makes the swap. Anything the result adds after its first line (what the checks found
+// after an auto-apply, a package that doesn't exist) moves into the change row. A step that failed stays, error and all.
+function changeStepDone(el, ev) {
+  const m = ev.name === "propose_edit" && !ev.is_error && /^(?:Proposed|Applied) change #(\d+)[^\n]*\n?([\s\S]*)/.exec(ev.output);
+  if (!m) return;
+  el.dataset.change = m[1]; el.dataset.note = m[2].trim();
+  foldChangeStep(m[1]);
+}
+function foldChangeStep(id) {
+  const step = document.querySelector(`#transcript details.tool[data-change="${id}"]`);
+  const card = document.querySelector(`#transcript .card.prop[data-prop="${id}"]`);
+  if (!step || !card) return;
+  if (step.dataset.note) card.insertAdjacentHTML("beforeend", `<pre class="step-note">${esc(step.dataset.note)}</pre>`);
+  step.replaceWith(card);
+}

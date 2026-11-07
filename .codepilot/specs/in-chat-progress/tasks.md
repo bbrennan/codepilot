@@ -5,7 +5,7 @@
     an unknown tool reads "Used <tool>"; a reload shows the same rows.
   - `static/steps.js` (`stepText`); `toolEl` uses it.
   - _Requirements: 1.1, 1.4_
-- [ ] 2. One row per change, no spec chips
+- [x] 2. One row per change, no spec chips
   - Test first: "fix two things" shows two change rows and no `propose_edit` rows; a quick spec shows three "Wrote …"
     rows and no chips; both after a reload too.
   - _Requirements: 1.2, 1.4_
