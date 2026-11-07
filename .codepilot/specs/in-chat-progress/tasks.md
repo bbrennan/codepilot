@@ -9,8 +9,8 @@
   - Test first: "fix two things" shows two change rows and no `propose_edit` rows; a quick spec shows three "Wrote …"
     rows and no chips; both after a reload too.
   - _Requirements: 1.2, 1.4_
-- [ ] 3. Reads grouped
-  - Test first: the scripted "long task" (seven reads) shows one "Read 7 files" row that expands to seven; an error
+- [x] 3. Reads grouped
+  - Test first: the scripted "long task" (seven reads) shows one "Read agent/core.py 7 times" row (files counted once each) that expands to seven; an error
     between reads splits the group.
   - `groupReads` in `steps.js`.
   - _Requirements: 1.3_

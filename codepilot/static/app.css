@@ -388,6 +388,9 @@ a.loc:hover { text-decoration: underline; }
 .tool .tverb { font-weight: 600; color: var(--fg-2); white-space: nowrap; }
 .tool .traw { padding: 4px 10px 0; } .tool .traw > code { font-size: var(--fs-sm); color: var(--muted); }
 .tool .targ { font-family: var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.step-group > summary .tverb { overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+.step-group > summary .targ { display: none; }
+.step-group > .group-steps { padding: 6px 8px 0; }
 .tool .st { font-size: var(--fs-sm); white-space: nowrap; color: var(--muted); display: flex; align-items: center; gap: 5px; }
 .tool .st.ok { color: var(--ok); } .tool .st.err { color: var(--err); } .tool .st.warn { color: var(--warn); }
 .tool .ticon svg { width: 14px; height: 14px; color: var(--muted); }

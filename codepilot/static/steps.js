@@ -69,3 +69,79 @@ function foldChangeStep(id) {
   if (step.dataset.note) card.insertAdjacentHTML("beforeend", `<pre class="step-note">${esc(step.dataset.note)}</pre>`);
   step.replaceWith(card);
 }
+
+// Reads grouped: read-only steps in a row (nothing between them but thinking) fold into one row that says what they did
+// ("Read 3 files, searched twice") and opens to the steps. An error never folds: it stands alone and splits the run.
+// Live, several calls made at once arrive before their results, so a group can exist before one of its steps fails.
+const READ_STEPS = new Set(["read_file", "list_files", "search_code", "git", "list_traces", "trace_outline",
+  "search_traces", "read_trace", "recall"]);
+const TRACE_STEPS = ["list_traces", "trace_outline", "search_traces", "read_trace"];
+const times = (n) => n === 1 ? "once" : n === 2 ? "twice" : `${n} times`;
+
+// One file however the path was spelled ("a.py", "./a.py", the full path, " x/../a.py"), as read_file resolves it.
+function fileKey(path) {
+  let p = String(path || "").trim();
+  const root = String(state.workspace || "").replace(/\/+$/, "");
+  if (root && (p === root || p.startsWith(root + "/"))) p = p.slice(root.length);
+  const out = [];
+  for (const seg of p.split("/")) { if (seg === "..") out.pop(); else if (seg && seg !== ".") out.push(seg); }
+  return out.join("/") || ".";
+}
+
+// What a run of read-only steps did, in words. Files are counted once each: seven reads of one file read one file.
+function readsSummary(steps) {
+  const of = (...names) => steps.filter((s) => names.includes(s.dataset.read));
+  const parts = [], files = of("read_file"), keys = new Set(files.map((s) => fileKey(s.dataset.obj)));
+  if (files.length) parts.push(keys.size === 1 ? `read ${fileKey(files[0].dataset.obj)}${files.length > 1 ? " " + times(files.length) : ""}` : `read ${keys.size} files`);
+  const n = (name) => of(name).length;
+  if (n("search_code")) parts.push(`searched ${times(n("search_code"))}`);
+  if (n("list_files")) parts.push(n("list_files") === 1 ? "listed a folder" : `listed ${n("list_files")} folders`);
+  if (n("git")) parts.push(`ran git ${times(n("git"))}`);
+  if (of(...TRACE_STEPS).length) parts.push("looked through the traces");
+  if (n("recall")) parts.push(`looked back in the history ${times(n("recall"))}`);
+  const said = parts.join(", ");
+  return said.charAt(0).toUpperCase() + said.slice(1);
+}
+
+const groupSteps = (g) => [...g.querySelectorAll(":scope > .group-steps > details.tool")];
+const foldable = (el) => !!el?.matches("details.tool[data-read]") && !el.querySelector(":scope > summary .st.err");
+
+function newReadGroup() {
+  const d = document.createElement("div");
+  d.innerHTML = `<details class="tool step-group"><summary><span class="ticon">${icon("eye")}</span><span class="tverb"></span>
+    <span class="targ"></span><span class="st"></span></summary><div class="group-steps"></div></details>`;
+  return d.firstElementChild;
+}
+
+// Its words and status follow its steps: spinning while one runs. One step left is no group: unwrap it.
+function refreshReadGroup(g) {
+  const steps = groupSteps(g);
+  if (steps.length < 2) { g.replaceWith(...g.querySelector(":scope > .group-steps").childNodes); return; }
+  g.querySelector(":scope > summary .tverb").textContent = readsSummary(steps);
+  const running = steps.some((s) => s.querySelector(":scope > summary .st .spinner"));
+  g.querySelector(":scope > summary .st").innerHTML = running ? '<span class="spinner"></span>' : icon("check");
+  g.querySelector(":scope > summary .st").className = "st" + (running ? "" : " ok");
+}
+
+function readStepAdded(el, ev) {
+  if (!READ_STEPS.has(ev.name)) return;
+  el.dataset.read = ev.name; el.dataset.obj = ev.name === "read_file" ? String(ev.input?.path || "") : "";
+  let prev = el.previousElementSibling; const thinking = [];
+  while (prev?.matches(".thinking")) { thinking.unshift(prev); prev = prev.previousElementSibling; }
+  let g = prev?.matches("details.step-group") ? prev : null;
+  if (!g && foldable(prev)) { g = newReadGroup(); prev.before(g); g.querySelector(".group-steps").append(prev); }
+  if (!g) return;
+  g.querySelector(":scope > .group-steps").append(...thinking, el);
+  refreshReadGroup(g);
+}
+
+function readStepDone(el, ev) {
+  const g = el.parentElement?.closest("details.step-group");
+  if (!g) return;
+  if (ev.is_error) { // the failed step stands alone after what came before it; what came after it is a run of its own
+    const after = []; for (let n = el.nextSibling; n; n = n.nextSibling) after.push(n);
+    g.after(el);
+    if (after.length) { const g2 = newReadGroup(); el.after(g2); g2.querySelector(".group-steps").append(...after); refreshReadGroup(g2); }
+  }
+  refreshReadGroup(g);
+}
