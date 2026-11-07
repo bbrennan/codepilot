@@ -385,7 +385,8 @@ a.loc:hover { text-decoration: underline; }
 .tool { border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg-2); margin: 0 0 6px; }
 .tool > summary { list-style: none; display: flex; gap: 7px; align-items: center; padding: 5px 9px; cursor: pointer; font-size: var(--fs-ui); }
 .tool > summary::-webkit-details-marker { display: none; }
-.tool .tname { font-family: var(--mono); font-weight: 600; color: var(--fg-2); }
+.tool .tverb { font-weight: 600; color: var(--fg-2); white-space: nowrap; }
+.tool .traw { padding: 4px 10px 0; } .tool .traw > code { font-size: var(--fs-sm); color: var(--muted); }
 .tool .targ { font-family: var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
 .tool .st { font-size: var(--fs-sm); white-space: nowrap; color: var(--muted); display: flex; align-items: center; gap: 5px; }
 .tool .st.ok { color: var(--ok); } .tool .st.err { color: var(--err); } .tool .st.warn { color: var(--warn); }

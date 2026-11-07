@@ -1281,9 +1281,10 @@ function argSummary(name, input) {
   return input.path || input.pattern || input.query || input.command || input.task || input.args || input.name || input.log_group || input.note || JSON.stringify(input).slice(0, 120);
 }
 function toolEl(ev) {
-  const el = add(`<details class="tool"><summary><span class="ticon">${icon(TOOL_ICONS[ev.name] || "tool")}</span><span class="tname">${esc(ev.name)}</span>
-    <span class="targ">${esc(argSummary(ev.name, ev.input))}</span><span class="st"><span class="spinner"></span></span></summary>
-    <pre>${esc(JSON.stringify(ev.input, null, 2))}</pre></details>`);
+  const [verb, object] = stepText(ev.name, ev.input); // steps.js: plain words; the tool and its arguments are inside
+  const el = add(`<details class="tool"><summary><span class="ticon">${icon(TOOL_ICONS[ev.name] || "tool")}</span><span class="tverb">${esc(verb)}</span>
+    <span class="targ">${esc(object)}</span><span class="st"><span class="spinner"></span></span></summary>
+    <div class="traw"><code>${esc(ev.name)}</code><pre>${esc(JSON.stringify(ev.input, null, 2))}</pre></div></details>`);
   state.toolEls.set(ev.id, el); return el;
 }
 function render(ev, replay) {
