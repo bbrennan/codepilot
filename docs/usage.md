@@ -35,7 +35,8 @@
   Memory. Click the active icon to collapse the sidebar.
 - **Editor:** opens files (with syntax highlighting), trace timelines and diffs as tabs.
 - **Chat (right):** the conversation, with every tool call shown as a card you can expand.
-- **Bottom panel:** **Activity** lists every model call and tool call with timings and tokens. **Output**
+- **Bottom panel** (closed until you open it: ⌘J, the toggle in the title bar, or the Terminal menu; then it remembers):
+  **Activity** lists every model call and tool call with timings and tokens. **Output**
   runs tests, analyser checks or any command yourself. **Terminal** holds your shells (see
   [the terminal](#the-terminal)).
 - **Title bar:** the open folder, file search (⌘P), the **Terminal** menu, and buttons to show or hide the
@@ -230,7 +231,7 @@ You can switch mode mid-conversation, and you can add your own modes
 ## Changes: proposals, Apply, Undo
 
 codepilot never writes to your files without you. Proposed changes collect in the **review bar** pinned
-above the message box ("2 changes to review · +12 −3"), so they don't get lost as the chat scrolls. Each
+above the message box ("2 changes · +12 −3"), so they don't get lost as the chat scrolls. Each
 one is also a single line in the chat; click it to see its diff.
 
 - **Review** opens the **Review** tab: changed files on the left, the full diff on the right. Press

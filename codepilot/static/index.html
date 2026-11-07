@@ -176,8 +176,8 @@
           <button class="chip-btn" id="atBtn" title="Reference a file" data-icon="at"></button>
           <button class="chip-btn" id="imgBtn" title="Attach images (or paste / drop them)" data-icon="image"></button>
           <input type="file" id="imgFile" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
-          <label class="toggle" title="Run tests without asking each time"><input type="checkbox" id="autoApprove"><span>auto-run tests</span></label>
-          <label class="toggle" title="Write proposed edits immediately, for this session (each can be undone in Changes)"><input type="checkbox" id="autoApply"><span>auto-apply edits</span></label>
+          <label class="toggle" title="Run tests without asking each time"><input type="checkbox" role="switch" id="autoApprove"><span>auto-run tests</span></label>
+          <label class="toggle" title="Write proposed edits immediately, for this session (each can be undone in Changes)"><input type="checkbox" role="switch" id="autoApply"><span>auto-apply edits</span></label>
           <div class="spacer"></div>
           <button class="chip-btn busy-act" id="steerBtn" title="Steer: codepilot reads this at its next step, while it keeps working (Ctrl+Enter)" data-icon="history" hidden>Steer</button>
           <button class="chip-btn busy-act" id="queueBtn" title="Queue: run this after the current work finishes (Enter)" data-icon="list" hidden>Queue</button>
@@ -224,7 +224,7 @@
 <!-- Open folder -->
 <div class="palette" id="folderDialog" hidden>
   <div class="palette-box folder-box">
-    <div class="fd-head"><b>Open folder</b><span class="spacer"></span><label class="toggle"><input type="checkbox" id="fdHidden"><span>show hidden</span></label><button class="icon-btn sm" id="fdClose" title="Close" data-icon="x"></button></div>
+    <div class="fd-head"><b>Open folder</b><span class="spacer"></span><label class="toggle"><input type="checkbox" role="switch" id="fdHidden"><span>show hidden</span></label><button class="icon-btn sm" id="fdClose" title="Close" data-icon="x"></button></div>
     <div class="fd-path"><button class="icon-btn sm" id="fdUp" title="Up one level" data-icon="up"></button><input id="fdInput" spellcheck="false" title="Type or paste a path and press Enter"></div>
     <div class="fd-body"><div class="fd-places" id="fdPlaces"></div><div class="fd-list" id="fdList"></div></div>
     <div class="fd-foot"><span class="hint" id="fdHint"></span><span class="spacer"></span><button class="btn" id="fdCancel">Cancel</button><button class="btn primary" id="fdOpen">Open</button></div>
@@ -248,6 +248,7 @@
 
 <script src="/static/layout.js"></script>
 <script src="/static/app.js"></script>
+<script src="/static/diff.js"></script>
 <script src="/static/checkpoints.js"></script>
 <script src="/static/verify.js"></script>
 <script src="/static/plan.js"></script>

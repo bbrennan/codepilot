@@ -164,6 +164,7 @@ async function init() {
   const theme = store("cp-theme"); if (theme) document.documentElement.dataset.theme = theme;
   syncThemeColor();
   for (const c of ["no-sidebar", "no-panel", "no-chat"]) if (store("cp-" + c) === "1") ide.classList.add(c);
+  if (store("cp-no-panel") === null) ide.classList.add("no-panel"); // closed until you open it: no empty "Activity 0"
   initLayout(); // layout.js: saved pane sizes, fitted to this window
   hydrateIcons(); renderQuick(); // before the first await, so the composer doesn't change height after first paint
   state.cfg = await api("/api/config");
@@ -175,8 +176,8 @@ async function init() {
   loadModels(false);
   if (c.eval_cmd) $("#cmdInput").value = c.eval_cmd;
   api("/api/github").then((g) => {
-    $("#sbGithub").innerHTML = g.available ? `${icon("branch")}github: ${esc(g.user)}${g.host !== "github.com" ? " @ " + esc(g.host) : ""}` : `<span title="${esc(g.reason || "")}">${icon("alert")}github off</span>`;
-    $("#sbGithub").className = "sb-item " + (g.available ? "" : "warn");
+    $("#sbGithub").innerHTML = g.available ? `${icon("branch")}github: ${esc(g.user)}${g.host !== "github.com" ? " @ " + esc(g.host) : ""}` : `<span title="GitHub isn't connected: ${esc(g.reason || "")}">${icon("branch")}github off</span>`;
+    $("#sbGithub").className = "sb-item"; // not connected is a state you chose, not a warning
   }).catch(() => {});
   setView(store("cp-view") || "explorer", false); // keep a hidden sidebar hidden
   const list = await loadSessions();
@@ -472,7 +473,9 @@ async function loadWorkspaceInfo() {
   const w = await api(`/api/sessions/${state.sid}/workspace`).catch(() => null);
   state.wsInfo = w;
   state.testCmd = w?.test_cmd || "";
-  $("#sbTest").innerHTML = state.workspace ? `${icon("beaker")}${esc(state.testCmd || "no test command")}` : "";
+  const cmd = state.testCmd || "no test command";
+  $("#sbTest").innerHTML = state.workspace ? `${icon("beaker")}${esc(cmd.length > 24 ? cmd.slice(0, 23) + "…" : cmd)}` : "";
+  $("#sbTest").title = state.workspace && state.testCmd ? `Test command: ${state.testCmd}` : "";
   renderModes();
   // The Traces view only appears when this folder has trace or log folders (traces/, logs/, results/...).
   const hasTraces = !!(w?.trace_roots || []).length;
@@ -522,11 +525,13 @@ function renderEditor() {
 function welcomeHtml() {
   const recent = (state.sessionList || []).slice(0, 5).map((s) => `<div class="link" data-open-session="${s.id}">${icon("history")}${esc(s.title || "New session")} <span class="muted">${esc(s.repo ? base(s.repo) : "")}</span></div>`).join("");
   const mod = isMac ? "⌘" : "Ctrl+";
+  const model = { ollama: "a local model (Ollama)", bedrock: "Claude via Amazon Bedrock", anthropic: "Claude via the Anthropic API",
+    openai: "the OpenAI API" }[state.cfg?.provider] || "your model";
   return `<div class="ed-scroll" style="display:flex"><div class="welcome">
     <h1>${icon("logo")}codepilot</h1>
-    <p>Your coding copilot on ${{ ollama: "a local model (Ollama)", bedrock: "Claude via Amazon Bedrock", anthropic: "Claude via the Anthropic API", openai: "the OpenAI API" }[state.cfg?.provider] || "your model"}. Open a folder, then ask in chat. Reference files with <kbd>@</kbd>, drag them in from the explorer, or select lines in a file.</p>
+    <p>Your coding copilot on ${model}. ${state.workspace ? `Working in <b>${esc(base(state.workspace))}</b>: ask in chat.` : "Open a folder, then ask in chat."} Reference files with <kbd>@</kbd>, drag them in from the explorer, or select lines in a file.</p>
     <h3>Start</h3>
-    <div class="link" id="wOpen">${icon("folderOpen")}Open folder…</div>
+    <div class="link" id="wOpen">${icon("folderOpen")}${state.workspace ? "Open another folder…" : "Open folder…"}</div>
     <div class="link" id="wNew">${icon("plus")}New session</div>
     <div class="link" id="wFind">${icon("search")}Go to file…</div>
     ${recent ? `<h3>Recent sessions</h3>${recent}` : ""}
@@ -815,11 +820,6 @@ function jsonTree(v, depth, key) {
 }
 
 // diff tabs
-function diffHtml(diff) {
-  return `<div class="diff">${diff.split("\n").map((l) => {
-    const c = l.startsWith("+++") || l.startsWith("---") || l.startsWith("@@") || l.startsWith("diff ") ? "h" : l.startsWith("+") ? "a" : l.startsWith("-") ? "d" : "";
-    return `<div class="${c}">${esc(l) || " "}</div>`; }).join("")}</div>`;
-}
 function openProposal(id) { openReview(+id); }
 function renderDiffTab(tab) {
   const p = state.proposals.get(tab.pid);
@@ -847,7 +847,7 @@ function renderReviewBar() {
   if (pend.length) {
     const tot = pend.reduce((acc, p) => { const st = diffStat(p.diff); acc.a += st.a; acc.d += st.d; return acc; }, { a: 0, d: 0 });
     const files = [...new Set(pend.map((p) => base(p.path)))];
-    html += `<div class="rb-row rb-changes">${icon("diff")}<div class="rb-main"><b>${pend.length} change${pend.length > 1 ? "s" : ""} to review</b> <span class="dstat"><span class="a">+${tot.a}</span> <span class="d">−${tot.d}</span></span><span class="rb-files muted">${esc(files.slice(0, 4).join(", "))}${files.length > 4 ? ` +${files.length - 4} more` : ""}</span></div>
+    html += `<div class="rb-row rb-changes">${icon("diff")}<div class="rb-main"><b title="Waiting for your review">${pend.length} change${pend.length > 1 ? "s" : ""}</b> <span class="dstat"><span class="a">+${tot.a}</span> <span class="d">−${tot.d}</span></span><span class="rb-files muted">${esc(files.slice(0, 4).join(", "))}${files.length > 4 ? ` +${files.length - 4} more` : ""}</span></div>
       <div class="rb-acts"><button class="btn" id="rbReview">Review</button><button class="btn primary" id="rbApplyAll">Apply all</button><button class="btn ghost" id="rbRejectAll">Reject all</button></div>${receiptHtml()}</div>`;
   }
   bar.innerHTML = html; bar.hidden = !html; bindReceipt(bar);
@@ -870,13 +870,17 @@ function maybeResumeAfterReview() {
   add(`<div class="wait-row approved">${icon("refresh")}<span>Continuing after your review…</span></div>`);
   streamTo(sid, `/api/sessions/${sid}/chat`, { message: REVIEW_DONE, tier: selectedTier() });
 }
+// The chat keeps a one-line marker of a command waiting for approval: its first line, cut short. The whole command is
+// in the review bar, on hover, and in the tool card above.
+const cmdShort = (c) => { const all = String(c), first = all.split("\n")[0].slice(0, 80); return first === all ? first : `${first} …`; };
+const cmdCodes = (tools) => tools.map((t) => `<code>${esc(cmdShort(t.command))}</code>`).join(", ");
 function decideApproval(approve) {
   if (!state.approval || !state.sid) return;
   const remember = approve && !!$("#rbAllow")?.checked;
   const tools = state.approval.tools;
   state.approval = null; renderReviewBar();
   const row = $("#transcript .wait-row.waiting");
-  if (row) { row.classList.remove("waiting"); row.classList.add(approve ? "approved" : "denied"); row.innerHTML = `${icon(approve ? "check" : "x")}<span>${approve ? "Approved" : "Denied"}: ${tools.map((t) => `<code>${esc(t.command)}</code>`).join(", ")}${remember ? ` · always allowed <code>${esc(tools[0].allow.prefix)}</code> this session` : ""}</span>`; }
+  if (row) { row.classList.remove("waiting"); row.classList.add(approve ? "approved" : "denied"); row.innerHTML = `${icon(approve ? "check" : "x")}<span>${approve ? "Approved" : "Denied"}: ${cmdCodes(tools)}${remember ? ` · always allowed <code>${esc(tools[0].allow.prefix)}</code> this session` : ""}</span>`; }
   streamTo(state.sid, `/api/sessions/${state.sid}/approve`, { approve, remember });
 }
 // Changes with a request on its way. A second click, a held key or Apply all must not send another: the first may
@@ -926,7 +930,7 @@ function renderReviewTab(tab) {
       ${list.map((x) => `<div class="rv-item ${x.id === p.id ? "on" : ""}" data-rv="${x.id}">${fileIcon(x.path)}<div class="rv-name"><span>${esc(base(x.path))}</span><span class="muted">${esc(dirOf(x.path))}</span></div>${depMark(x)}${diffStat(x.diff).html}<span class="status ${x.status}">${x.status}</span></div>`).join("")}
       <div class="rv-receipt">${receiptHtml()}</div>
       <div class="hint rv-keys"><kbd>j</kbd>/<kbd>k</kbd> move · <kbd>a</kbd> apply · <kbd>r</kbd> reject</div></div>
-    <div class="rv-main"><div class="ed-bar"><span class="crumbs"><b>${esc(p.path)}</b> <span class="muted">#${p.id}</span></span><span class="status ${p.status}">${p.status}</span><span class="muted rv-reason">${esc(p.reason || "")}</span><span class="spacer"></span>${propActions(p)}<button class="btn ghost" id="rvOpen">${icon("file")}Open file</button></div>
+    <div class="rv-main"><div class="ed-bar"><span class="crumbs"><b>${esc(p.path)}</b> <span class="muted">#${p.id}</span></span><span class="muted rv-reason">${esc(p.reason || "")}</span><span class="spacer"></span>${propActions(p)}<button class="icon-btn" id="rvOpen" title="Open file" aria-label="Open file">${icon("file")}</button></div>
       ${depAdvice(p)}${receiptFindings(p.path)}<div class="ed-scroll">${diffHtml(p.diff)}</div>
       <div class="rv-ask"><textarea class="field" id="rvAsk" rows="2" placeholder="Ask for a change to this, e.g. &quot;keep the old name as an alias&quot;"></textarea><button class="btn" id="rvAskBtn">${icon("send")}Send</button></div></div></div>`;
   bindReceipt($("#editor"));
@@ -1060,16 +1064,15 @@ function renderMemory() {
   const c = state.context, w = state.wsInfo;
   const pct = ctxPct(c);
   $("#memoryView").innerHTML = `
-    <div class="group-head" style="padding-left:2px">How memory works</div>
-    <div class="hint" style="line-height:1.55">Each step resends this session's conversation (cached, so it's cheap). Before every model call codepilot checks the size: at ${c ? Math.round(c.prune_at * 100) : 60}% of the budget it clears old tool outputs, at ${c ? Math.round(c.compact_at * 100) : 80}% it summarises earlier turns, keeping recent turns, the plan and proposals exact. Workspace notes persist across every session on this folder.</div>
+    <details class="explain"><summary class="group-head" style="padding-left:2px">How memory works</summary><div class="hint" style="line-height:1.55">Each step resends this session's conversation (cached, so it's cheap). Before every model call codepilot checks the size: at ${c ? Math.round(c.prune_at * 100) : 60}% of the budget it clears old tool outputs, at ${c ? Math.round(c.compact_at * 100) : 80}% it summarises earlier turns, keeping recent turns, the plan and proposals exact. Workspace notes persist across every session on this folder.</div></details>
     <div class="group-head" style="padding-left:2px">Working memory</div>
-    <div style="display:flex;align-items:center;gap:8px"><span class="meter" style="width:100%"><i class="${ctxClass(c)}" style="width:${pct}%"></i></span><span class="mono" style="font-size:11.5px">${pct}%</span></div>
+    <div style="display:flex;align-items:center;gap:8px"><span class="meter" style="width:100%"><i class="${ctxClass(c)}" style="width:${pct}%"></i></span><span class="mono" style="font-size:var(--fs-sm)">${pct}%</span></div>
     <div class="hint">${c ? `~${fmtTok(c.tokens)} of a ${fmtTok(c.budget)}-token budget (model window ${fmtTok(c.window)})` : "—"}</div>
-    <div style="display:flex;gap:6px;margin-top:6px"><button class="btn" id="compactBtn" ${state.sid ? "" : "disabled"}>${icon("collapse")}Compact now</button><button class="btn" id="handoffBtn" ${state.sid ? "" : "disabled"} title="Start a fresh session on this folder, seeded with this one's summary">${icon("plus")}Continue in new session</button></div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px"><button class="btn" id="compactBtn" ${state.sid ? "" : "disabled"}>${icon("collapse")}Compact now</button><button class="btn" id="handoffBtn" ${state.sid ? "" : "disabled"} title="Start a fresh session on this folder, seeded with this one's summary">${icon("plus")}Continue in new session</button></div>
     <div class="group-head" style="padding-left:2px">Conversation summary</div>
     <div class="hint">${state.summary ? esc(state.summary).replace(/\n/g, "<br>") : "None yet — appears when the conversation gets long."}</div>
     <div class="group-head" style="padding-left:2px">Workspace notes</div>
-    <textarea class="field mono" id="notesBox" rows="7" style="font-size:12px;resize:vertical" placeholder="${state.workspace ? "Facts codepilot should always know about this folder…" : "Open a folder to keep notes for it."}" ${state.workspace ? "" : "disabled"}></textarea>
+    <textarea class="field mono" id="notesBox" rows="7" style="font-size:var(--fs-ui);resize:vertical" placeholder="${state.workspace ? "Facts codepilot should always know about this folder…" : "Open a folder to keep notes for it."}" ${state.workspace ? "" : "disabled"}></textarea>
     <div style="display:flex;gap:6px;align-items:center;margin-top:6px"><button class="btn" id="saveNotes" ${state.workspace ? "" : "disabled"}>Save notes</button><span class="hint" id="notesPath" style="margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span></div>
     <div class="group-head" style="padding-left:2px">Always allowed in this session${allowPausedNote()}</div>
     <div class="hint" id="allowList">${(state.allow || []).length ? state.allow.map((r, i) => `<span class="allow-chip"><code>${esc(r.tool === "github" ? "gh " + r.prefix : r.prefix)}</code><button class="icon-btn sm" data-unallow="${i}" title="Ask again for these">${icon("x")}</button></span>`).join(" ") : "Nothing. Tick “always allow” when approving a command to skip asking for it in this session."}</div>
@@ -1082,7 +1085,7 @@ function renderMemory() {
     <div class="group-head" style="padding-left:2px">Skills</div>
     ${(w?.skills || []).map((s) => `<div class="hint" style="margin:3px 0"><b class="mono" style="color:var(--fg-2)">${esc(s.name)}</b> — ${esc(s.description)}</div>`).join("") || `<div class="hint">—</div>`}
     <div class="group-head" style="padding-left:2px">Steering (always on)</div>
-    <div class="hint">${w?.instructions ? `<pre class="mono" style="white-space:pre-wrap;margin:0;font-size:11.5px">${esc(w.instructions)}</pre>` : "None yet."} <a href="#" id="memSteering">Manage in the Steering view</a></div>`;
+    <div class="hint">${w?.instructions ? `<pre class="mono" style="white-space:pre-wrap;margin:0;font-size:var(--fs-sm)">${esc(w.instructions)}</pre>` : "None yet."} <a href="#" id="memSteering">Manage in the Steering view</a></div>`;
   $("#memSteering") && ($("#memSteering").onclick = (e) => { e.preventDefault(); setView("steering"); });
   renderUsage(state.usage);
   $("#allowList").onclick = async (e) => {
@@ -1098,7 +1101,7 @@ function renderMemory() {
     const key = state.workspace;
     if (state.notesDraft?.key === key) $("#notesBox").value = state.notesDraft.text;
     $("#notesBox").oninput = () => { state.notesDraft = { key, text: $("#notesBox").value }; };
-    api(`/api/sessions/${state.sid}/notes`).then((n) => { if (state.notesDraft?.key !== key) $("#notesBox").value = n.notes; $("#notesPath").textContent = n.path; }).catch(() => {});
+    api(`/api/sessions/${state.sid}/notes`).then((n) => { if (state.notesDraft?.key !== key) $("#notesBox").value = n.notes; $("#notesPath").textContent = tilde(n.path); $("#notesPath").title = n.path; }).catch(() => {});
     $("#saveNotes").onclick = async () => { await api(`/api/sessions/${state.sid}/notes`, { method: "PUT", body: { notes: $("#notesBox").value } }); state.notesDraft = null; toast("Notes saved"); };
   }
 }
@@ -1108,7 +1111,7 @@ function renderUsage(u) {
   const tot = rows.reduce((a, r) => a + (r.input || 0) + (r.output || 0), 0);
   $("#sbTokens").textContent = `${fmtTok(tot)} tokens${costText(u)}`; $("#sbTokens").title = costTip(u);
   const el = $("#usageTable"); if (!el) return;
-  el.innerHTML = (rows.length ? rows.map((r) => `<div class="mono" style="font-size:11.5px">${esc(shortModel(r.model))}: ${r.calls} calls · in ${fmtTok(r.input)} · out ${fmtTok(r.output)}${r.cache_read ? ` · cache ${fmtTok(r.cache_read)}` : ""}${costCell(r, u)}</div>`).join("") : "—") + costFooter(u);
+  el.innerHTML = (rows.length ? rows.map((r) => `<div class="mono" style="font-size:var(--fs-sm)">${esc(shortModel(r.model))}: ${r.calls} calls · in ${fmtTok(r.input)} · out ${fmtTok(r.output)}${r.cache_read ? ` · cache ${fmtTok(r.cache_read)}` : ""}${costCell(r, u)}</div>`).join("") : "—") + costFooter(u);
 }
 const ctxPct = (c) => (c && c.budget ? Math.min(100, Math.round((c.tokens / c.budget) * 100)) : 0);
 const ctxClass = (c) => { const p = ctxPct(c) / 100; return !c ? "" : p >= c.compact_at ? "high" : p >= c.prune_at ? "mid" : ""; };
@@ -1117,7 +1120,7 @@ function setContext(c) {
   state.context = c;
   const pct = ctxPct(c);
   const bar = $("#ctxBar"); bar.style.width = pct + "%"; bar.className = ctxClass(c);
-  $("#ctxText").textContent = `context ${pct}% · ${fmtTok(c.tokens)}/${fmtTok(c.budget)}${c.has_summary ? " · summarised" : ""}`;
+  $("#ctxText").textContent = `context ${pct}%${c.has_summary ? " · summarised" : ""}`;
   $("#sbContext").title = `~${c.tokens.toLocaleString()} prompt tokens of a ${c.budget.toLocaleString()}-token budget (window ${c.window.toLocaleString()}). Old tool outputs are cleared at ${Math.round(c.prune_at * 100)}%, earlier turns summarised at ${Math.round(c.compact_at * 100)}%. Click to compact now.`;
 }
 async function compactNow() {
@@ -1347,7 +1350,7 @@ function render(ev, replay) {
     case "approval_needed": {
       endText();
       $$("#transcript .wait-row.waiting").forEach((w) => w.remove());
-      add(`<div class="wait-row waiting">${icon("alert")}<span>Waiting for your approval: ${ev.tools.map((t) => `<code>${esc(t.command)}</code>`).join(", ")}</span><span class="muted">(see the bar below)</span></div>`);
+      add(`<div class="wait-row waiting" title="${esc(ev.tools.map((t) => t.command).join("\n\n"))}">${icon("alert")}<span>Waiting for your approval: ${cmdCodes(ev.tools)}</span></div>`);
       state.approval = { tools: ev.tools }; renderReviewBar();
       break;
     }
@@ -1528,7 +1531,7 @@ async function send(when = "after") {
   if (!state.sid) { try { await newSession(state.workspace); } catch (err) { toast(err.message, true); return; } }
   if (state.approval) { // writing instead of approving declines the waiting command (the server does the same)
     const row = $("#transcript .wait-row.waiting");
-    if (row) { row.classList.remove("waiting"); row.classList.add("denied"); row.innerHTML = `${icon("x")}<span>Declined (you wrote a message instead): ${state.approval.tools.map((t) => `<code>${esc(t.command)}</code>`).join(", ")}</span>`; }
+    if (row) { row.classList.remove("waiting"); row.classList.add("denied"); row.innerHTML = `${icon("x")}<span>Declined (you wrote a message instead): ${cmdCodes(state.approval.tools)}</span>`; }
     state.approval = null; renderReviewBar();
   }
   if ($("#input").value.trim() === text) $("#input").value = ""; // (not something typed since: see queueMessage)
@@ -1634,9 +1637,11 @@ function setMode(mode) {
   const m = (state.wsInfo?.modes || DEFAULT_MODES).find((x) => x.name === mode);
   const readonly = !!m && m.blocked.includes("propose_edit");
   $("#modeSelect").value = mode; $("#modeSelect").classList.toggle("readonly", readonly);
-  $("#modeSelect").title = m ? `${m.label}: ${m.description}` : mode;
+  // A mode named once: "Spec-driven: …", not "Spec: Spec-driven: …".
+  const said = m && (m.description.toLowerCase().startsWith(m.label.toLowerCase()) ? m.description : `${m.label}: ${m.description}`);
+  $("#modeSelect").title = m ? said : mode;
   $("#composerBox").classList.toggle("readonly", readonly);
-  $("#input").placeholder = state.placeholder = m && mode !== "build" ? `${m.label}: ${m.description}` : "Ask codepilot…  @ files · / skills · # steering";
+  $("#input").placeholder = state.placeholder = m && mode !== "build" ? said : "Ask codepilot…  @ files · / skills · # steering";
 }
 $("#modeSelect").addEventListener("change", async () => {
   const mode = $("#modeSelect").value; setMode(mode);

@@ -61,7 +61,7 @@ def test_changes_collect_in_the_bar_and_review_tab(page, server, session):
     bar = page.locator("#reviewBar .rb-changes")
     bar.wait_for()
     wait_idle(page)
-    assert "2 changes to review" in bar.text_content() and "+2" in bar.text_content()
+    assert "2 changes" in bar.text_content() and "+2" in bar.text_content()
     assert page.locator("details.card.prop[open]").count() == 0  # compact in the chat
     page.click("#rbReview")
     page.locator(".review .rv-item.on", has_text="core.py").wait_for()
@@ -69,7 +69,7 @@ def test_changes_collect_in_the_bar_and_review_tab(page, server, session):
     page.keyboard.press("a")  # apply, then jump to the next waiting change
     page.locator(".review .rv-item.on", has_text="test_core.py").wait_for()
     assert "a + b" in (server.repo / "agent/core.py").read_text()
-    assert "1 change to review" in page.locator("#reviewBar").text_content()
+    assert "1 change" in page.locator("#reviewBar").text_content() and "1 changes" not in page.locator("#reviewBar").text_content()
     page.keyboard.press("r")
     page.wait_for_function("() => document.querySelector('#reviewBar').hidden")
     assert "# 1 + 2" not in (server.repo / "tests/test_core.py").read_text()
@@ -186,3 +186,20 @@ def test_writing_instead_of_approving_keeps_an_attached_screenshot(page, server,
     # And the turn went on: codepilot answered, nothing failed on the way.
     assert page.locator("#transcript .banner.error").count() == 0
     assert page.locator(".msg.assistant").last.inner_text().strip() == "Done."
+
+
+ONE_LINE = "(sel) => { const r = document.querySelector(sel); return r.getBoundingClientRect().height <= 24 }"
+
+
+def test_a_long_command_waiting_for_approval_is_one_line_in_the_chat(page, server, session):
+    """The command is shown in full once, in the review bar; the chat keeps a one-line marker of it."""
+    open_app(page)
+    send(page, "a long command please")  # a 30-line script
+    page.locator("#reviewBar .rb-approval").wait_for()
+    row = page.locator("#transcript .wait-row.waiting")
+    assert page.evaluate(ONE_LINE, "#transcript .wait-row.waiting"), row.bounding_box()
+    assert "step 29" in row.get_attribute("title")  # the whole command, on hover
+    assert "see the bar below" not in row.inner_text()
+    page.click("#rbApprove")
+    page.locator("#transcript .wait-row.approved").wait_for()
+    assert page.evaluate(ONE_LINE, "#transcript .wait-row.approved"), "the decision is one line too"
