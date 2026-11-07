@@ -1319,7 +1319,7 @@ function render(ev, replay) {
     case "thinking":
       if (!curThink) curThink = add(`<div class="thinking"></div>`);
       curThink.textContent += ev.text; curThink.scrollTop = curThink.scrollHeight; break;
-    case "tool_call": endText(); toolEl(ev); if (!replay) activity("call", ev.name, argSummary(ev.name, ev.input), JSON.stringify(ev.input, null, 2)); break;
+    case "tool_call": endText(); readStepAdded(toolEl(ev), ev); if (!replay) activity("call", ev.name, argSummary(ev.name, ev.input), JSON.stringify(ev.input, null, 2)); break;
     case "tool_running": { const el = state.toolEls.get(ev.id); if (el) $(".st", el).innerHTML = '<span class="spinner"></span>'; break; }
     case "tool_result": {
       const el = state.toolEls.get(ev.id) || toolEl({ id: ev.id, name: ev.name, input: null });
@@ -1329,6 +1329,7 @@ function render(ev, replay) {
       st.innerHTML = `${icon(ev.is_error || failedRun ? "alert" : "check")}${failedRun ? "exit " + exit[1] + " · " : ""}${ev.seconds ? ev.seconds + "s" : ""}`;
       el.insertAdjacentHTML("beforeend", `<pre>${esc(ev.output)}</pre>`);
       changeStepDone(el, ev); // steps.js: a change made shows as its change row, not twice
+      readStepDone(el, ev); // steps.js: an error splits a group of reads; the group's status follows its steps
       if (ev.images?.length) { el.insertAdjacentHTML("beforeend", `<div class="img-row">${ev.images.map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="image" loading="lazy"></a>`).join("")}</div>`); el.open = true; }
       if (!replay) activity(ev.is_error ? "error" : "result", ev.name, `${ev.output.length.toLocaleString()} chars${ev.seconds ? " · " + ev.seconds + "s" : ""}`, ev.output);
       break;
