@@ -78,11 +78,21 @@ const READ_STEPS = new Set(["read_file", "list_files", "search_code", "git", "li
 const TRACE_STEPS = ["list_traces", "trace_outline", "search_traces", "read_trace"];
 const times = (n) => n === 1 ? "once" : n === 2 ? "twice" : `${n} times`;
 
+// One file however the path was spelled ("a.py", "./a.py", the full path, " x/../a.py"), as read_file resolves it.
+function fileKey(path) {
+  let p = String(path || "").trim();
+  const root = String(state.workspace || "").replace(/\/+$/, "");
+  if (root && (p === root || p.startsWith(root + "/"))) p = p.slice(root.length);
+  const out = [];
+  for (const seg of p.split("/")) { if (seg === "..") out.pop(); else if (seg && seg !== ".") out.push(seg); }
+  return out.join("/") || ".";
+}
+
 // What a run of read-only steps did, in words. Files are counted once each: seven reads of one file read one file.
 function readsSummary(steps) {
   const of = (...names) => steps.filter((s) => names.includes(s.dataset.read));
-  const parts = [], files = of("read_file"), paths = new Set(files.map((s) => s.dataset.obj));
-  if (files.length) parts.push(paths.size === 1 ? `read ${[...paths][0]}${files.length > 1 ? " " + times(files.length) : ""}` : `read ${paths.size} files`);
+  const parts = [], files = of("read_file"), keys = new Set(files.map((s) => fileKey(s.dataset.obj)));
+  if (files.length) parts.push(keys.size === 1 ? `read ${fileKey(files[0].dataset.obj)}${files.length > 1 ? " " + times(files.length) : ""}` : `read ${keys.size} files`);
   const n = (name) => of(name).length;
   if (n("search_code")) parts.push(`searched ${times(n("search_code"))}`);
   if (n("list_files")) parts.push(n("list_files") === 1 ? "listed a folder" : `listed ${n("list_files")} folders`);

@@ -572,3 +572,15 @@ def test_stop_while_your_message_loads_its_attachments_stops_the_turn(cfg, store
     events = list(agent.chat(sess.id, "no, see https://example.com/shot.png"))
     assert any(e["type"] == "notice" and e["message"] == "Stopped." for e in events)
     assert not any(e["type"] == "tool_call" for e in events)  # nothing ran after Stop
+
+
+def test_history_draws_a_reply_in_the_order_it_streamed(store, repo):
+    # Live, a reply's words stream before any of its tool calls is shown; a reopened session must keep that order.
+    sess = store.create_session(str(repo), "main")
+    store.add_message(sess.id, "user", [{"text": "look"}])
+    store.add_message(sess.id, "assistant", [
+        {"toolUse": {"toolUseId": "a", "name": "read_file", "input": {"path": "x.py"}}},
+        {"text": "Now the other one."},
+        {"toolUse": {"toolUseId": "b", "name": "read_file", "input": {"path": "y.py"}}}])
+    shown = [e["type"] for e in history_events(store, sess.id) if e["type"] in ("assistant", "tool_call")]
+    assert shown == ["assistant", "tool_call", "tool_call"]

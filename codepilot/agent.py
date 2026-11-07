@@ -1166,7 +1166,9 @@ def history_events(store: Store, session_id: str) -> list[dict]:
     for mid, m in store.messages(session_id, include_archived=True):
         # A message that starts a turn (and isn't compacted) can be edited or retried from the UI.
         starts_turn = m["role"] == "user" and bool(m["content"]) and "text" in m["content"][0] and mid in live
-        for i, b in enumerate(m["content"]):
+        # Live, a reply's words stream before any of its tool calls is shown (they run once it ends): replay that order.
+        blocks = sorted(m["content"], key=lambda b: "toolUse" in b) if m["role"] == "assistant" else m["content"]
+        for i, b in enumerate(blocks):
             if "text" in b and m["role"] == "user" and b["text"].startswith("<turn_context>"):
                 continue
             if "text" in b and m["role"] == "user" and b["text"].startswith("<skill name="):

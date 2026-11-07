@@ -76,3 +76,25 @@ def test_words_between_reads_keep_them_apart(page, server, session):
                   + "render({ type: 'assistant', text: 'Now the other one.' });"
                   + call("r2", "read_file", path="b.py") + result("r2", "read_file") + "}")
     assert top_rows(page) == ["Read a.py", "Read b.py"]
+
+
+def test_a_reply_with_words_between_its_reads_looks_the_same_after_a_reload(page, server, session):
+    # Live, a reply's words stream before any of its steps is drawn; a reload must keep that order, not the stored one.
+    open_app(page)
+    send(page, "read, explain, read")
+    shown = "() => [...document.querySelectorAll('#transcript > *')].map((e) => e.className.split(' ')[0])"
+    live, rows = page.evaluate(shown), top_rows(page)
+    assert rows == ["Read 2 files [2]"]
+    page.reload()
+    page.locator("#transcript > details.tool").first.wait_for()
+    page.locator(".msg.assistant", has_text="Done.").wait_for()
+    assert (page.evaluate(shown), top_rows(page)) == (live, rows)
+
+
+def test_one_file_spelled_two_ways_is_one_file(page, server, session):
+    open_app(page)
+    root = page.evaluate("state.workspace")
+    spellings = ["agent/core.py", "./agent/core.py", f"{root}/agent/core.py", " agent/../agent/core.py"]
+    page.evaluate("() => {" + "".join(call(f"r{i}", "read_file", path=p) + result(f"r{i}", "read_file")
+                                      for i, p in enumerate(spellings)) + "}")
+    assert top_rows(page) == ["Read agent/core.py 4 times [4]"]

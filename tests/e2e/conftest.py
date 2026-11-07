@@ -115,6 +115,10 @@ class ScriptedLLM:
                                     "input": {"command": "python -c \"print('ran-' + str(6*7))\""}}}]
         elif "run ls" in user_text:
             content = [{"toolUse": {"toolUseId": f"t{n}", "name": "run_command", "input": {"command": "ls"}}}]
+        elif "read, explain, read" in user_text:  # one reply with words between two calls; live, the words come first
+            content = [{"toolUse": {"toolUseId": f"t{n}a", "name": "read_file", "input": {"path": "agent/core.py"}}},
+                       {"text": "Now the tests."},
+                       {"toolUse": {"toolUseId": f"t{n}b", "name": "read_file", "input": {"path": "tests/test_core.py"}}}]
         elif "fix two" in user_text:
             content = [
                 {"toolUse": {"toolUseId": f"t{n}a", "name": "propose_edit", "input": {
