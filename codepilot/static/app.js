@@ -1243,6 +1243,7 @@ function rewindTo(el, text, undo = null) { // undo: {ids, keep} of file changes 
   const mid = +el.dataset.mid, sid = state.sid;
   while (el.nextElementSibling) el.nextElementSibling.remove();
   el.remove();
+  unfileRewound(); // taskcard.js: the rewound work also leaves the task cards above
   const fresh = add(userMessageHtml(text)); scrollEnd(true);
   state.prompts = (state.prompts || []).concat(text); resetHistory();
   streamTo(sid, `/api/sessions/${sid}/rewind`, { mid, message: text, tier: selectedTier(), ...(undo ? { restore: undo.ids, keep: undo.keep } : {}) }).then(() => { if (undo) afterRestoreRewind(sid, fresh, undo.ids); return fresh; });
@@ -1319,7 +1320,7 @@ function render(ev, replay) {
     case "thinking":
       if (!curThink) curThink = add(`<div class="thinking"></div>`);
       curThink.textContent += ev.text; curThink.scrollTop = curThink.scrollHeight; break;
-    case "tool_call": endText(); readStepAdded(toolEl(ev), ev); if (!replay) activity("call", ev.name, argSummary(ev.name, ev.input), JSON.stringify(ev.input, null, 2)); break;
+    case "tool_call": { endText(); const el = toolEl(ev); fileToolStep(el, ev); readStepAdded(el, ev); } if (!replay) activity("call", ev.name, argSummary(ev.name, ev.input), JSON.stringify(ev.input, null, 2)); break;
     case "tool_running": { const el = state.toolEls.get(ev.id); if (el) $(".st", el).innerHTML = '<span class="spinner"></span>'; break; }
     case "tool_result": {
       const el = state.toolEls.get(ev.id) || toolEl({ id: ev.id, name: ev.name, input: null });

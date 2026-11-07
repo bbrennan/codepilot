@@ -67,6 +67,7 @@ function foldChangeStep(id) {
   const card = document.querySelector(`#transcript .card.prop[data-prop="${id}"]`);
   if (!step || !card) return;
   if (step.dataset.note) card.insertAdjacentHTML("beforeend", `<pre class="step-note">${esc(step.dataset.note)}</pre>`);
+  if (step.dataset.filed) { card.dataset.filed = "1"; card._turn = step._turn; } // filed in a task card: so is the change
   step.replaceWith(card);
 }
 
@@ -128,6 +129,9 @@ function readStepAdded(el, ev) {
   el.dataset.read = ev.name; el.dataset.obj = ev.name === "read_file" ? String(ev.input?.path || "") : "";
   let prev = el.previousElementSibling; const thinking = [];
   while (prev?.matches(".thinking")) { thinking.unshift(prev); prev = prev.previousElementSibling; }
+  // Filed under a task card, rows that were apart in the chat (words or a message between them) are next to each other.
+  const last = prev?.matches("details.step-group") ? groupSteps(prev).at(-1) : prev;
+  if (last && "_tail" in el && last._tail !== el._tail) return;
   let g = prev?.matches("details.step-group") ? prev : null;
   if (!g && foldable(prev)) { g = newReadGroup(); prev.before(g); g.querySelector(".group-steps").append(prev); }
   if (!g) return;

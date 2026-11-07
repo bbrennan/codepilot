@@ -1160,10 +1160,17 @@ def history_events(store: Store, session_id: str) -> list[dict]:
     events: list[dict] = []
     names: dict[str, str] = {}
     plan = plans.Tracker(plans.dismissed_ids(store, session_id))  # the same lifecycle as live
+    # You dismiss a plan after a turn has ended, maybe a later one than its last update: show it after the message it
+    # followed (sessions from before that was recorded: before your next message), not at the update itself.
+    dismissed: list[dict] = []
+    dismissed_after, held_until = plans.dismissed_after(store, session_id), None
     applied = plans.applied_ids(store, session_id)
     live = {mid for mid, _ in store.messages(session_id)}
     missing = {tu["toolUseId"] for _, calls in unanswered.find(store.live_messages(session_id)) for tu in calls}
     for mid, m in store.messages(session_id, include_archived=True):
+        if dismissed and held_until is not None and mid > held_until:
+            events += dismissed
+            dismissed = []
         # A message that starts a turn (and isn't compacted) can be edited or retried from the UI.
         starts_turn = m["role"] == "user" and bool(m["content"]) and "text" in m["content"][0] and mid in live
         # Live, a reply's words stream before any of its tool calls is shown (they run once it ends): replay that order.
@@ -1178,6 +1185,9 @@ def history_events(store: Store, session_id: str) -> list[dict]:
             elif "text" in b and m["role"] == "user" and b["text"].startswith(mentions.ATTACH_OPEN):
                 events.append({"type": "attached", "paths": mentions.attached_labels(b["text"])})
             elif "text" in b and m["role"] == "user":
+                if held_until is None:
+                    events += dismissed
+                    dismissed = []
                 queued = b["text"].startswith(QUEUED_PREFIX)
                 event = {"type": "user", "text": b["text"].removeprefix(QUEUED_PREFIX)}
                 if starts_turn and i == 0:
@@ -1195,7 +1205,9 @@ def history_events(store: Store, session_id: str) -> list[dict]:
                     events.append(unanswered.result_event(tu))
                 if tu["name"] == "update_plan" and tu["toolUseId"] in applied:
                     events.append(plan.push(tu["input"].get("items"), tu["toolUseId"]))
-                    events += [e for e in [plan.dismissal()] if e]
+                    if (event := plan.dismissal()) is not None:
+                        dismissed.append(event)
+                        held_until = dismissed_after.get(tu["toolUseId"])
             elif "image" in b and m["role"] == "user":
                 url = images.save(home, b)
                 if events and events[-1]["type"] == "attached_images":
@@ -1217,4 +1229,4 @@ def history_events(store: Store, session_id: str) -> list[dict]:
                 ref = re.match(r"(?:Proposed|Applied) change #(\d+)", out) if tu["name"] == "propose_edit" else None
                 if ref:  # redraw the change where it was proposed, with its current status
                     events.append({"type": "proposal_ref", "id": int(ref.group(1))})
-    return events
+    return events + dismissed
