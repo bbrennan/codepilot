@@ -72,6 +72,8 @@ and launcher in `tests/test_service.py`, providers in `tests/test_providers.py` 
 - Keep the system prompt stable within a session: put per-turn facts in the turn context
   (see [docs/architecture.md](docs/architecture.md#messages-and-providers)).
 - Never commit secrets or company-specific values. `.env` is git-ignored; `.env.example` uses placeholders.
+- The name is **codepilot**, lower case, in the UI, docs and messages. Where the operating system lists it as an app
+  (the window title, the installed web app, `Codepilot.app`, the Dock) it's **Codepilot**, as app names are there.
 - Update the docs in `docs/` alongside behaviour or configuration changes. Every environment variable must
   appear in `docs/configuration.md`.
 
