@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import textfile
 from .store import Proposal, Store
 from .tools import ToolError, revert_proposal
 
@@ -37,7 +38,7 @@ class RestoreError(Exception):
 
 def _read(path: Path) -> str | None:
     try:
-        return path.read_text()
+        return textfile.read(path, errors="replace")  # as it is on disk: what a change wrote, line endings and all
     except FileNotFoundError:
         return None
 

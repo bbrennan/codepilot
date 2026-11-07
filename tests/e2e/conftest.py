@@ -65,8 +65,15 @@ class ScriptedLLM:
         quick = 'profile="quick"' in full
         task = re.search(r"implement task ([\d.]+)", user_text)
         steps = sum("toolResult" in b for m in messages for b in m["content"])
+        turn_text = next((" ".join(b["text"] for b in m["content"] if "text" in b) for m in reversed(messages)
+                          if m["role"] == "user" and any("text" in b for b in m["content"])), "").lower()
         if "long task" in " ".join(b.get("text", "") for b in messages[0]["content"]) and steps < 7:
             content = [{"toolUse": {"toolUseId": f"t{n}", "name": "read_file", "input": {"path": "agent/core.py"}}}]
+        elif "plan slowly" in turn_text and any("toolResult" in b for b in last):  # the step takes a while
+            time.sleep(1.5)
+            content = [{"text": "Stopped partway."}]
+        elif "plan slowly" in user_text:  # a plan with step 2 in progress
+            content = [{"toolUse": {"toolUseId": f"t{n}", "name": "update_plan", "input": {"items": PLANS["progress"]}}}]
         elif any("toolResult" in b for b in last):
             content = [{"text": "Please review it in the Spec tab." if phase else "Done."}]
         elif phase and phase.group(1) == "requirements" and quick:  # a quick spec's whole plan, in one turn
@@ -100,7 +107,10 @@ class ScriptedLLM:
             content = [{"toolUse": {"toolUseId": f"p{n}", "name": "update_plan", "input": {"items": [
                 {"text": f"Step {i} of the plan", "status": "todo"} for i in range(1, 9)]}}},
                 {"toolUse": {"toolUseId": f"t{n}", "name": "run_command", "input": {"command": script}}}]
-        elif "run python" in user_text:
+        elif "run a module" in user_text:  # a command "always allow" can cover: python -m <module>
+            content = [{"toolUse": {"toolUseId": f"t{n}", "name": "run_command",
+                                    "input": {"command": "python -m platform"}}}]
+        elif "run python" in user_text:  # inline code: asks every time
             content = [{"toolUse": {"toolUseId": f"t{n}", "name": "run_command",
                                     "input": {"command": "python -c \"print('ran-' + str(6*7))\""}}}]
         elif "run ls" in user_text:
@@ -126,7 +136,8 @@ class ScriptedLLM:
                     if "slow" in user_text:
                         time.sleep(0.5 if "very slow" in user_text else 0.15)
                     yield {"type": "text", "text": word}
-        sent = len(json.dumps(system)) + len(json.dumps(messages)) + len(json.dumps(tools or []))
+        size = lambda v: len(json.dumps(v, default=lambda b: f"<{len(b)} bytes>"))  # noqa: E731  (images are bytes)
+        sent = size(system) + size(messages) + size(tools or [])
         yield {"type": "message", "content": content,
                "stop_reason": "tool_use" if any("toolUse" in b for b in content) else "end_turn",
                "usage": {"inputTokens": sent // 3, "outputTokens": 40}}

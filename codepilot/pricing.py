@@ -38,11 +38,10 @@ def _is_rate(value: object) -> bool:
 
 
 def price_for(model: str, prices: dict | None) -> dict | None:
-    """The first key the model id contains: ids carry prefixes and suffixes (us.anthropic.…-v1:0)."""
-    for key, value in (prices or {}).items():
-        if key in model:
-            return value
-    return None
+    """The longest key the model id contains: ids carry prefixes and suffixes (us.anthropic.…-v1:0), and one key can
+    be part of another ("claude-opus-5" in "claude-opus-5-5"), so the most specific wins, whatever the file's order."""
+    matches = [key for key in (prices or {}) if key in model]
+    return prices[max(matches, key=len)] if matches else None
 
 
 def cost(row: dict, prices: dict | None, local: bool = False) -> float | None:

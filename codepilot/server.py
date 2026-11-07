@@ -33,8 +33,8 @@ from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 
 from .http_input import HANDLERS, json_body
-from . import (checkpoints, checks, diagnostics, github, images, mentions, models, modes, skills, specs, steering, traces,
-               uploads, version)
+from . import (checkpoints, checks, diagnostics, github, images, mentions, models, modes, plans, skills, specs, steering,
+               textfile, traces, uploads, version)
 from .agent import Agent, history_events
 from .config import TIER_CHOICES, TIERS, Config
 from .store import Store
@@ -80,6 +80,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
     agent = agent or Agent(cfg, store)
     busy: set[str] = set()
     busy_lock = threading.Lock()
+    applying: set[int] = set()  # proposals being applied right now (only touched on the event loop)
     term_token = secrets.token_urlsafe(32)  # new every launch; embedded in the page, required by terminal routes
     from .terminal import TerminalManager
 
@@ -522,6 +523,19 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             return err("No such session", 404)
         return stream(sid, agent.verify(sid))
 
+    async def plan_dismiss(request: Request) -> Response:
+        """Put away the plan a turn left unfinished (the Dismiss button on a paused plan)."""
+        sid = request.path_params["sid"]
+        try:
+            store.get_session(sid)
+        except KeyError:
+            return err("No such session", 404)
+        with busy_lock:
+            if sid in busy:
+                return err("This session is working; its plan isn't paused.", 409)
+            event = plans.dismiss(store, sid)
+        return JSONResponse(event) if event else err("There's no unfinished plan to dismiss.", 409)
+
     async def checkpoint(request: Request) -> Response:
         """The changes applied from a message onwards, and whether each can still be undone."""
         sid = request.path_params["sid"]
@@ -612,13 +626,21 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             return JSONResponse(_proposal_json(store.get_proposal(pid), root))
         if action != "apply":
             return err("action must be apply, reject or revert", 404)
+        # Claimed before the first await, so a second Apply (a double-click, a held key, another tab) can't write it
+        # again while this one is still writing or checking: it isn't recorded as applied until both are done.
+        if pid in applying:
+            return err(f"Change #{pid} is already being applied.", 409)
+        applying.add(pid)
         try:
-            before, after = apply_proposal(root, prop)
-        except (ToolError, OSError) as exc:
-            store.set_proposal_status(pid, "failed")
-            return err(str(exc), 409)
-        found = await run_in_threadpool(checks.quick_check, root, prop.path)
-        store.record_applied(pid, before, after, found)
+            try:
+                before, after = await run_in_threadpool(apply_proposal, root, prop)
+            except (ToolError, OSError) as exc:
+                store.set_proposal_status(pid, "failed")
+                return err(str(exc), 409)
+            found = await run_in_threadpool(checks.quick_check, root, prop.path)
+            store.record_applied(pid, before, after, found)
+        finally:
+            applying.discard(pid)
         retired = retire_stale_proposals(store, prop.session_id, root)  # e.g. an older version of this change
         return JSONResponse({**_proposal_json(store.get_proposal(pid), root), "checks": found,
                              "outdated": [_proposal_json(store.get_proposal(i), root) for i in retired]})
@@ -849,7 +871,13 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             base_mtime = data.get("base_mtime")
             if base_mtime and str(path.stat().st_mtime_ns) != str(base_mtime) and not data.get("force"):
                 raise FileOpError(f"{rel} changed on disk since you opened it.", 409)
-            path.write_text(str(data.get("content") or ""))
+            try:
+                current = textfile.read(path)
+            except textfile.NotUTF8 as exc:  # the editor shows it with \ufffd: saving would make that permanent
+                raise FileOpError(f"{exc}. Saving would replace the characters UTF-8 can't read, so it wasn't saved; "
+                                  "edit it in an editor that keeps its encoding.", 409) from None
+            # The editor works in "\n" (as a textarea does): write it back in the file's own line endings.
+            textfile.write(path, textfile.like(str(data.get("content") or ""), current))
             return {"path": rel, "mtime": str(path.stat().st_mtime_ns)}
         raise FileOpError(f"Unknown operation: {op}")
 
@@ -1115,6 +1143,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         Route("/api/sessions/{sid}/follow", follow),
         Route("/api/sessions/{sid}/rewind", rewind, methods=["POST"]),
         Route("/api/sessions/{sid}/checkpoint", checkpoint),
+        Route("/api/sessions/{sid}/plan/dismiss", plan_dismiss, methods=["POST"]),
         Route("/api/sessions/{sid}/verify", verify, methods=["POST"]),
         Route("/api/sessions/{sid}/restore", restore, methods=["POST"]),
         Route("/api/sessions/{sid}/compact", compact, methods=["POST"]),
@@ -1230,10 +1259,11 @@ def _proposal_json(prop, root: Path | None = None) -> dict:
     if root is not None and prop.status == "pending":
         target = root / prop.path
         try:
-            current = target.read_text() if target.exists() else ""
+            current = textfile.read(target, errors="replace") if target.exists() else ""
         except OSError:
             current = None
-        if current is not None and (prop.old_text == "" and not current or current.count(prop.old_text) == 1):
-            after = prop.new_text if prop.old_text == "" else current.replace(prop.old_text, prop.new_text, 1)
+        found = textfile.find(current, prop.old_text, prop.new_text) if current and prop.old_text else (0, None)
+        if current is not None and (prop.old_text == "" and not current or found[0] == 1):
+            after = prop.new_text if prop.old_text == "" else found[1]
             return proposal_view(prop, unified_diff(prop.path, current, after))
     return proposal_view(prop, unified_diff(prop.path, prop.old_text, prop.new_text))

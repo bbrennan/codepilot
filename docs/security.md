@@ -65,7 +65,9 @@ When approving a command you can allow its prefix (e.g. `pytest`) for the rest o
 per session and only ever added by you approving a command; the API can remove rules but not add them.
 A rule never matches a command that chains, pipes, redirects or substitutes (`;`, `&`, `|`, `` ` ``, `$`,
 `<`, `>`), so `pytest; rm -rf ~` still asks. No rule is offered for destructive or outward-facing
-programs (`rm`, `sudo`, `git`, `chmod`, `curl`, `ssh`, …).
+programs (`rm`, `sudo`, `git`, `chmod`, `curl`, `ssh`, …). An interpreter's rule (`python`, `bash`, `sh`, `node`, `ruby`,
+`perl`) keeps the script or `-m` module it runs, so it can't cover other scripts; inline code (`python -c`, `node -e`,
+`bash -c`) gets no rule, and a broader interpreter rule saved by an older version no longer matches anything.
 
 ## Your own file actions
 

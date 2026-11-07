@@ -56,6 +56,24 @@ def test_delete_goes_to_trash_and_restores(fs, repo, cfg):
     assert fs(op="restore", trash_id="../../etc").status_code == 400
 
 
+def test_saving_a_windows_file_keeps_its_line_endings(fs, repo):
+    (repo / "agent/core.py").write_bytes(b"def add(a, b):\r\n    return a - b\r\n")
+    opened = fs.client.get(f"/api/sessions/{fs.sid}/files?path=agent/core.py").json()
+    assert "\r" not in opened["content"]  # the editor works in \n, as a textarea does
+    edited = opened["content"].replace("a - b", "a + b") + "\n# done\n"
+    assert fs(op="save", path="agent/core.py", content=edited, base_mtime=opened["mtime"]).status_code == 200
+    assert (repo / "agent/core.py").read_bytes() == b"def add(a, b):\r\n    return a + b\r\n\r\n# done\r\n"
+
+
+def test_saving_over_a_file_that_isnt_utf8_is_refused_rather_than_corrupting_it(fs, repo):
+    legacy = "# café\nx = 1\n".encode("latin-1")
+    (repo / "legacy.py").write_bytes(legacy)
+    opened = fs.client.get(f"/api/sessions/{fs.sid}/files?path=legacy.py").json()  # shown with \ufffd for é
+    r = fs(op="save", path="legacy.py", content=opened["content"] + "y = 2\n", base_mtime=opened["mtime"])
+    assert r.status_code == 409 and "UTF-8" in r.json()["error"]
+    assert (repo / "legacy.py").read_bytes() == legacy  # é is still é
+
+
 def test_save_detects_changes_on_disk(fs, repo):
     opened = fs.client.get(f"/api/sessions/{fs.sid}/files?path=agent/core.py").json()
     r = fs(op="save", path="agent/core.py", content="def add(a, b):\n    return a + b\n", base_mtime=opened["mtime"])

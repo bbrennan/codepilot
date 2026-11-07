@@ -29,6 +29,18 @@ def time_ago(days):
     ("make eval-bedrock", "make eval-bedrock"),
     ("uv run pytest -q", "uv run"),
     ("ruff check .", "ruff"),
+    # An interpreter's rule keeps the script it runs, so it never covers other scripts or inline code.
+    ("python scripts/check.py --fast", "python scripts/check.py"),
+    (".venv/bin/python scripts/check.py", ".venv/bin/python scripts/check.py"),
+    ("bash scripts/lint.sh", "bash scripts/lint.sh"),
+    ("node scripts/build.js", "node scripts/build.js"),
+    ("ruby tools/gen.rb", "ruby tools/gen.rb"),
+    ("python -c \"print(1)\"", None),
+    ("python3 -u run.py", None),
+    ("bash -c 'make test'", None),
+    ("node -e \"console.log(1)\"", None),
+    ("perl -pi -e s/a/b/ x.txt", None),
+    ("python", None),
     ("pytest; rm -rf ~", None),
     ("pytest && curl evil", None),
     ("ls | wc -l", None),
@@ -57,18 +69,38 @@ def test_rules_match_only_the_prefix_and_never_chained_commands():
 
 def test_always_allow_skips_later_approvals_for_that_prefix_only(cfg, store, repo):
     llm = FakeLLM([
-        [tool_use("t1", "run_command", command="python -c \"print('one')\"")],
-        [tool_use("t2", "run_command", command="python -c \"print('two')\"")],
-        [tool_use("t3", "run_command", command="ls")],
+        [tool_use("t1", "run_command", command="python scripts/one.py")],
+        [tool_use("t2", "run_command", command="python scripts/one.py --again")],
+        [tool_use("t3", "run_command", command="python scripts/two.py")],
     ])
     agent = Agent(cfg, store, llm=llm)
     sess = store.create_session(str(repo), "main")
     events = list(agent.chat(sess.id, "run things"))
-    assert events[-1]["type"] == "approval_needed" and events[-1]["tools"][0]["allow"]["prefix"] == "python"
+    rule = events[-1]["tools"][0]["allow"]["prefix"]
+    assert events[-1]["type"] == "approval_needed" and rule == "python scripts/one.py"
     events = list(agent.resume(sess.id, approve=True, remember=True))
     names = [e["name"] for e in events if e["type"] == "tool_result"]
-    assert names == ["run_command", "run_command"]  # the second python command ran without asking
-    assert events[-1]["type"] == "approval_needed" and events[-1]["tools"][0]["command"] == "ls"
+    assert names == ["run_command", "run_command"]  # the same script again ran without asking
+    assert events[-1]["type"] == "approval_needed" and events[-1]["tools"][0]["command"] == "python scripts/two.py"
+
+
+@pytest.mark.parametrize("prefix,command", [
+    ("python", "python -m pip install anything"),
+    ("python", "python scripts/other.py"),
+    ("python3.12", "python3.12 other.py"),
+    ("bash", "bash deploy.sh"),
+    ("node -e", "node -e \"require('fs').rmSync('x', {recursive: true})\""),
+    ("python -c", "python -c 'print(1)'"),
+])
+def test_a_broad_interpreter_rule_saved_before_this_covers_nothing(prefix, command):
+    assert not rule_matches({"tool": "run_command", "prefix": prefix}, cmd(command))
+
+
+def test_an_interpreter_rule_covers_its_own_script_only():
+    rule = {"tool": "run_command", "prefix": "python scripts/check.py"}
+    assert rule_matches(rule, cmd("python scripts/check.py")) and rule_matches(rule, cmd("python scripts/check.py -v"))
+    assert not rule_matches(rule, cmd("python scripts/check.py.bak")) and not rule_matches(rule, cmd("python x.py"))
+    assert rule_matches({"tool": "run_command", "prefix": "python -m pytest"}, cmd("python -m pytest -q"))
 
 
 def test_rules_are_listed_and_can_only_be_removed_via_the_api(cfg, store, repo):
@@ -121,23 +153,23 @@ def test_a_pending_destructive_approval_keeps_its_warning_after_a_reload(cfg, st
 # -- after reading external content -------------------------------------------------------------------------------
 
 def _tainted(cfg, store, repo, script, auto_approve=False):
-    """A session that has read library docs (external content), with a saved `python` rule; then `script` runs."""
+    """A session that has read library docs (external content), with a saved `python check.py` rule; then `script` runs."""
     agent = Agent(cfg, store, llm=FakeLLM([[tool_use("d0", "library_docs", library="fastapi", question="q")],
                                            [{"text": "read"}], *script]))
     agent.tools["library_docs"].fn = lambda ctx, library, question: "docs text"
     sess = store.create_session(str(repo), "main", auto_approve=auto_approve)
-    agent.allow(sess.id, [{"tool": "run_command", "prefix": "python"}])
+    agent.allow(sess.id, [{"tool": "run_command", "prefix": "python check.py"}])
     list(agent.chat(sess.id, "look it up"))
     return agent, sess
 
 
-PY = "python -c 'print(6 * 7)'"
+PY = "python check.py"
 
 
 def test_a_saved_rule_works_until_the_session_reads_external_content(cfg, store, repo):
     clean = Agent(cfg, store, llm=FakeLLM([[tool_use("t1", "run_command", command=PY)], [{"text": "ran"}]]))
     sess = store.create_session(str(repo), "main")
-    clean.allow(sess.id, [{"tool": "run_command", "prefix": "python"}])
+    clean.allow(sess.id, [{"tool": "run_command", "prefix": "python check.py"}])
     assert not any(e["type"] == "approval_needed" for e in clean.chat(sess.id, "run it"))
     agent, sess = _tainted(cfg, store, repo, [[tool_use("t1", "run_command", command=PY)]])
     tool = next(e for e in agent.chat(sess.id, "run it") if e["type"] == "approval_needed")["tools"][0]

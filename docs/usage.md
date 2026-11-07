@@ -35,7 +35,8 @@
   Memory. Click the active icon to collapse the sidebar.
 - **Editor:** opens files (with syntax highlighting), trace timelines and diffs as tabs.
 - **Chat (right):** the conversation, with every tool call shown as a card you can expand.
-- **Bottom panel:** **Activity** lists every model call and tool call with timings and tokens. **Output**
+- **Bottom panel** (closed until you open it: ⌘J, the toggle in the title bar, or the Terminal menu; then it remembers):
+  **Activity** lists every model call and tool call with timings and tokens. **Output**
   runs tests, analyser checks or any command yourself. **Terminal** holds your shells (see
   [the terminal](#the-terminal)).
 - **Title bar:** the open folder, file search (⌘P), the **Terminal** menu, and buttons to show or hide the
@@ -44,7 +45,9 @@
   session's memory is, and tokens used.
 
 All panes resize by dragging their edges. The layout (sizes, hidden panes, the open sidebar view and
-bottom-panel tab) and the theme are remembered per browser.
+bottom-panel tab) and the theme are remembered per browser. Sizes always fit the window: when it gets smaller (say
+a laptop leaves its external monitor), the sidebar, chat and bottom panel shrink so the editor and the message box
+stay on screen, and your sizes come back when the window is big again.
 
 ## Start working on a folder
 
@@ -174,7 +177,7 @@ it, and **Edit** or **Remove** work until codepilot picks it up. **Stop** puts w
 the box. A turn keeps running if you reload or close the page: open the session again and it picks up
 where it is, with Stop, Steer and Queue working as before. If codepilot is waiting for you to approve a
 command, writing a message instead declines the command, and your message goes to codepilot with that
-decision.
+decision, with everything you attached to it (images, `@files`, a skill, steering).
 
 **Edit or retry:** hover over one of your messages for ✎ **Edit** and ↻ **Retry**. Both rewind the
 conversation to that message: everything after it is removed, then the (edited) message is sent again. A
@@ -195,7 +198,13 @@ finishes or needs your approval (your browser asks permission the first time).
 **Stop:** the stop button halts a running turn at the next safe point.
 
 **The plan.** For multi-step work codepilot keeps a checklist, pinned above the message box with its progress
-("Plan · 2 of 5 done"). Click its header to fold it to that one line. A plan never just disappears:
+("Plan · 2 of 5 done"). Click its header to fold it to that one line. It says what's really happening:
+- while codepilot works, the step in progress spins (and only then);
+- while a command waits for you, it says **Waiting for your approval**;
+- if a turn ends with steps left, it says **Paused at step 3 of 5**, with **Continue** (asks codepilot to carry on from
+  that step) and **Dismiss** (puts the plan away, as a card in the chat; codepilot is told not to carry on with it).
+
+A plan never just disappears:
 - when every step is done it shows **✓ Plan complete**, and a card with the finished list stays in the chat;
 - when codepilot starts a different plan, or clears it, the old one becomes a **Plan replaced** card at that point,
   with the steps that weren't done still listed.
@@ -222,7 +231,7 @@ You can switch mode mid-conversation, and you can add your own modes
 ## Changes: proposals, Apply, Undo
 
 codepilot never writes to your files without you. Proposed changes collect in the **review bar** pinned
-above the message box ("2 changes to review · +12 −3"), so they don't get lost as the chat scrolls. Each
+above the message box ("2 changes · +12 −3"), so they don't get lost as the chat scrolls. Each
 one is also a single line in the chat; click it to see its diff.
 
 - **Review** opens the **Review** tab: changed files on the left, the full diff on the right. Press
@@ -236,7 +245,9 @@ one is also a single line in the chat; click it to see its diff.
 - **Apply** writes it. codepilot then checks the file's syntax (and runs ruff on Python files, if
   installed) and tells the assistant what it found.
 - **Reject** discards it. The assistant is told on your next message.
-- **Undo** (on applied changes) restores the file exactly, as long as it hasn't changed since. To undo every
+- **Undo** (on applied changes) restores the file exactly, as long as it hasn't changed since.
+- Changes, Undo and the editor's **Save** keep a file's line endings: a Windows-style (`\r\n`) file stays that way, so
+  git shows only the lines that changed. To undo every
   change from one message onwards at once, use ↶ on that message (see [Talking to it](#talking-to-it)).
 
 Changes only wait while they can still be applied. One that can't be applied any more stops waiting, and
@@ -289,7 +300,9 @@ Approvals appear in the same **review bar** above the message box, with the exac
 A pending approval is still there after a page reload.
 
 **Always allow … in this session** (under the command) skips asking for commands that start the same way,
-such as `pytest`, `npm test` or `make eval-bedrock`, until the session ends. It's never offered for commands
+such as `pytest`, `npm test` or `make eval-bedrock`, until the session ends. For an interpreter it keeps the script:
+approving `python scripts/check.py` allows that script (with any arguments), not every `python …`, and `python -m pytest`
+allows that module. Inline code (`python -c`, `node -e`, `bash -c`) is never always allowed. It's never offered for commands
 that chain or redirect (`;`, `&&`, `|`, `$( )`, `>`), and those always ask even when they start with an
 allowed prefix. It's also never offered for `rm`, `sudo`, `git`, `curl` and similar, or for anything destructive
 (`terraform destroy`, `kubectl delete`, ...), which also gets a red warning. **Memory → Always allowed in this

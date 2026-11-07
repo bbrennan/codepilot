@@ -402,3 +402,65 @@ def test_leftover_verification_copies_are_removed_at_start(cfg, store):
     (leftover / "big.bin").write_bytes(b"x" * 10)
     with TestClient(create_app(cfg, store, Agent(cfg, store, llm=FakeLLM([])))):
         assert not (cfg.home / "verify").exists()
+
+
+def test_two_applies_of_one_change_at_once_write_it_once(cfg, store, repo, monkeypatch):
+    """A double-click, a held key or two tabs: the second Apply arrives while the first is still running its checks."""
+    from codepilot import checks, tools
+    root = repo.resolve()
+    sess = store.create_session(str(root), "main")
+    ctx = tools.ToolContext(root=root, cfg=cfg, store=store, session_id=sess.id)
+    # The new text keeps the old, so applying it twice would insert the import twice.
+    tools.propose_edit(ctx, "agent/core.py", "def add(a, b):", "import math\n\n\ndef add(a, b):")
+    pid = store.list_proposals(sess.id)[-1].id
+    entered, release, seen = threading.Event(), threading.Event(), []
+    real = checks.quick_check
+
+    def held_first(root_, path):  # the first apply waits here, with its write done and not yet recorded
+        seen.append(path)
+        if len(seen) == 1:
+            entered.set()
+            release.wait(5)
+        return real(root_, path)
+
+    monkeypatch.setattr(checks, "quick_check", held_first)
+    client = TestClient(create_app(replace(cfg, terminal=False), store, Agent(cfg, store, llm=FakeLLM([]))))
+    codes = []
+    first = threading.Thread(target=lambda: codes.append(client.post(f"/api/proposals/{pid}/apply", headers=H)
+                                                         .status_code))
+    first.start()
+    assert entered.wait(5)
+    second = client.post(f"/api/proposals/{pid}/apply", headers=H)
+    release.set()
+    first.join(5)
+    assert (root / "agent" / "core.py").read_text().count("import math") == 1
+    assert codes == [200] and second.status_code == 409 and "already" in second.json()["error"]
+    assert store.get_proposal(pid).status == "applied"
+
+
+def test_dismissing_the_plan(cfg, store, repo):
+    agent = Agent(cfg, store, llm=FakeLLM([[tool_use("p1", "update_plan", items=[
+        {"text": "Write tests", "status": "done"}, {"text": "Implement it", "status": "doing"}])], [{"text": "paused"}]]))
+    client = TestClient(create_app(replace(cfg, terminal=False), store, agent))
+    sid = client.post("/api/sessions", json={"repo": str(repo)}, headers=H).json()["id"]
+    assert client.post(f"/api/sessions/{sid}/plan/dismiss", headers=H).status_code == 409  # no plan yet
+    client.post(f"/api/sessions/{sid}/chat", json={"message": "plan it"}, headers=H)
+    resp = client.post(f"/api/sessions/{sid}/plan/dismiss", headers=H)
+    assert resp.status_code == 200 and resp.json()["dismissed"] and resp.json()["retired"]["progress"] == [1, 2]
+    events = client.get(f"/api/sessions/{sid}").json()["events"]
+    assert [e for e in events if e["type"] == "plan"][-1]["dismissed"]
+
+
+def test_applying_to_a_file_that_is_no_longer_utf8_fails_cleanly(cfg, store, repo):
+    from codepilot import tools
+    root = repo.resolve()
+    sess = store.create_session(str(root), "main")
+    tools.propose_edit(tools.ToolContext(root=root, cfg=cfg, store=store, session_id=sess.id),
+                       "agent/core.py", "a - b", "a + b")
+    pid = store.list_proposals(sess.id)[-1].id
+    legacy = "# café\ndef add(a, b):\n    return a - b\n".encode("latin-1")  # re-saved by another editor
+    (root / "agent/core.py").write_bytes(legacy)
+    client = TestClient(create_app(replace(cfg, terminal=False), store, Agent(cfg, store, llm=FakeLLM([]))))
+    resp = client.post(f"/api/proposals/{pid}/apply", headers=H)
+    assert resp.status_code == 409 and "UTF-8" in resp.json()["error"]
+    assert store.get_proposal(pid).status == "failed" and (root / "agent/core.py").read_bytes() == legacy
