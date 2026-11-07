@@ -53,3 +53,14 @@ def test_a_reload_shows_the_same_steps(page, server, session):
     page.locator("#transcript details.tool").first.wait_for()
     page.wait_for_function("(n) => document.querySelectorAll('#transcript details.tool').length >= n", arg=len(live))
     assert [r["summary"] for r in summaries(page)] == live
+
+
+def test_a_read_from_a_line_does_not_claim_the_rest_of_the_file(page, server, session):
+    # read_file without end_line reads a window (500 lines), not the rest of the file: "lines 100–end" would overstate it.
+    open_app(page)
+    page.evaluate("""() => {
+      render({ type: 'tool_call', id: 'r1', name: 'read_file', input: { path: 'large.py', start_line: 100 } });
+      render({ type: 'tool_call', id: 'r2', name: 'read_file', input: { path: 'large.py', start_line: 5, end_line: 9 } });
+    }""")
+    said = [r["summary"] for r in summaries(page)[-2:]]
+    assert said == ["Read large.py from line 100", "Read large.py lines 5–9"], said

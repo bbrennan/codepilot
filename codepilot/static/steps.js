@@ -8,7 +8,9 @@ const firstLine = (s) => String(s || "").split("\n")[0].trim();
 const STEP_TEXT = {
   open_workspace: (i) => ["Opened", base_(i.path)],
   list_files: (i) => ["Listed", `${i.pattern ? i.pattern + " " : ""}files in ${!i.path || i.path === "." ? "the workspace" : i.path}`],
-  read_file: (i) => ["Read", i.path + (i.start_line || i.end_line ? ` lines ${i.start_line || 1}–${i.end_line || "end"}` : "")],
+  // Without end_line, read_file reads a window from start_line, not the rest of the file: say "from line", not "–end".
+  read_file: (i) => ["Read", i.path + (i.end_line ? ` lines ${i.start_line || 1}–${i.end_line}`
+    : i.start_line > 1 ? ` from line ${i.start_line}` : "")],
   search_code: (i) => ["Searched for", i.pattern + (i.path && i.path !== "." ? ` in ${i.path}` : "")],
   git: (i) => ["Ran", `git ${i.args || ""}`.trim()],
   explore: (i) => ["Explored:", firstLine(i.task)],
