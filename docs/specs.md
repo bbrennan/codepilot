@@ -51,6 +51,17 @@ off on larger work and are overhead on small fixes.
    **Run all remaining**. codepilot works on that task only, writes the tests for its criteria first, and
    ticks it off when they pass.
 
+**A task is done when its tests pass.** To mark a task done, codepilot names the tests that cover its acceptance
+criteria, and codepilot itself runs exactly those (your test command with those test files or ids). If they fail, the
+task stays open and codepilot is shown what failed. The tests are then listed under the task in `tasks.md`
+(`_Tests: tests/test_export.py_`), and the spec run card shows "✓ 3 tests pass". Running them asks first, like any test
+run, unless **auto-run tests** is on. While changes are waiting for your review, a task can't be marked done: they
+aren't on disk, so their tests can't run yet; after you review, codepilot carries on and marks it then. A task with
+nothing to test (documentation, say) is marked done with the reason instead, which `tasks.md` and the card show ("not
+tested: documentation only"). Without a test command (set `CODEPILOT_TEST_CMD`), only that route is open. The test
+command must take test names: `go test ./...` runs just the named packages, `npm test` gets them after `--`, and a
+`make` target can't take them, so with `make test` set `CODEPILOT_TEST_CMD` to the runner itself (pytest, say).
+
 Until the task list is approved, codepilot can't propose code changes in a spec. The planning phases plan.
 Click any finished step in the stepper to look back at its document.
 
@@ -139,7 +150,8 @@ Specs go stale when code moves on. On the Implement step:
 - **Spec mode** is a built-in mode. In it, each message carries a `<spec>` block with the current phase's
   instructions and the spec documents so far.
 - **Two tools:** `write_spec` writes the active spec's documents (no approval needed; they're docs, and you
-  approve the phase). `update_task` ticks tasks.
+  approve the phase). `update_task` ticks tasks; for done it takes `tests` (run before ticking) or `untested`
+  (the reason there are none).
 - **Guardrails:** `write_spec` can't write a phase you haven't reached, and approving never skips ahead or
   moves back. In a quick spec, all three documents can be written during planning and are approved together. Until
   tasks are approved, `propose_edit` is refused in a spec session.

@@ -103,7 +103,7 @@ tiers and the default repo, for compatibility with an older internal tool.
 
 | Variable | Default | Description |
 |---|---|---|
-| `CODEPILOT_AUTO_APPROVE_TESTS` | `0` | Run tests and analyser checks without asking (other commands always ask) |
+| `CODEPILOT_AUTO_APPROVE_TESTS` | `0` | Run tests and analyser checks without asking, including the tests a spec task runs to be marked done (other commands always ask) |
 | `CODEPILOT_AUTO_APPLY` | `0` | Write proposed edits immediately; each can still be undone |
 | `CODEPILOT_VERIFY` | `1` | Verification receipts: test pending changes on a copy of the workspace before review (the **Verify** button, the `verify_changes` tool, and an automatic run when auto-run tests is on). `0` turns it all off |
 | `CODEPILOT_PRICES` | `~/.codepilot/prices.toml` | Per-million-token prices for the cost meter, in the benchmark's format (copy `bench/prices.example.toml`). Read on each use, so edits apply straight away |

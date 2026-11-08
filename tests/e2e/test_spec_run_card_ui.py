@@ -17,7 +17,7 @@ CARD = """() => [...document.querySelectorAll('#transcript .spec-card')].map((c)
       .map((d) => d.querySelector(':scope > summary .tverb').textContent)]) }))"""
 
 RAN = [
-    ["1. Read first", "done", "tests pass", ["Read", "Ran the tests", "Marked task 1"]],
+    ["1. Read first", "done", "✓ 1 test passes", ["Read", "Ran the tests", "Marked task 1"]],
     ["2. Left undone", "paused", "not marked done", []],
 ]
 
@@ -120,6 +120,9 @@ def test_a_task_waiting_for_your_approval_stays_in_progress_and_carries_on(page,
     [card] = cards(page)
     assert card["live"] and card["items"][0][1:3] == ["doing", "waiting for your approval"]
     page.click("#rbApprove")
+    page.locator("#transcript .spec-card .pi.doing .note", has_text="tests pass").wait_for()  # ran; now, marking it
+    page.locator("#rbApprove").wait_for()  # done runs its tests, which asks too
+    page.click("#rbApprove")
     page.locator("#transcript .spec-card:not(.live)").wait_for()
     wait_idle(page)
     assert cards(page)[0]["items"] == RAN  # it went on to task 2 once the first was done
@@ -203,6 +206,10 @@ def test_approving_while_the_last_turn_is_still_settling_lets_the_task_finish(pa
     page.click("#rbApprove")
     page.locator("#stopBtn").wait_for()  # the approved work is running
     held[-1].continue_()
+    page.locator("#rbApprove").wait_for()  # marking it done runs its tests: that asks too
+    wait_idle(page)
+    assert cards(page)[0]["items"][0][1:3] == ["doing", "waiting for your approval · tests pass"]
+    page.click("#rbApprove")
     page.locator("#transcript .spec-card:not(.live)").wait_for()
     wait_idle(page)
     assert [i[1] for i in cards(page)[0]["items"]] == ["done", "paused"]
@@ -212,15 +219,26 @@ def test_a_retried_task_shows_the_verification_its_turn_made(page, server, sessi
     spec(server, "Change first")
     open_spec(page, server, session)  # auto-run tests: pending changes are verified when a turn ends
     page.click("#spNext")
-    page.locator("#transcript .spec-card:not(.live)").wait_for()
+    page.locator("#transcript .spec-card .pi.doing .note", has_text="waiting for your review").wait_for()
     wait_idle(page)
-    assert cards(page)[0]["items"][0][1:3] == ["done", "✓ verified"]
+    # Its changes wait for your review, so it can't be marked done yet: the verification of them is its result.
+    assert cards(page)[0]["items"][0][1:3] == ["doing", "waiting for your review · ✓ verified"]
     msg = page.locator(".msg.user", has_text="Implement task 1")
     msg.hover()
     msg.locator("[data-act=retry]").click()
     if page.locator("#dialog").is_visible():
         page.click("#dialogOk")
-    page.locator("#transcript .spec-card.live").wait_for()
-    page.locator("#transcript .spec-card:not(.live)").wait_for()
+    page.locator("#transcript .spec-card.live .pi.doing .note:empty").wait_for(state="attached")  # as before
+    page.locator("#transcript .spec-card .pi.doing .note", has_text="waiting for your review").wait_for()
     wait_idle(page)
-    assert cards(page)[0]["items"][0][1:3] == ["done", "✓ verified"]
+    assert cards(page)[0]["items"][0][1:3] == ["doing", "waiting for your review · ✓ verified"]
+
+
+def test_a_task_done_without_tests_says_why(page, server, session):
+    spec(server, "Write the docs")  # the scripted model marks it done as having nothing to test
+    open_spec(page, server, session)
+    page.click("#spNext")
+    page.locator("#transcript .spec-card.complete").wait_for()
+    wait_idle(page)
+    assert cards(page)[0]["items"][0][1:3] == ["done", "not tested: a scripted task"]
+    assert "  - _Tests: none (a scripted task)_" in (server.repo / ".codepilot/specs/demo/tasks.md").read_text()
