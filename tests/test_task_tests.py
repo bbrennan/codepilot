@@ -196,3 +196,10 @@ def test_cargo_runs_each_named_test_and_all_must_pass():
     assert done.event == {"tests": 2}
     shown = task_tests.describe({"task": "1", "tests": ["a", "c"]}, "cargo test")
     assert shown.startswith("cargo test a && cargo test c (")
+
+
+def test_report_and_log_files_given_to_pytest_stay(tmp_path):
+    for name in ("tests", "report.xml", "run.log"):
+        (tmp_path / name).touch()
+    argv = task_tests.selector("pytest --junit-xml report.xml --log-file run.log tests", tmp_path)
+    assert argv == ["pytest", "--junit-xml", "report.xml", "--log-file", "run.log"]

@@ -72,6 +72,7 @@ TASK_WORK = {
     "read first": [_read("agent/core.py"), {"name": "run_tests", "input": {}}],
     "plan first": [{"name": "update_plan", "input": {"items": [{"text": "Look around", "status": "doing"}]}},
                    _read("Makefile")],
+    "two tests": [_read("agent/core.py")],  # then named as one JSON string, as some models send them
     "change first": [{"name": "propose_edit", "input": {"path": "agent/core.py", "old_text": "a - b",
                                                         "new_text": "a + b", "reason": "add should add"}}],
 }
@@ -81,8 +82,8 @@ def _task_work(turn_text):
     typed = turn_text.split("<turn_context>")[0]  # not the spec's task list, which comes with every message
     task = re.search(r"implement task ([\d.]+)", typed)
     work = next((w for title, w in TASK_WORK.items() if title in typed), None) if task else None
-    return work and work + [{"name": "update_task", "input": {"task": task.group(1), "status": "done",
-                                                              "tests": ["tests/test_core.py"]}}]
+    tests = '["tests/test_core.py", "tests/test_core.py::test_add"]' if "two tests" in typed else ["tests/test_core.py"]
+    return work and work + [{"name": "update_task", "input": {"task": task.group(1), "status": "done", "tests": tests}}]
 
 
 def _replies_this_turn(messages):

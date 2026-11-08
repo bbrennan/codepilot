@@ -74,7 +74,7 @@ async function runSpecItem(spec, run, item) {
   if (state.sid === sid && state.specRun === going) await ensureSpecActive(spec).catch((err) => { failed = err; });
   if (failed) { // the task would run against whichever spec is active: it doesn't start
     item.status = "todo"; run.ended = "paused"; run.why = `couldn't make spec ${spec.name} the active spec (${failed.message})`;
-    state.specRun = null; toast(`Spec run paused: ${run.why}.`, true);
+    if (state.specRun === going) { state.specRun = null; toast(`Spec run paused: ${run.why}.`, true); } // (not another's)
     return recordSpecRun(run, sid);
   }
   if (state.sid !== sid || state.specRun !== going) { // you opened another session meanwhile: this task doesn't start
@@ -96,6 +96,11 @@ function specRunGoing(receipt = undefined) {
 // The tests that marked it done (codepilot ran them: task_tests.py), or why it had none; or that they failed, the last
 // time it tried (not a refusal for another reason, such as changes waiting for review).
 const TESTS_FAILED = "The task's tests failed"; // task_tests.check's words
+// The tests named, read as the server reads them (task_tests.names): a JSON array string, else one per line.
+function testNames(tests) {
+  if (typeof tests === "string") { try { tests = JSON.parse(tests); } catch { tests = tests.split("\n"); } }
+  return Array.isArray(tests) ? tests.filter((t) => String(t).trim()) : [];
+}
 function doneNote(el) {
   const tried = [...(el?.querySelectorAll(".pi-steps details.tool[data-tool=update_task]") || [])].map((d) => {
     let input = null; try { input = JSON.parse(d.querySelector(":scope > .traw pre").textContent); } catch { /* not JSON */ }
@@ -104,7 +109,7 @@ function doneNote(el) {
   }).filter(Boolean).at(-1);
   if (!tried) return "";
   if (!tried.ok) return "✗ its tests fail";
-  const n = (Array.isArray(tried.input.tests) ? tried.input.tests : String(tried.input.tests || "").split("\n")).filter((t) => String(t).trim()).length;
+  const n = testNames(tried.input.tests).length;
   return n ? `✓ ${plural(n, "test")} pass${n === 1 ? "es" : ""}` : tried.input.untested ? `not tested: ${tried.input.untested}` : "";
 }
 

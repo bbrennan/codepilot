@@ -287,7 +287,7 @@ async function openSession(sid) {
   // As when its last turn ended: changes it left waiting carry on once reviewed, and a spec task that ended while you
   // were away ends on its card (specrun.js).
   const waiting = data.proposals.filter((p) => p.status === "pending").map((p) => p.id);
-  if (waiting.length && !data.busy) { state.awaitingReview = sid; state.reviewBatch = new Set(waiting); }
+  if (waiting.length && !data.busy) { state.awaitingReview = sid; state.reviewBatch = new Set(data.review_batch || waiting); }
   if (!data.busy && specRunGoing()) afterSpecTurn();
   followIfRunning(sid, data.busy);
 }

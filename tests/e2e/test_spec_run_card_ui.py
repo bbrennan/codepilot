@@ -333,3 +333,54 @@ def test_rejecting_every_change_ends_the_task_and_frees_run(page, server, sessio
     page.click("#spNext")  # not "a spec run is already going"
     page.locator("#transcript .spec-card.live").wait_for()
     wait_idle(page)
+
+
+def test_a_failed_activation_leaves_a_run_in_another_session_alone(page, server, session):
+    other = server.store.create_session(str(server.repo), "main")
+    server.store.update_session(other.id, auto_approve=True)
+    spec(server, "Write the docs")
+    open_spec(page, server, session)
+    page.expected_errors = ["500"]
+    held_activate, held_record, hold = [], [], [True]
+    page.route("**/activate", lambda route: held_activate.append(route) if not held_activate else route.continue_())
+    page.click("#spNext")  # its activation hangs, then fails
+    while not held_activate:
+        page.wait_for_timeout(50)
+    page.click("[data-view=sessions]")
+    page.locator(f".session[data-id='{other.id}']").click()
+    page.wait_for_function("() => !document.querySelector('#transcript .spec-card')")
+    page.route("**/spec-run", lambda route: held_record.append(route) if hold[0] else route.continue_())
+    page.click("[data-view=specs]")
+    page.locator("[data-spec-open=demo]").click()
+    page.click("#spNext")  # a run here, starting while the first one's activation fails
+    while not held_record:
+        page.wait_for_timeout(50)
+    held_activate[0].fulfill(status=500, json={"error": "disk full"})
+    page.wait_for_timeout(200)
+    hold[0] = False
+    held_record[0].continue_()
+    page.locator("#transcript .spec-card.complete").wait_for()  # it ran: not stopped by the other's failure
+    wait_idle(page)
+
+
+def test_two_tests_given_as_one_json_string_count_as_two(page, server, session):
+    spec(server, "Two tests")
+    open_spec(page, server, session)
+    page.click("#spNext")
+    page.locator("#transcript .spec-card.complete").wait_for()
+    wait_idle(page)
+    assert cards(page)[0]["items"][0][2] == "✓ 2 tests pass"
+
+
+def test_after_a_reload_a_change_applied_before_it_still_counts(page, server, session):
+    open_app(page)
+    page.fill("#input", "fix two things")
+    page.press("#input", "Enter")
+    page.locator("#transcript [data-apply]").nth(1).wait_for()
+    wait_idle(page)
+    page.locator("#transcript [data-apply]").first.click()  # the first applied, then a reload
+    page.locator("#transcript [data-apply]").nth(1).wait_for(state="detached")
+    page.reload()
+    page.locator("#transcript [data-reject]").first.click()  # and the other rejected: one was applied
+    page.locator(".wait-row", has_text="Continuing after your review").wait_for()
+    wait_idle(page)

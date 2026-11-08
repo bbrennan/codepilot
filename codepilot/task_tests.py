@@ -19,7 +19,8 @@ MAX_TESTS, MAX_ID, MAX_REASON = 50, 300, 200
 EXIT = re.compile(r"^exit code (-?\d+)", re.M)
 # pytest options whose value is a separate argument: a path after one isn't a selection of tests
 PYTEST_VALUE_OPTIONS = {"-c", "-p", "-k", "-m", "-o", "-n", "--rootdir", "--confcutdir", "--basetemp", "--ignore",
-                        "--ignore-glob", "--deselect", "--maxfail", "--junitxml", "--cov", "--cov-report"}
+                        "--ignore-glob", "--deselect", "--maxfail", "--junitxml", "--junit-xml", "--log-file",
+                        "--cov", "--cov-report", "--cov-config", "--html"}
 
 
 class NotDone(Exception):
