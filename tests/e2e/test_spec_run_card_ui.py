@@ -3,6 +3,9 @@ with the reason, or failed, with its test result, and the work its turn did a cl
 tab rather than repeating it. The same after a reload, and Retry takes back what the rewound turn did.
 (Spec in-chat-progress, task 5: 3.1-3.4.)"""
 
+import sys
+from dataclasses import replace
+
 from test_cost_ui import wait_idle
 from uihelpers import open_app
 
@@ -242,3 +245,91 @@ def test_a_task_done_without_tests_says_why(page, server, session):
     wait_idle(page)
     assert cards(page)[0]["items"][0][1:3] == ["done", "not tested: a scripted task"]
     assert "  - _Tests: none (a scripted task)_" in (server.repo / ".codepilot/specs/demo/tasks.md").read_text()
+
+
+# -- release review fixes ---------------------------------------------------------------------------------
+
+
+def test_a_spec_that_cannot_be_activated_runs_no_task(page, server, session):
+    spec(server, "Read first")
+    open_spec(page, server, session)
+    page.expected_errors = ["500"]
+    page.route("**/activate", lambda route: route.fulfill(status=500, json={"error": "disk full"}))
+    calls = len(server.llm.calls)
+    page.click("#spNext")
+    page.locator("#transcript .spec-card:not(.live)").wait_for()
+    assert len(server.llm.calls) == calls and page.locator(".msg.user").count() == 0
+    [card] = cards(page)
+    assert card["items"][0][1] == "todo" and "couldn't make spec demo the active spec" in card["title"]
+
+
+def test_after_a_reload_reviewing_the_changes_carries_on(page, server, session):
+    spec(server, "Change first")
+    open_spec(page, server, session)
+    page.click("#spNext")
+    page.locator("#transcript .spec-card .pi.doing .note", has_text="waiting for your review").wait_for()
+    wait_idle(page)
+    page.reload()
+    page.locator("#rbApplyAll").click()
+    page.locator(".wait-row", has_text="Continuing after your review").wait_for()
+    page.locator("#transcript .spec-card:not(.live)").wait_for()  # that turn ends the task
+    wait_idle(page)
+
+
+def test_a_task_that_ended_while_you_were_away_ends_on_the_card(page, server, session):
+    spec(server, "Left undone")
+    open_spec(page, server, session)
+    page.click("#spNext")
+    page.locator("#transcript .spec-card .pi.doing > summary .spinner").wait_for()
+    page.goto("about:blank")  # the page closes while the task runs
+    while page.request.get(f"/api/sessions/{session.id}", headers={"X-Codepilot": "1"}).json()["busy"]:
+        page.wait_for_timeout(100)
+    page.goto("/")  # back after it finished
+    page.locator("#transcript .spec-card:not(.live)").wait_for()
+    assert cards(page)[0]["items"][0][1:3] == ["paused", "not marked done"]
+
+
+def test_a_plan_inside_a_waiting_task_keeps_its_work(page, server, session):
+    spec(server, "Plan first")
+    open_spec(page, server, session, auto_run=False)  # marking it done asks: the task waits, its plan still open
+    page.click("#spNext")
+    page.locator("#transcript .spec-card .pi.doing .note", has_text="waiting for your approval").wait_for()
+    wait_idle(page)
+    assert page.evaluate("""() => { const spec = document.querySelector('#transcript .spec-card');
+      return filingCard !== spec && spec.contains(filingCard) && !spec.contains(spec._outer || null); }""")
+
+
+def test_a_reload_during_a_task_keeps_its_verification(page, server, session):
+    spec(server, "Change first slowly")
+    open_spec(page, server, session)
+    page.click("#spNext")
+    page.locator("#transcript .card.prop").wait_for(state="attached")  # proposed; still working
+    page.reload()
+    page.locator("#transcript .spec-card .pi.doing .note", has_text="waiting for your review").wait_for()
+    wait_idle(page)
+    assert cards(page)[0]["items"][0][2] == "waiting for your review · ✓ verified"
+
+
+def test_tests_that_fail_when_marking_it_done_show_on_the_card(page, server, session):
+    script = "import sys; sys.exit(1 if sys.argv[1:] else 0)"  # the whole suite passes; the named test fails
+    server.agent.cfg = replace(server.agent.cfg, test_cmd=f'{sys.executable} -c "{script}"')
+    spec(server, "Read first")
+    open_spec(page, server, session)
+    page.click("#spNext")
+    page.locator("#transcript .spec-card:not(.live)").wait_for()
+    wait_idle(page)
+    assert cards(page)[0]["items"][0][1:3] == ["paused", "not marked done · ✗ its tests fail"]
+
+
+def test_rejecting_every_change_ends_the_task_and_frees_run(page, server, session):
+    spec(server, "Change first")
+    open_spec(page, server, session)
+    page.click("#spNext")
+    page.locator("#transcript .spec-card .pi.doing .note", has_text="waiting for your review").wait_for()
+    wait_idle(page)
+    page.click("#rbRejectAll")
+    page.locator("#transcript .spec-card:not(.live)").wait_for()
+    assert cards(page)[0]["items"][0][1] == "paused"
+    page.click("#spNext")  # not "a spec run is already going"
+    page.locator("#transcript .spec-card.live").wait_for()
+    wait_idle(page)

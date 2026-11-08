@@ -600,7 +600,7 @@ def update_task(ctx: ToolContext, task: str, status: str, tests: list | None = N
         pending = [p.id for p in ctx.store.list_proposals(ctx.session_id) if p.status == "pending"]
         try:
             done = task_tests.check(pending, tests, untested, detect_test_cmd(ctx.root, ctx.cfg),
-                                    lambda argv: _run_command(ctx, argv, 900, "test"))
+                                    lambda argv: _run_command(ctx, argv, 900, "test"), ctx.root)
         except task_tests.NotDone as exc:
             raise ToolError(str(exc)) from None
     t = specs.set_task_status(spec.doc("tasks"), str(task), status)

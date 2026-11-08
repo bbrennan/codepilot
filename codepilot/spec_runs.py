@@ -38,6 +38,10 @@ def _event(data) -> dict:
              "items": items, "ended": data.get("ended")}
     if data.get("why"):  # why a paused run stopped
         event["why"] = _text(data["why"])
+    if "receipt" in data:  # the verification before the task in progress (None: none yet), to tell its own from older
+        if data["receipt"] is not None and (not isinstance(data["receipt"], int) or isinstance(data["receipt"], bool)):
+            raise ValueError("receipt must be a receipt id or null")
+        event["receipt"] = data["receipt"]
     return event
 
 
