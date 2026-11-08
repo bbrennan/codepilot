@@ -112,6 +112,11 @@ reminder is a row in Activity, not in the chat.
   turn did; a plan made during a task goes under it. **Open spec** goes to the Spec tab. A reload shows the same
   card, and Edit or Retry on a task's message takes back what that turn did to it. **Run** on one task makes a
   card too.
+
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/spec-run-dark.webp">
+    <img alt="A spec run card: task 1 done with its tests passing and its three steps unfolded, task 2 paused because it wasn't marked done, task 3 not started" src="assets/spec-run-light.webp" width="440">
+  </picture>
 - **Auto-apply edits** (the switch under the message box) lets changes land without review so tasks run
   back to back. Every change can still be undone in **Changes**. Without it, review each task's changes in
   the review bar, and runs pause for you.

@@ -61,3 +61,14 @@ def test_what_the_checks_found_after_an_auto_apply_moves_into_the_change_row(pag
     assert rows_in_order(page)[-1] == "change: x.py"
     note = page.locator("#transcript .card.prop[data-prop='41'] .step-note")
     assert "E501 line too long" in note.text_content() and "Applied change" not in note.text_content()
+
+
+def test_spec_steps_have_the_specs_icon(page, server, session):
+    open_app(page)
+    start_quick(page)
+    specs_icon = page.locator("[data-view=specs] svg").first.inner_html()
+    wrote = page.locator("#transcript details.tool", has=page.locator(".tverb", has_text="Wrote"))
+    assert wrote.count() == 3
+    assert {wrote.nth(i).locator(".ticon svg").inner_html() for i in range(3)} == {specs_icon}
+    page.evaluate("""() => render({ type: 'tool_call', id: 'u1', name: 'update_task', input: { task: '1', status: 'done' } })""")
+    assert page.locator("#transcript details.tool").last.locator(".ticon svg").inner_html() == specs_icon

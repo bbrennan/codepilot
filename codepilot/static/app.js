@@ -86,7 +86,8 @@ function hydrateIcons(root = document) {
 }
 const TOOL_ICONS = { read_file: "eye", list_files: "files", search_code: "search", git: "branch", run_tests: "beaker", run_command: "terminal",
   propose_edit: "edit", explore: "sparkle", update_plan: "list", open_workspace: "folderOpen", list_traces: "pulse", trace_outline: "pulse",
-  search_traces: "pulse", read_trace: "pulse", load_skill: "brain", remember: "brain", cloudwatch_logs: "server" };
+  search_traces: "pulse", read_trace: "pulse", load_skill: "brain", remember: "brain", cloudwatch_logs: "server",
+  write_spec: "list", update_task: "list" }; // spec steps: the Specs view's icon
 const EXT_COLORS = { py: "var(--syn-fn)", js: "var(--syn-type)", ts: "var(--syn-fn)", tsx: "var(--syn-fn)", jsx: "var(--syn-type)", json: "var(--syn-num)",
   md: "var(--muted)", yml: "var(--syn-var)", yaml: "var(--syn-var)", toml: "var(--syn-var)", go: "var(--syn-attr)", rs: "var(--syn-num)", sh: "var(--syn-str)",
   html: "var(--syn-var)", css: "var(--syn-kw)", sql: "var(--syn-attr)", jsonl: "var(--syn-num)", log: "var(--muted)" };
