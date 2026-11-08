@@ -109,6 +109,27 @@ def set_task_status(path: Path, task_id: str, status: str) -> Task:
     return task
 
 
+def set_task_tests(path: Path, task_id: str, text: str) -> None:
+    """Write `text` (e.g. "_Tests: tests/test_x.py_") under the task, after its details, replacing an earlier one."""
+    lines = path.read_text().splitlines(keepends=True)
+    task = next(t for t in parse_tasks("".join(lines)) if t.id == task_id.rstrip("."))
+    indent = "  " * (task.depth + 1)
+    end = task.line  # the task's last detail line: indented or "_…_", up to the next task
+    for i in range(task.line + 1, len(lines)):
+        if TASK_LINE.match(lines[i]) or (lines[i].strip() and not lines[i].startswith((" ", "\t", "_"))):
+            break
+        if lines[i].strip():
+            if lines[i].strip().removeprefix("- ").startswith("_Tests:"):
+                lines[i] = f"{indent}- {text}\n"
+                path.write_text("".join(lines))
+                return
+            end = i
+    if not lines[end].endswith("\n"):
+        lines[end] += "\n"
+    lines.insert(end + 1, f"{indent}- {text}\n")
+    path.write_text("".join(lines))
+
+
 def _load(folder: Path) -> Spec:
     state: dict = {}
     try:

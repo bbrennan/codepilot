@@ -86,7 +86,8 @@ function hydrateIcons(root = document) {
 }
 const TOOL_ICONS = { read_file: "eye", list_files: "files", search_code: "search", git: "branch", run_tests: "beaker", run_command: "terminal",
   propose_edit: "edit", explore: "sparkle", update_plan: "list", open_workspace: "folderOpen", list_traces: "pulse", trace_outline: "pulse",
-  search_traces: "pulse", read_trace: "pulse", load_skill: "brain", remember: "brain", cloudwatch_logs: "server" };
+  search_traces: "pulse", read_trace: "pulse", load_skill: "brain", remember: "brain", cloudwatch_logs: "server",
+  write_spec: "list", update_task: "list" }; // spec steps: the Specs view's icon
 const EXT_COLORS = { py: "var(--syn-fn)", js: "var(--syn-type)", ts: "var(--syn-fn)", tsx: "var(--syn-fn)", jsx: "var(--syn-type)", json: "var(--syn-num)",
   md: "var(--muted)", yml: "var(--syn-var)", yaml: "var(--syn-var)", toml: "var(--syn-var)", go: "var(--syn-attr)", rs: "var(--syn-num)", sh: "var(--syn-str)",
   html: "var(--syn-var)", css: "var(--syn-kw)", sql: "var(--syn-attr)", jsonl: "var(--syn-num)", log: "var(--muted)" };
@@ -283,6 +284,11 @@ async function openSession(sid) {
   setWorkspace(data.session.repo, prevWorkspace !== (data.session.repo || ""));
   renderProposalList(); loadSessions(); scrollEnd(true);
   loadSteering(true);
+  // As when its last turn ended: changes it left waiting carry on once reviewed, and a spec task that ended while you
+  // were away ends on its card (specrun.js).
+  const waiting = data.proposals.filter((p) => p.status === "pending").map((p) => p.id);
+  if (waiting.length && !data.busy) { state.awaitingReview = sid; state.reviewBatch = new Set(data.review_batch || waiting); }
+  if (!data.busy && specRunGoing()) afterSpecTurn();
   followIfRunning(sid, data.busy);
 }
 
@@ -866,7 +872,10 @@ function maybeResumeAfterReview() {
   const props = [...state.proposals.values()];
   if (props.some((p) => p.status === "pending")) return;
   state.awaitingReview = null;
-  if (!props.some((p) => p.status === "applied" && state.reviewBatch?.has(p.id))) return; // all rejected: wait for you
+  if (!props.some((p) => p.status === "applied" && state.reviewBatch?.has(p.id))) { // all rejected: wait for you
+    if (specRunGoing()) afterSpecTurn(); // specrun.js: its task ends there, not waiting for a review that's done
+    return;
+  }
   add(`<div class="wait-row approved">${icon("refresh")}<span>Continuing after your review…</span></div>`);
   streamTo(sid, `/api/sessions/${sid}/chat`, { message: REVIEW_DONE, tier: selectedTier() });
 }
@@ -1243,7 +1252,7 @@ function rewindTo(el, text, undo = null) { // undo: {ids, keep} of file changes 
   const mid = +el.dataset.mid, sid = state.sid;
   while (el.nextElementSibling) el.nextElementSibling.remove();
   el.remove();
-  unfileRewound(); // taskcard.js: the rewound work also leaves the task cards above
+  unfileRewound(); specRunsRewound(); // the rewound work also leaves the task cards above (taskcard.js, specrun.js)
   const fresh = add(userMessageHtml(text)); scrollEnd(true);
   state.prompts = (state.prompts || []).concat(text); resetHistory();
   streamTo(sid, `/api/sessions/${sid}/rewind`, { mid, message: text, tier: selectedTier(), ...(undo ? { restore: undo.ids, keep: undo.keep } : {}) }).then(() => { if (undo) afterRestoreRewind(sid, fresh, undo.ids); return fresh; });
@@ -1366,6 +1375,7 @@ function render(ev, replay) {
     case "budget": endText(); budgetBanner(ev); break;
     case "verifying": onVerifying(ev); break;
     case "verification": endText(); onVerification(ev, replay); break;
+    case "spec_run": endText(); onSpecRun(ev); break; // specrun.js
     case "notice": endText(); add(`<div class="banner notice">${esc(ev.message)}</div>`); break;
     case "error": {
       endText(); onStreamSettled();
@@ -1483,7 +1493,7 @@ async function streamTo(sid, url, body) {
       const pending = [...state.proposals.values()].filter((p) => p.status === "pending");
       if (pending.length) { state.awaitingReview = sid; state.reviewBatch = new Set(pending.map((p) => p.id)); }
     }
-    if (sid === state.sid && (state.runAll || state.tabs.some((t) => t.kind === "spec") || $(".view.on")?.dataset.view === "specs")) afterSpecTurn();
+    if (sid === state.sid && (specRunGoing() || state.tabs.some((t) => t.kind === "spec") || $(".view.on")?.dataset.view === "specs")) afterSpecTurn();
     if (sid === state.sid) { loadGit(); const d = await api(`/api/sessions/${sid}`).catch(() => null); if (d) { state.summary = d.summary; state.allow = d.allow || []; $("#chatTitle").textContent = d.session.title || "New session"; if ($(".view.on")?.dataset.view === "memory") renderMemory(); } }
   }
 }
@@ -1620,7 +1630,7 @@ $("#steerBtn").title = `Steer: codepilot reads this at its next step, while it k
 $("#queueBtn").onclick = () => { if (input.value.trim()) send("after"); else input.focus(); };
 $("#stopBtn").onclick = async () => {
   if (!state.sid) return;
-  state.runAll = null;
+  stopSpecRun(); // specrun.js: the task in progress ends as stopped
   const r = await api(`/api/sessions/${state.sid}/cancel`, { method: "POST" }).catch(() => null);
   if (r?.queued?.length) { // stopped: queued messages come back to the message box, not lost
     $$("#transcript .msg.queued").forEach((q) => q.remove());
@@ -2209,11 +2219,11 @@ async function renderSpecTab(tab) {
   const ask = () => { const t = $("#spAsk").value.trim(); if (t) specSay(spec, `About the ${phaseLabel(spec, view).toLowerCase()} of spec ${spec.name}: ${t}`); };
   on("#spAskBtn", ask);
   $("#spAsk") && ($("#spAsk").onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(); } });
-  on("#spNext", () => runSpecTask(spec, spec.tasks.find((t) => t.status !== "done")));
-  on("#spAll", () => estimateRunAll(spec, () => { state.runAll = spec.name; runSpecTask(spec, spec.tasks.find((t) => t.status !== "done")); }));
+  on("#spNext", () => startSpecRun(spec, spec.tasks.find((t) => t.status !== "done"))); // specrun.js: a card in the chat
+  on("#spAll", () => estimateRunAll(spec, () => startSpecRun(spec)));
   on("#spDrift", () => specSay(spec, `Check spec ${spec.name} against the current code. List: acceptance criteria that aren't implemented or only partly; behaviour in the code the spec doesn't describe; tasks marked done whose code doesn't match the design. If the code is right and the spec is stale, update the spec with write_spec. Don't change code without asking.`));
   on("#spEvals", () => specSay(spec, `Verify spec ${spec.name} with the evals: run the eval command (${state.specs.eval_cmd}), then map the results to the acceptance criteria in the requirements: for each criterion, which scenarios, test cases or traces exercise it and whether they pass. List criteria with no coverage and suggest new scenarios for them.`));
-  $$("[data-sp-run]").forEach((b) => (b.onclick = () => runSpecTask(spec, spec.tasks.find((t) => t.id === b.dataset.spRun))));
+  $$("[data-sp-run]").forEach((b) => (b.onclick = () => startSpecRun(spec, spec.tasks.find((t) => t.id === b.dataset.spRun))));
 }
 async function approveSpec(spec, phase) {
   try {
@@ -2225,26 +2235,6 @@ async function approveSpec(spec, phase) {
     if (next?.docs[next.phase]) { renderEditor(); return; } // already written (a quick plan under full review): keep it
     specSay(spec, phase === "requirements" ? `${spec.kind === "bugfix" ? "The bug analysis is" : "The requirements are"} approved. Write the design.` : "The design is approved. Write the task list.");
   } catch (err) { toast(err.message, true); }
-}
-function runSpecTask(spec, task) {
-  if (!task) { state.runAll = null; return toast("All tasks are done."); }
-  state.runTask = { spec: spec.name, id: task.id };
-  specSay(spec, `Implement task ${task.id} of spec ${spec.name}: ${task.title}`);
-}
-async function afterSpecTurn() {
-  await loadSpecs(true);
-  if (!state.runAll || !state.runTask) return;
-  const spec = findSpec(state.runAll), ran = spec?.tasks.find((t) => t.id === state.runTask.id);
-  const pendingChanges = [...state.proposals.values()].some((p) => p.status === "pending");
-  let why = null;
-  if (!spec) why = "the spec is gone";
-  else if (state.approval) why = "a command needs your approval";
-  else if (pendingChanges) why = "changes are waiting for your review (or tick auto-apply edits)";
-  else if (ran?.status !== "done") why = `task ${state.runTask.id} isn't marked done`;
-  if (why) { state.runAll = null; toast(`Run all paused: ${why}. Press Run next task to continue.`, true); return; }
-  const next = spec.tasks.find((t) => t.status !== "done");
-  if (!next) { state.runAll = null; toast(`Spec ${spec.name}: all tasks done.`); return; }
-  runSpecTask(spec, next);
 }
 
 // ---------------------------------------------------------------- steering docs

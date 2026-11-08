@@ -33,8 +33,8 @@ from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 
 from .http_input import HANDLERS, json_body
-from . import (checkpoints, checks, diagnostics, github, images, mentions, models, modes, plans, skills, specs, steering,
-               textfile, traces, uploads, version)
+from . import (checkpoints, checks, diagnostics, github, images, mentions, models, modes, plans, skills, spec_runs, specs,
+               steering, textfile, traces, uploads, version)
 from .agent import Agent, history_events
 from .config import TIER_CHOICES, TIERS, Config
 from .store import Store
@@ -404,6 +404,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             "usage": agent.spend.view(sid),
             "context": agent.context_usage(sid),
             "receipt": store.latest_receipt(sid),
+            "review_batch": _review_batch(store, sid),
         })
 
     async def chat(request: Request) -> Response:
@@ -535,6 +536,22 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                 return err("This session is working; its plan isn't paused.", 409)
             event = plans.dismiss(store, sid)
         return JSONResponse(event) if event else err("There's no unfinished plan to dismiss.", 409)
+
+    async def spec_run(request: Request) -> Response:
+        """Keep a spec run's card as it is now (the browser runs the tasks), so a reload draws it where it was."""
+        sid = request.path_params["sid"]
+        try:
+            store.get_session(sid)
+        except KeyError:
+            return err("No such session", 404)
+        data = await json_body(request)
+        with busy_lock:
+            if sid in busy:  # a turn saves the session's state as it goes: record between turns
+                return err("This session is working; record the spec run between turns.", 409)
+            try:
+                return JSONResponse(spec_runs.record(store, sid, data))
+            except ValueError as exc:
+                return err(str(exc))
 
     async def checkpoint(request: Request) -> Response:
         """The changes applied from a message onwards, and whether each can still be undone."""
@@ -1147,6 +1164,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         Route("/api/sessions/{sid}/rewind", rewind, methods=["POST"]),
         Route("/api/sessions/{sid}/checkpoint", checkpoint),
         Route("/api/sessions/{sid}/plan/dismiss", plan_dismiss, methods=["POST"]),
+        Route("/api/sessions/{sid}/spec-run", spec_run, methods=["POST"]),
         Route("/api/sessions/{sid}/verify", verify, methods=["POST"]),
         Route("/api/sessions/{sid}/restore", restore, methods=["POST"]),
         Route("/api/sessions/{sid}/compact", compact, methods=["POST"]),
@@ -1253,6 +1271,15 @@ def _change_ids(value) -> bool:
 
 def _item_json(item: checkpoints.Item) -> dict:
     return {"id": item.proposal.id, "path": item.proposal.path, "ok": item.ok, "reason": item.reason}
+
+
+def _review_batch(store: Store, sid: str) -> list[int]:
+    """The changes the last turn left for review: those still waiting, and those applied since it ended (so a reload in
+    between doesn't forget them, and reviewing the rest still carries on)."""
+    last = store.last_message(sid)
+    ended = store.message_created(last[0]) if last else None
+    return [p.id for p in store.list_proposals(sid) if p.status == "pending"
+            or (ended is not None and p.status == "applied" and (p.applied_at or 0) >= ended)]
 
 
 def _proposal_json(prop, root: Path | None = None) -> dict:

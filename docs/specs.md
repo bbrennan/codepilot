@@ -51,6 +51,18 @@ off on larger work and are overhead on small fixes.
    **Run all remaining**. codepilot works on that task only, writes the tests for its criteria first, and
    ticks it off when they pass.
 
+**A task is done when its tests pass.** To mark a task done, codepilot names the tests that cover its acceptance
+criteria, and codepilot itself runs exactly those (your test command with those test files or ids). If they fail, the
+task stays open and codepilot is shown what failed. The tests are then listed under the task in `tasks.md`
+(`_Tests: tests/test_export.py_`), and the spec run card shows "✓ 3 tests pass". Running them asks first, like any test
+run, unless **auto-run tests** is on. While changes are waiting for your review, a task can't be marked done: they
+aren't on disk, so their tests can't run yet; after you review, codepilot carries on and marks it then. A task with
+nothing to test (documentation, say) is marked done with the reason instead, which `tasks.md` and the card show ("not
+tested: documentation only"). Without a test command (set `CODEPILOT_TEST_CMD`), only that route is open. The test
+command must take test names: `go test ./...` runs just the named packages, `npm test` gets them after `--`, a
+pytest command's own folder (`pytest -q tests`) is left out, and `cargo test` runs once per name. A `make` target can't
+take them, so with `make test` set `CODEPILOT_TEST_CMD` to the runner itself (pytest, say).
+
 Until the task list is approved, codepilot can't propose code changes in a spec. The planning phases plan.
 Click any finished step in the stepper to look back at its document.
 
@@ -103,9 +115,20 @@ reminder is a row in Activity, not in the chat.
 
 - **Run** (or **Run next task**) sends "Implement task 2.1 of spec csv-export: …". The message carries the
   requirements, design and task list, so codepilot has them even in a long session.
-- **Run all remaining** runs tasks one after another. It pauses when a command needs approval, when
-  changes are waiting for your review, or when a task didn't get marked done. Press **Run next task** to
-  continue.
+- **Run all remaining** runs tasks one after another. A task that's waiting for you (a command to approve, or
+  changes to review before it can finish) stays in progress and carries on once you've answered. The run
+  pauses when a task ends with its changes still waiting for review, or without being marked done. Press
+  **Run next task** to continue.
+- **The run is a card in the chat**, one row per task: in progress, ✓ done, paused (saying why) or failed, with
+  its test result (the verification made in its turn, else its last test run). Click a task to see the work its
+  turn did; a plan made during a task goes under it. **Open spec** goes to the Spec tab. A reload shows the same
+  card, and Edit or Retry on a task's message takes back what that turn did to it. **Run** on one task makes a
+  card too.
+
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/spec-run-dark.webp">
+    <img alt="A spec run card: task 1 done with its tests passing and its three steps unfolded, task 2 paused because it wasn't marked done, task 3 not started" src="assets/spec-run-light.webp" width="440">
+  </picture>
 - **Auto-apply edits** (the switch under the message box) lets changes land without review so tasks run
   back to back. Every change can still be undone in **Changes**. Without it, review each task's changes in
   the review bar, and runs pause for you.
@@ -128,7 +151,8 @@ Specs go stale when code moves on. On the Implement step:
 - **Spec mode** is a built-in mode. In it, each message carries a `<spec>` block with the current phase's
   instructions and the spec documents so far.
 - **Two tools:** `write_spec` writes the active spec's documents (no approval needed; they're docs, and you
-  approve the phase). `update_task` ticks tasks.
+  approve the phase). `update_task` ticks tasks; for done it takes `tests` (run before ticking) or `untested`
+  (the reason there are none).
 - **Guardrails:** `write_spec` can't write a phase you haven't reached, and approving never skips ahead or
   moves back. In a quick spec, all three documents can be written during planning and are approved together. Until
   tasks are approved, `propose_edit` is refused in a spec session.

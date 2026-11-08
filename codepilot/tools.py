@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from . import (checks, deps_guard, github, gitcmd, images, plans, procenv, skills, spec_profiles, specs, steering,
-               textfile, traces, webtools)
+               task_tests, textfile, traces, webtools)
 from .config import Config
 from .store import Store
 
@@ -75,8 +75,8 @@ class Tool:
     auto_approvable: bool = False  # the session's "auto-run" switch skips approval (tests, checks)
 
     def requires_approval(self, tool_input: dict, auto_run: bool, root: Path | None = None) -> bool:
-        if self.approval_fn is not None:
-            return self.approval_fn(tool_input, root)
+        if self.approval_fn is not None:  # (auto-run skips it too, for a tool that runs tests)
+            return self.approval_fn(tool_input, root) and not (self.auto_approvable and auto_run)
         if self.auto_approvable and auto_run:
             return False
         return self.needs_approval
@@ -587,18 +587,28 @@ def write_spec(ctx: ToolContext, doc: str, content: str) -> str:
     return f"Wrote {rel}. Ask the user to review it in the Spec tab." if phase != "implement" else f"Updated {rel}."
 
 
-def update_task(ctx: ToolContext, task: str, status: str) -> str:
+def update_task(ctx: ToolContext, task: str, status: str, tests: list | None = None, untested: str = "") -> str:
     spec = _active_spec(ctx)
     if spec.phase != "implement":
         raise ToolError("Tasks are tracked once the task list is approved.")
     if status not in ("todo", "in_progress", "done"):
         raise ToolError("status must be todo, in_progress or done")
-    try:
-        t = specs.set_task_status(spec.doc("tasks"), str(task), status)
-    except KeyError as exc:
-        raise ToolError(str(exc)) from None
-    ctx.events.append({"type": "spec", "name": spec.name, "task": t.id, "status": status})
-    return f"Task {t.id} ({t.title}) is now {status}."
+    if not any(t.id == str(task).rstrip(".") for t in spec.tasks):
+        raise ToolError(f"no task {task} in tasks.md; tasks are {', '.join(t.id for t in spec.tasks)}")
+    done = None
+    if status == "done":  # only when its tests pass (task_tests.py)
+        pending = [p.id for p in ctx.store.list_proposals(ctx.session_id) if p.status == "pending"]
+        try:
+            done = task_tests.check(pending, tests, untested, detect_test_cmd(ctx.root, ctx.cfg),
+                                    lambda argv: _run_command(ctx, argv, 900, "test"), ctx.root)
+        except task_tests.NotDone as exc:
+            raise ToolError(str(exc)) from None
+    t = specs.set_task_status(spec.doc("tasks"), str(task), status)
+    if done:
+        specs.set_task_tests(spec.doc("tasks"), t.id, done.line)
+    ctx.events.append({"type": "spec", "name": spec.name, "task": t.id, "status": status,
+                       **(done.event if done else {})})
+    return f"Task {t.id} ({t.title}) is now {status}" + (f": {done.said}" if done else ".")
 
 
 class WithImages(str):
@@ -849,9 +859,13 @@ def build_tools(cfg: Config) -> list[Tool]:
              _obj({"doc": {"type": "string", "enum": ["requirements", "design", "tasks"]}, "content": s},
                   ["doc", "content"]), write_spec, read_only=False),
         Tool("update_task", "Mark a task of the active spec todo, in_progress or done (implementation phase), by its "
-             "number, e.g. '2.1'.", _obj({"task": s, "status": {"type": "string",
-                                                                 "enum": ["todo", "in_progress", "done"]}},
-                                         ["task", "status"]), update_task, read_only=False),
+             "number, e.g. '2.1'. For done, name in `tests` the tests that cover the task's acceptance criteria (test "
+             "files or ids the test command takes): codepilot runs them, and the task is done only if they pass. A "
+             "task with nothing to test (documentation, say) gives the reason in `untested` instead.",
+             _obj({"task": s, "status": {"type": "string", "enum": ["todo", "in_progress", "done"]},
+                   "tests": {"type": "array", "items": s}, "untested": s}, ["task", "status"]),
+             update_task, read_only=False, auto_approvable=True,  # running its tests asks, as run_tests does
+             approval_fn=lambda tool_input, _root: task_tests.asks(tool_input, cfg.auto_approve_tests)),
         *([Tool("verify_changes", "Test your pending changes (proposed, not yet applied) before the user reviews "
                 "them: they're applied to a temporary copy of the workspace, where the test command and analysers "
                 "run. Returns what passed and what newly fails. Call it before you end a turn that leaves changes "

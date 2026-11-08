@@ -147,7 +147,8 @@ def test_implementation_tracks_tasks_and_attaches_the_spec(cfg, store, repo):
     for phase, text in (("requirements", "REQ 1.1"), ("design", "DESIGN"), ("tasks", TASKS)):
         write(spec.doc(phase), text)
         spec = specs.approve(repo, spec, phase)
-    llm = FakeLLM([[tool_use("t1", "update_task", task="1", status="done")], [{"text": "done"}]])
+    llm = FakeLLM([[tool_use("t1", "update_task", task="1", status="done", untested="nothing to test")],
+                   [{"text": "done"}]])
     agent = Agent(cfg, store, llm=llm)
     sess = spec_session(store, repo)
     agent.store.update_session(sess.id, context_state={"spec": "csv-export"})

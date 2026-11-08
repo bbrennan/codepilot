@@ -49,8 +49,10 @@ PHASE_INSTRUCTIONS = {
     "implement": (
         "IMPLEMENTATION. Work only on the task the user names, following design.md. Call "
         "update_task(task, 'in_progress') when you start. Write or update the tests for its acceptance criteria "
-        "first, then the code, then run the tests. When the criteria are verified, call update_task(task, 'done') "
-        "and stop: report what changed and how you verified it. Don't start the next task; the user does that. "
+        "first, then the code, then run the tests. When the criteria are verified, call update_task(task, 'done', "
+        "tests=[...]) naming the tests that cover its criteria: codepilot runs them and marks it done only if they "
+        "pass (a task with nothing to test gives untested='why' instead). Then stop: report what changed and how "
+        "you verified it. Don't start the next task; the user does that. "
         "If the design turns out wrong, say so and propose a change to the spec with write_spec instead of "
         "drifting from it."),
 }

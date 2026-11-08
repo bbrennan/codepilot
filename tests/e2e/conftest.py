@@ -67,6 +67,25 @@ PLAN_WORK = [
 ]
 
 
+# Spec tasks by title: the work its turn does, before it marks the task done.
+TASK_WORK = {
+    "read first": [_read("agent/core.py"), {"name": "run_tests", "input": {}}],
+    "plan first": [{"name": "update_plan", "input": {"items": [{"text": "Look around", "status": "doing"}]}},
+                   _read("Makefile")],
+    "two tests": [_read("agent/core.py")],  # then named as one JSON string, as some models send them
+    "change first": [{"name": "propose_edit", "input": {"path": "agent/core.py", "old_text": "a - b",
+                                                        "new_text": "a + b", "reason": "add should add"}}],
+}
+
+
+def _task_work(turn_text):
+    typed = turn_text.split("<turn_context>")[0]  # not the spec's task list, which comes with every message
+    task = re.search(r"implement task ([\d.]+)", typed)
+    work = next((w for title, w in TASK_WORK.items() if title in typed), None) if task else None
+    tests = '["tests/test_core.py", "tests/test_core.py::test_add"]' if "two tests" in typed else ["tests/test_core.py"]
+    return work and work + [{"name": "update_task", "input": {"task": task.group(1), "status": "done", "tests": tests}}]
+
+
 def _replies_this_turn(messages):
     """How many replies the model has made since the user last wrote."""
     start = max(i for i, m in enumerate(messages) if m["role"] == "user" and any("text" in b for b in m["content"])
@@ -97,6 +116,13 @@ class ScriptedLLM:
         elif "plan and work" in turn_text and (k := _replies_this_turn(messages)) < len(PLAN_WORK):
             time.sleep(1.5 if k == len(PLAN_WORK) - 1 else 0)
             content = [{"toolUse": {"toolUseId": f"t{n}", **copy.deepcopy(PLAN_WORK[k])}}]
+        elif (work := _task_work(turn_text)) and (k := _replies_this_turn(messages)) < len(work):
+            if "slowly" in turn_text.split("<turn_context>")[0] and k == len(work) - 1:
+                time.sleep(1)  # (a while before it marks the task done)
+            content = [{"toolUse": {"toolUseId": f"t{n}", **copy.deepcopy(work[k])}}]
+        elif phase and phase.group(1) == "implement" and "left undone" in user_text:  # a task it doesn't finish
+            time.sleep(1)  # (a while: it's in progress, with no steps yet)
+            content = [{"text": "I couldn't finish this one."}]
         elif "plan slowly" in turn_text and any("toolResult" in b for b in last):  # the step takes a while
             time.sleep(1.5)
             content = [{"text": "Stopped partway."}]
@@ -109,7 +135,8 @@ class ScriptedLLM:
                                     "input": {"doc": doc, "content": SPEC_DOCS[doc]}}} for doc in SPEC_DOCS]
         elif phase and phase.group(1) == "implement" and task:
             content = [{"toolUse": {"toolUseId": f"t{n}", "name": "update_task",
-                                    "input": {"task": task.group(1), "status": "done"}}}]
+                                    "input": {"task": task.group(1), "status": "done",
+                                              "untested": "a scripted task"}}}]
         elif phase and phase.group(1) != "implement":
             doc = phase.group(1)
             content = [{"toolUse": {"toolUseId": f"t{n}", "name": "write_spec",
