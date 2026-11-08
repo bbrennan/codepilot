@@ -19,7 +19,8 @@ from pathlib import Path
 from typing import Any
 
 from . import (approval_policy, checkpoints, checks, gitstate, images, mentions, models, modes, plans, prompts, repomap,
-               router, skills, spec_profiles, spec_reminder, specs, spend, steering, unanswered, verification, webtools)
+               router, skills, spec_profiles, spec_reminder, spec_runs, specs, spend, steering, unanswered, verification,
+               webtools)
 from .bedrock import BedrockError, make_client
 from .config import Config
 from .context import CLEARED_PREFIX, ContextManager, is_overflow
@@ -175,6 +176,7 @@ class Agent:
                 return
         since = self.store.message_created(mid)
         self.store.delete_messages_from(session_id, mid)
+        spec_runs.forget_from(self.store, session_id, mid)
         if since is not None:
             discarded = self.store.discard_pending_since(session_id, since)
             if discarded:
@@ -1167,7 +1169,10 @@ def history_events(store: Store, session_id: str) -> list[dict]:
     applied = plans.applied_ids(store, session_id)
     live = {mid for mid, _ in store.messages(session_id)}
     missing = {tu["toolUseId"] for _, calls in unanswered.find(store.live_messages(session_id)) for tu in calls}
+    runs = spec_runs.placed(store, session_id)  # a spec run's card, after the message it followed
     for mid, m in store.messages(session_id, include_archived=True):
+        while runs and runs[0][0] < mid:
+            events.append(runs.pop(0)[1])
         if dismissed and held_until is not None and mid > held_until:
             events += dismissed
             dismissed = []
@@ -1229,4 +1234,4 @@ def history_events(store: Store, session_id: str) -> list[dict]:
                 ref = re.match(r"(?:Proposed|Applied) change #(\d+)", out) if tu["name"] == "propose_edit" else None
                 if ref:  # redraw the change where it was proposed, with its current status
                     events.append({"type": "proposal_ref", "id": int(ref.group(1))})
-    return events + dismissed
+    return events + dismissed + [event for _, event in runs]

@@ -103,9 +103,15 @@ reminder is a row in Activity, not in the chat.
 
 - **Run** (or **Run next task**) sends "Implement task 2.1 of spec csv-export: …". The message carries the
   requirements, design and task list, so codepilot has them even in a long session.
-- **Run all remaining** runs tasks one after another. It pauses when a command needs approval, when
-  changes are waiting for your review, or when a task didn't get marked done. Press **Run next task** to
-  continue.
+- **Run all remaining** runs tasks one after another. A task that's waiting for you (a command to approve, or
+  changes to review before it can finish) stays in progress and carries on once you've answered. The run
+  pauses when a task ends with its changes still waiting for review, or without being marked done. Press
+  **Run next task** to continue.
+- **The run is a card in the chat**, one row per task: in progress, ✓ done, paused (saying why) or failed, with
+  its test result (the verification made in its turn, else its last test run). Click a task to see the work its
+  turn did; a plan made during a task goes under it. **Open spec** goes to the Spec tab. A reload shows the same
+  card, and Edit or Retry on a task's message takes back what that turn did to it. **Run** on one task makes a
+  card too.
 - **Auto-apply edits** (the switch under the message box) lets changes land without review so tasks run
   back to back. Every change can still be undone in **Changes**. Without it, review each task's changes in
   the review bar, and runs pause for you.

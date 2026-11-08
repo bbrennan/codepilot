@@ -67,6 +67,21 @@ PLAN_WORK = [
 ]
 
 
+# Spec tasks by title: the work its turn does, before it marks the task done.
+TASK_WORK = {
+    "read first": [_read("agent/core.py"), {"name": "run_tests", "input": {}}],
+    "plan first": [{"name": "update_plan", "input": {"items": [{"text": "Look around", "status": "doing"}]}},
+                   _read("Makefile")],
+}
+
+
+def _task_work(turn_text):
+    typed = turn_text.split("<turn_context>")[0]  # not the spec's task list, which comes with every message
+    task = re.search(r"implement task ([\d.]+)", typed)
+    work = next((w for title, w in TASK_WORK.items() if title in typed), None) if task else None
+    return work and work + [{"name": "update_task", "input": {"task": task.group(1), "status": "done"}}]
+
+
 def _replies_this_turn(messages):
     """How many replies the model has made since the user last wrote."""
     start = max(i for i, m in enumerate(messages) if m["role"] == "user" and any("text" in b for b in m["content"])
@@ -97,6 +112,11 @@ class ScriptedLLM:
         elif "plan and work" in turn_text and (k := _replies_this_turn(messages)) < len(PLAN_WORK):
             time.sleep(1.5 if k == len(PLAN_WORK) - 1 else 0)
             content = [{"toolUse": {"toolUseId": f"t{n}", **copy.deepcopy(PLAN_WORK[k])}}]
+        elif (work := _task_work(turn_text)) and (k := _replies_this_turn(messages)) < len(work):
+            content = [{"toolUse": {"toolUseId": f"t{n}", **copy.deepcopy(work[k])}}]
+        elif phase and phase.group(1) == "implement" and "left undone" in user_text:  # a task it doesn't finish
+            time.sleep(1)  # (a while: it's in progress, with no steps yet)
+            content = [{"text": "I couldn't finish this one."}]
         elif "plan slowly" in turn_text and any("toolResult" in b for b in last):  # the step takes a while
             time.sleep(1.5)
             content = [{"text": "Stopped partway."}]

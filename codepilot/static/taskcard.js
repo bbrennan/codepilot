@@ -19,7 +19,7 @@ function newTaskCard(title) {
 
 function taskItemEl(text, cls) {
   const d = document.createElement("div");
-  d.innerHTML = `<details class="pi it ${cls}"><summary><span class="mk"></span><span class="t"></span><span class="n muted"></span></summary><div class="pi-steps"></div></details>`;
+  d.innerHTML = `<details class="pi it ${cls}"><summary><span class="mk"></span><span class="t"></span><span class="note muted"></span><span class="n muted"></span></summary><div class="pi-steps"></div></details>`;
   const el = d.firstElementChild; el.querySelector(".t").textContent = text;
   return el;
 }
@@ -37,6 +37,7 @@ function setTaskItems(card, items, count) {
     const key = `${base}#${nth}`;
     const el = old.get(key) || taskItemEl(it.text, ""); old.delete(key);
     el.dataset.key = key; el.className = `pi it ${it.status}`; el.querySelector(".t").textContent = it.text;
+    el.querySelector(".note").textContent = it.note || ""; // how a spec task ended: why it paused, its test result
     if (it.status === "doing" && card.dataset.active !== key) {
       card.dataset.active = key; (card._actives ||= []).push({ key, by: lastUserMsg() });
     }
@@ -50,12 +51,12 @@ function setTaskItems(card, items, count) {
 
 const stepsIn = (item) => [...item.querySelector(":scope > .pi-steps").children];
 
-// Marks and counts. Only the item in progress of a card that's filing spins, and only while a turn runs. The mark says
-// its status in words too, for a screen reader.
-const MARK_LABEL = { done: "Done", doing: "In progress", todo: "To do", before: "Before any step", gone: "Dropped from the plan" };
+// Marks and counts. Only the item in progress of a card that's filing (or holds the card that is) spins, and only while
+// a turn runs. The mark says its status in words too, for a screen reader.
+const MARK_LABEL = { done: "Done", doing: "In progress", todo: "To do", before: "Before any step", gone: "Dropped from the plan", paused: "Paused", failed: "Failed" };
 function refreshTaskCard(card, running = state.streams.has(state.sid)) {
   for (const item of card.querySelectorAll(":scope > .plan-list > .pi")) {
-    const spin = running && card === filingCard && item.classList.contains("doing");
+    const spin = running && !!filingCard && card.contains(filingCard) && item.classList.contains("doing");
     const mk = item.querySelector(".mk"), status = Object.keys(MARK_LABEL).find((c) => item.classList.contains(c));
     mk.innerHTML = spin ? '<span class="spinner"></span>' : '<span class="box"></span>';
     mk.setAttribute("role", "img"); mk.setAttribute("aria-label", MARK_LABEL[status] || "");
@@ -64,8 +65,19 @@ function refreshTaskCard(card, running = state.streams.has(state.sid)) {
   }
 }
 
-function startFiling(card) { if (filingCard && filingCard !== card) refreshTaskCard(filingCard, false); filingCard = card; }
-function stopFiling(card) { if (!card || card === filingCard) { const was = filingCard; filingCard = null; if (was) refreshTaskCard(was, false); } }
+// A card that starts filing remembers the one it took over from (a plan made during a spec task, from that task's
+// card), and filing goes back to that one when it stops, if it's still live.
+function startFiling(card) {
+  if (filingCard === card) return;
+  if (filingCard) { refreshTaskCard(filingCard, false); card._outer = filingCard; }
+  filingCard = card;
+}
+function stopFiling(card = filingCard) {
+  if (!card || card !== filingCard) return;
+  const back = card._outer;
+  filingCard = back?.isConnected && back !== card && back.classList.contains("live") ? back : null;
+  refreshTaskCard(card, false);
+}
 
 // A card that's done (finished, replaced, dismissed): its title says how, it folds away, and it stops filing.
 function endTaskCard(card, title, cls) {
@@ -75,14 +87,17 @@ function endTaskCard(card, title, cls) {
   card._endedBy = lastUserMsg();
 }
 
-// A tool step as it's drawn. update_plan steps make the plan card rather than work under it (plan.js).
+// A tool step as it's drawn. update_plan steps make the plan card rather than work under it (plan.js): during a spec
+// task, that card goes under the task.
 function fileToolStep(el, ev) {
-  if (ev.name === "update_plan") el.dataset.plan = "1";
-  else fileStep(el);
+  el.dataset.tool = ev.name; // e.g. a spec task's test result is its last run_tests
+  if (ev.name !== "update_plan") return fileStep(el);
+  el.dataset.plan = "1";
+  const task = filingCard?.closest(".spec-card");
+  if (task?.classList.contains("live")) fileStep(el, task);
 }
 
-function fileStep(el) {
-  const card = filingCard;
+function fileStep(el, card = filingCard) {
   if (!card?.isConnected || !el) return;
   const list = card.querySelector(":scope > .plan-list");
   let item = card.dataset.active && list.querySelector(`:scope > .pi[data-key="${CSS.escape(card.dataset.active)}"]`);
@@ -112,12 +127,13 @@ function unfileRewound() {
   }
 }
 
-// After a rewind, the card whose plan the server says is live again (not one you dismissed, which stays put away).
-function reviveTaskCard(card) {
-  if (!card?._rewound) return;
+function liveTaskCard(card) {
+  if (card.classList.contains("live")) return;
   card.classList.remove("retired", "complete"); card.classList.add("live"); card.open = true;
   card.querySelector(".ttl").textContent = card.dataset.title; card._endedBy = null;
 }
+// After a rewind, the card whose plan the server says is live again (not one you dismissed, which stays put away).
+function reviveTaskCard(card) { if (card?._rewound) liveTaskCard(card); }
 function settleRewound() { for (const card of document.querySelectorAll("#transcript .plan-card")) card._rewound = false; }
 
-function resetTaskCards() { filingCard = null; }
+function resetTaskCards() { filingCard = null; state.specRun = null; } // another session: its cards, its run

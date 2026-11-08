@@ -19,7 +19,7 @@
     and expand on click; the pinned plan is one line that scrolls to the card; the same after a reload.
   - `static/taskcard.js`; `plan.js` pins the header only.
   - _Requirements: 2.1, 2.2, 2.3, 2.4_
-- [ ] 5. Spec runs as a task card
+- [x] 5. Spec runs as a task card
   - Test first: "Run all remaining" on a two-task spec shows a card with both tasks; each ends done (or paused, with the
     reason) and shows its receipt; a click expands its steps; the row opens the Spec tab.
   - _Requirements: 3.1, 3.2, 3.3, 3.4_
