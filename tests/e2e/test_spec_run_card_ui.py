@@ -138,3 +138,89 @@ def test_a_plan_made_during_a_task_goes_under_that_task(page, server, session):
     assert plan.locator(".pi-steps .tverb").all_text_contents() == ["Read", "Marked task 1"]
     assert tasks.nth(0).locator(":scope > .pi-steps > details.tool").count() == 0
     assert tasks.nth(1).locator(".pi-steps .tverb").all_text_contents() == ["Read", "Ran the tests", "Marked task 2"]
+
+
+def test_switching_sessions_as_a_run_starts_leaves_the_new_session_alone(page, server, session):
+    spec(server, "Read first")
+    open_spec(page, server, session)
+    held = []
+    page.route("**/spec-run", lambda route: route.continue_() if held else held.append(route))  # hold the first
+    calls = len(server.llm.calls)
+    with page.expect_request("**/spec-run"):
+        page.click("#spNext")
+    page.click("#newChatBtn")
+    page.wait_for_function("() => !document.querySelector('.msg.user')")
+    with page.expect_response("**/spec-run"):
+        held[0].continue_()
+    page.wait_for_timeout(500)
+    assert len(server.llm.calls) == calls and page.locator(".msg.user, #transcript .spec-card").count() == 0
+
+
+def test_a_second_click_while_a_run_starts_runs_nothing_twice(page, server, session):
+    spec(server, "Read first", "Left undone")
+    open_spec(page, server, session)
+    held = []
+    page.route("**/spec-run", lambda route: route.continue_() if held else held.append(route))  # hold the first
+    with page.expect_request("**/spec-run"):
+        page.click("#spNext")
+    page.click("#spNext")
+    page.wait_for_timeout(300)
+    for route in held:
+        route.continue_()
+    page.locator("#transcript .spec-card.complete").wait_for()
+    wait_idle(page)
+    assert len(held) == 1 and len(cards(page)) == 1
+    assert page.locator(".msg.user", has_text="Implement task").count() == 1
+
+
+def test_reloading_during_a_task_still_ends_it(page, server, session):
+    spec(server, "Read first", "Left undone")
+    open_spec(page, server, session)
+    page.click("#spAll")
+    page.locator("#transcript .spec-card .pi.doing", has_text="2. Left undone").wait_for()
+    page.reload()  # task 2 is still running: the page follows it
+    page.locator("#transcript .spec-card:not(.live)").wait_for()
+    wait_idle(page)
+    [card] = cards(page)
+    assert card["items"] == RAN and card["title"] == "Spec demo · paused: task 2 isn't marked done"
+    page.reload()
+    page.locator("#transcript .spec-card").wait_for()
+    assert cards(page) == [card]
+
+
+def test_approving_while_the_last_turn_is_still_settling_lets_the_task_finish(page, server, session):
+    spec(server, "Read first slowly", "Left undone")
+    open_spec(page, server, session, auto_run=False)
+    held, hold = [], [True]
+    page.route("**/specs", lambda route: held.append(route) if hold[0] and route.request.method == "GET"
+               else route.continue_())
+    page.click("#spAll")
+    page.locator("#rbApprove").wait_for()
+    wait_idle(page)
+    hold[0] = False
+    for route in held[:-1]:
+        route.continue_()  # the last is the turn's: it settles after you approve
+    page.click("#rbApprove")
+    page.locator("#stopBtn").wait_for()  # the approved work is running
+    held[-1].continue_()
+    page.locator("#transcript .spec-card:not(.live)").wait_for()
+    wait_idle(page)
+    assert [i[1] for i in cards(page)[0]["items"]] == ["done", "paused"]
+
+
+def test_a_retried_task_shows_the_verification_its_turn_made(page, server, session):
+    spec(server, "Change first")
+    open_spec(page, server, session)  # auto-run tests: pending changes are verified when a turn ends
+    page.click("#spNext")
+    page.locator("#transcript .spec-card:not(.live)").wait_for()
+    wait_idle(page)
+    assert cards(page)[0]["items"][0][1:3] == ["done", "✓ verified"]
+    msg = page.locator(".msg.user", has_text="Implement task 1")
+    msg.hover()
+    msg.locator("[data-act=retry]").click()
+    if page.locator("#dialog").is_visible():
+        page.click("#dialogOk")
+    page.locator("#transcript .spec-card.live").wait_for()
+    page.locator("#transcript .spec-card:not(.live)").wait_for()
+    wait_idle(page)
+    assert cards(page)[0]["items"][0][1:3] == ["done", "✓ verified"]

@@ -38,11 +38,12 @@ function drawSpecRun(card, ev) {
   else { liveTaskCard(card); startFiling(card); }
 }
 
-// Draw the run's card as it is now and keep it with the session (before the message that follows, so a reload agrees).
-async function recordSpecRun(run) {
+// Draw the run's card as it is now (if its session is still the one open) and keep it with that session (before the
+// message that follows, so a reload agrees).
+async function recordSpecRun(run, sid = state.sid) {
   const ev = { type: "spec_run", run: run.run, spec: run.spec, items: run.items.map((i) => ({ ...i })), ended: run.ended || null, ...(run.why ? { why: run.why } : {}) };
-  const card = onSpecRun(ev);
-  try { await api(`/api/sessions/${state.sid}/spec-run`, { method: "POST", body: ev }); }
+  const card = sid === state.sid ? onSpecRun(ev) : null;
+  try { await api(`/api/sessions/${sid}/spec-run`, { method: "POST", body: ev }); }
   catch (err) { toast(`The spec run's card won't survive a reload: ${err.message}`, true); }
   return card;
 }
@@ -50,27 +51,34 @@ async function recordSpecRun(run) {
 // Run one task (task given) or all that remain.
 async function startSpecRun(spec, task = null) {
   if (state.streams.has(state.sid)) return toast("Wait for codepilot to finish (or press Stop) first.", true);
+  if (state.specRun && state.specRun.card?.isConnected !== false) return toast("A spec run is already going: it carries on once you've answered what it's waiting for.", true);
   const tasks = task ? [task] : spec.tasks.filter((t) => t.status !== "done");
   if (!tasks.length) return toast("All tasks are done.");
   const run = { run: Date.now().toString(36), spec: spec.name, items: tasks.map((t) => ({ id: t.id, text: `${t.id}. ${t.title}`, status: "todo" })) };
-  state.specRun = { all: !task, stopped: false };
+  state.specRun = { all: !task, stopped: false }; // (set now: a second click while this starts runs nothing)
   await runSpecItem(spec, run, run.items[0]);
 }
 
 async function runSpecItem(spec, run, item) {
+  const sid = state.sid, going = state.specRun;
   item.status = "doing"; delete item.note;
-  const going = state.specRun;
-  going.card = await recordSpecRun(run);
+  going.card = await recordSpecRun(run, sid);
   going.receipt = state.receipt?.id ?? null; // a verification after this is this task's
+  if (state.sid === sid && state.specRun === going) await ensureSpecActive(spec).catch((err) => toast(err.message, true));
+  if (state.sid !== sid || state.specRun !== going) { // you opened another session meanwhile: this task doesn't start
+    item.status = "todo"; run.ended = "stopped";
+    return recordSpecRun(run, sid);
+  }
   const task = spec.tasks.find((t) => t.id === item.id);
-  specSay(spec, `Implement task ${item.id} of spec ${spec.name}: ${task?.title ?? item.text}`);
+  setInput(`Implement task ${item.id} of spec ${spec.name}: ${task?.title ?? item.text}`); send();
 }
 
 // The run whose card is live: this one, or one left live by a reload or a Retry (it ends with the turn, not going on).
-function specRunGoing() {
+// `receipt` is the verification before its task's turn, when known.
+function specRunGoing(receipt = undefined) {
   if (state.specRun?.card?.isConnected) return state.specRun;
   const card = [...$$("#transcript .spec-card.live")].at(-1);
-  return card?._run ? (state.specRun = { card, all: false, stopped: false }) : null;
+  return card?._run ? (state.specRun = { card, all: false, stopped: false, receipt }) : null;
 }
 
 // What the task's turn shows of its tests: the verification made in it, else the last test run under it.
@@ -89,7 +97,9 @@ function endedInError(msg) {
 
 // When a turn ends: how the task in progress went, then the next task, or the run ends (saying why).
 async function afterSpecTurn() {
+  const sid = state.sid;
   await loadSpecs(true);
+  if (state.sid !== sid || state.streams.has(sid)) return; // e.g. you approved meanwhile: that turn's end settles it
   const going = specRunGoing();
   if (!going) return;
   const run = going.card._run, item = run.items.find((i) => i.status === "doing");
@@ -134,5 +144,7 @@ function specRunsRewound() {
     card._states = states;
     if (states.length) drawSpecRun(card, states.at(-1).ev); else card.remove();
   }
-  state.specRun = null; // a live card left by that carries on with the retried turn, then ends (specRunGoing)
+  // A card left live by that carries on with the retried turn, then ends: a verification from here on is that turn's.
+  state.specRun = null;
+  specRunGoing(state.receipt?.id ?? null);
 }

@@ -1478,7 +1478,10 @@ async function streamTo(sid, url, body) {
   } catch (err) { if (sid === state.sid) render({ type: "error", message: err.message }); }
   finally {
     typing?.remove(); state.streams.delete(sid); state.streamEnds.delete(sid); ended(); updateBusy(); loadSessions();
-    if (follow) { if (sid === state.sid) await openSession(sid).catch(() => null); return; } // redraw it whole
+    if (follow) { // redraw it whole; a spec task it was running ends now (specrun.js)
+      if (sid === state.sid) { await openSession(sid).catch(() => null); if (sid === state.sid && specRunGoing()) afterSpecTurn(); }
+      return;
+    }
     notifyDone(sid);
     if (sid === state.sid) {
       const pending = [...state.proposals.values()].filter((p) => p.status === "pending");

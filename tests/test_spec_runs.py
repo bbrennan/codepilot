@@ -58,6 +58,8 @@ def test_a_rewind_forgets_what_the_card_said_after_that_message(cfg, store, repo
     {**card("doing"), "ended": "exploded"},
     {**card("doing"), "spec": ""},
     {**card("doing"), "items": [{"text": "x" * 2000, "status": "todo"}]},
+    {**card("doing"), "items": [{"text": "1. Task", "status": ["done"]}]},  # not a string (unhashable)
+    {**card("doing"), "ended": {"why": "x"}},
 ])
 def test_a_malformed_card_is_refused(cfg, store, repo, bad):
     sess = store.create_session(str(repo), "main")

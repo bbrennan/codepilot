@@ -72,6 +72,8 @@ TASK_WORK = {
     "read first": [_read("agent/core.py"), {"name": "run_tests", "input": {}}],
     "plan first": [{"name": "update_plan", "input": {"items": [{"text": "Look around", "status": "doing"}]}},
                    _read("Makefile")],
+    "change first": [{"name": "propose_edit", "input": {"path": "agent/core.py", "old_text": "a - b", "new_text": "a + b",
+                                                        "reason": "add should add"}}],
 }
 
 
@@ -113,6 +115,8 @@ class ScriptedLLM:
             time.sleep(1.5 if k == len(PLAN_WORK) - 1 else 0)
             content = [{"toolUse": {"toolUseId": f"t{n}", **copy.deepcopy(PLAN_WORK[k])}}]
         elif (work := _task_work(turn_text)) and (k := _replies_this_turn(messages)) < len(work):
+            if "slowly" in turn_text.split("<turn_context>")[0] and k == len(work) - 1:
+                time.sleep(1)  # (a while before it marks the task done)
             content = [{"toolUse": {"toolUseId": f"t{n}", **copy.deepcopy(work[k])}}]
         elif phase and phase.group(1) == "implement" and "left undone" in user_text:  # a task it doesn't finish
             time.sleep(1)  # (a while: it's in progress, with no steps yet)

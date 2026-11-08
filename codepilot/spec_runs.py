@@ -25,14 +25,14 @@ def _event(data) -> dict:
         raise ValueError("a spec run needs run, spec and a list of items")
     items = []
     for it in data["items"]:
-        if not isinstance(it, dict) or it.get("status") not in STATUSES:
+        if not isinstance(it, dict) or not isinstance(it.get("status"), str) or it["status"] not in STATUSES:
             raise ValueError(f"each item needs text and a status ({', '.join(sorted(STATUSES))})")
         item = {"text": _text(it.get("text")), "status": it["status"]}
         for key, limit in (("id", 32), ("note", MAX_TEXT)):  # the task's id in tasks.md; how it ended
             if it.get(key):
                 item[key] = _text(it[key], limit)
         items.append(item)
-    if data.get("ended") not in ENDINGS:
+    if not isinstance(data.get("ended"), (str, type(None))) or data.get("ended") not in ENDINGS:
         raise ValueError("ended must be complete, paused or stopped")
     event = {"type": "spec_run", "run": _text(data.get("run"), 64), "spec": _text(data.get("spec"), 200),
              "items": items, "ended": data.get("ended")}
