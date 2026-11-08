@@ -8,6 +8,7 @@ Changes waiting for review aren't on disk, so their tests can't run yet: the tas
 
 from __future__ import annotations
 
+import json
 import re
 import shlex
 from collections.abc import Callable
@@ -29,10 +30,26 @@ class Done:
 
 
 def names(tests) -> list[str]:
-    """The test ids as given ([] if none). A string is split on spaces: some models send one."""
+    """The test ids as given ([] if none). A string is read as the tool reads it (tools._coerce): a JSON array, else
+    one test per line. So the approval shows exactly what runs."""
     if isinstance(tests, str):
-        tests = tests.split()
+        try:
+            tests = json.loads(tests)
+        except json.JSONDecodeError:
+            tests = tests.splitlines()
     return [str(t).strip() for t in tests if str(t).strip()] if isinstance(tests, list) else []
+
+
+def selector(test_cmd: str) -> list[str] | None:
+    """The test command, ready to be given test names; None if it can't take them (make takes targets)."""
+    argv = shlex.split(test_cmd)
+    if not argv or argv[0] == "make":
+        return None
+    if argv[:2] == ["go", "test"]:  # its default selects every package, which would run as well
+        return [a for a in argv if a != "./..."]
+    if argv[0] in ("npm", "pnpm") and argv[1:2] == ["test"] and "--" not in argv:  # they pass on names after --
+        return [*argv, "--"]
+    return argv
 
 
 def runs(tool_input: dict) -> bool:
@@ -47,8 +64,10 @@ def asks(tool_input: dict, auto_approve_tests: bool) -> bool:
 
 def describe(tool_input: dict, test_cmd: str) -> str:
     """The approval's text: the command that will run."""
-    tests = " ".join(shlex.quote(t) for t in names(tool_input.get("tests")))
-    return f"{test_cmd or '(no test command detected)'} {tests} (to mark task {tool_input.get('task', '')} done)"
+    argv = selector(test_cmd) if test_cmd else None
+    shown = shlex.join(argv + names(tool_input.get("tests"))) if argv else (
+        f"{test_cmd} (it can't run single tests)" if test_cmd else "(no test command detected)")
+    return f"{shown} (to mark task {tool_input.get('task', '')} done)"
 
 
 def check(pending: list[int], tests, untested: str, test_cmd: str, run: Callable[[list[str]], str]) -> Done:
@@ -61,7 +80,7 @@ def check(pending: list[int], tests, untested: str, test_cmd: str, run: Callable
                       "task's tests can't run against them yet. Stop here; once they're applied, mark the task done "
                       "again.")
     ids = names(tests)
-    reason = untested.strip() if isinstance(untested, str) else ""
+    reason = " ".join(untested.split()) if isinstance(untested, str) else ""  # one line: it goes in tasks.md
     if not ids:
         if reason and len(reason) <= MAX_REASON:
             return Done(f"_Tests: none ({reason})_", f"not tested: {reason}.", {"untested": reason})
@@ -72,11 +91,17 @@ def check(pending: list[int], tests, untested: str, test_cmd: str, run: Callable
         raise NotDone(f"{option!r} is an option, not a test. Name test files or test ids.")
     if len(ids) > MAX_TESTS or any(len(t) > MAX_ID for t in ids):
         raise NotDone(f"Name at most {MAX_TESTS} tests, each up to {MAX_ID} characters.")
+    if broken := next((t for t in ids if "\n" in t or "\r" in t), None):  # it would fake lines of the output
+        raise NotDone(f"{broken!r} has a line break: name one test per item.")
     if not test_cmd:
         raise NotDone("No test command is known for this workspace, so its tests can't run: the user can set "
                       "CODEPILOT_TEST_CMD. If the task really has nothing to test, mark it done with `untested` and "
                       "why.")
-    out = run(shlex.split(test_cmd) + ids)
+    argv = selector(test_cmd)
+    if argv is None:
+        raise NotDone(f"The test command ({test_cmd}) can't run single tests, so this task's tests can't run on their "
+                      "own: the user can set CODEPILOT_TEST_CMD to one that takes test names (pytest, say).")
+    out = run(argv + ids)
     code = EXIT.search(out)
     if not code or code.group(1) != "0":
         raise NotDone(f"The task's tests failed, so it's not marked done. Fix what fails and mark it done "

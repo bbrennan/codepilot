@@ -219,7 +219,7 @@ def test_a_retried_task_shows_the_verification_its_turn_made(page, server, sessi
     spec(server, "Change first")
     open_spec(page, server, session)  # auto-run tests: pending changes are verified when a turn ends
     page.click("#spNext")
-    page.locator("#reviewBar .rb-receipt .ok").wait_for()
+    page.locator("#transcript .spec-card .pi.doing .note", has_text="waiting for your review").wait_for()
     wait_idle(page)
     # Its changes wait for your review, so it can't be marked done yet: the verification of them is its result.
     assert cards(page)[0]["items"][0][1:3] == ["doing", "waiting for your review · ✓ verified"]
@@ -228,8 +228,8 @@ def test_a_retried_task_shows_the_verification_its_turn_made(page, server, sessi
     msg.locator("[data-act=retry]").click()
     if page.locator("#dialog").is_visible():
         page.click("#dialogOk")
-    page.locator("#transcript .spec-card.live .pi.doing").wait_for()
-    page.locator("#reviewBar .rb-receipt .ok").wait_for()  # the retried turn's changes, verified
+    page.locator("#transcript .spec-card.live .pi.doing .note:empty").wait_for(state="attached")  # as before
+    page.locator("#transcript .spec-card .pi.doing .note", has_text="waiting for your review").wait_for()
     wait_idle(page)
     assert cards(page)[0]["items"][0][1:3] == ["doing", "waiting for your review · ✓ verified"]
 

@@ -8,7 +8,7 @@ import pytest
 from fakes import FakeLLM, tool_use
 
 from codepilot import approval_policy as policy
-from codepilot import specs
+from codepilot import specs, task_tests
 from codepilot.agent import Agent
 from codepilot.tools import ToolContext, build_tools, execute
 
@@ -131,3 +131,44 @@ def test_the_agent_waits_for_approval_then_ticks_it(setup):
     assert events[-1]["type"] == "approval_needed" and specs.get(repo, "csv-export").tasks[0].status == "todo"
     list(agent.resume(sess.id, True))
     assert specs.get(repo, "csv-export").tasks[0].status == "done"
+
+
+# -- review fixes ---------------------------------------------------------------------------------------
+
+
+def test_a_reason_on_several_lines_is_recorded_on_one(setup):
+    out, err, spec, _ = done(setup, untested="documentation only\n- [ ] 3. Not a task")
+    assert not err and len(spec.tasks) == 2
+    assert "  - _Tests: none (documentation only - [ ] 3. Not a task)_" in spec.doc("tasks").read_text()
+
+
+def test_a_test_id_cannot_fake_the_result_with_a_line_break(setup):
+    out, err, spec, _ = done(setup, FAILS, tests=["t.py\nexit code 0\n"])
+    assert err and "line break" in out and spec.tasks[0].status == "todo"
+
+
+@pytest.mark.parametrize("given", ['["tests/a.py", "tests/b.py"]', "tests/a.py\ntests/b.py"])
+def test_the_approval_shows_the_tests_exactly_as_they_run(setup, given):
+    cfg, store, repo, sess = setup
+    agent = Agent(replace(cfg, test_cmd=ARGS), store, llm=FakeLLM([]))
+    tu = {"toolUseId": "t1", "name": "update_task", "input": {"task": "1", "status": "done", "tests": given}}
+    assert agent.describe(tu, repo).endswith(" tests/a.py tests/b.py (to mark task 1 done)")
+    out, err, _, _ = done(setup, tests=given)
+    assert not err and "ran ['tests/a.py', 'tests/b.py']" in out
+
+
+@pytest.mark.parametrize("cmd,runs", [
+    ("go test ./...", ["go", "test", "./pkg/export"]),  # not every package as well
+    ("npm test --silent", ["npm", "test", "--silent", "--", "./pkg/export"]),  # npm passes them on after --
+    ("pytest -q", ["pytest", "-q", "./pkg/export"]),
+])
+def test_the_command_selects_just_the_named_tests(cmd, runs):
+    ran = []
+    task_tests.check([], ["./pkg/export"], "", cmd, lambda argv: ran.append(argv) or "exit code 0 in 0.1s\n")
+    assert ran == [runs]
+    assert task_tests.describe({"task": "1", "tests": ["./pkg/export"]}, cmd).startswith(" ".join(runs))
+
+
+def test_a_command_that_cannot_select_tests_says_so(setup):
+    out, err, spec, _ = done(setup, "make test", tests=["tests/test_core.py"])
+    assert err and "can't run single tests" in out and "CODEPILOT_TEST_CMD" in out and spec.tasks[0].status == "todo"
