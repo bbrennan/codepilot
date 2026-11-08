@@ -39,6 +39,7 @@ store.py (SQLite in ~/.codepilot): sessions, messages, proposals, usage, notes
 | `spec_profiles.py` | How much review a spec gets (full or quick): what may be written and approved when, and the instructions |
 | `spec_reminder.py` | The task reminder during long implementation turns |
 | `spec_runs.py` | A spec run's card ("Run all remaining"), kept with the session so a reload draws it where it was |
+| `task_tests.py` | A spec task is done when its tests pass: runs the tests a task names before `update_task` ticks it |
 | `router.py` | Auto model routing: the per-turn rules, and failed-run detection for the second opinion |
 | `steering.py` | Steering docs (Kiro format, plus Cursor, Copilot and other instruction files): discovery, inclusion modes, glob matching, `#[[file:]]` references |
 | `repomap.py` | Symbol map of the workspace (Python via `ast`, others via regex) |

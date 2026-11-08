@@ -81,8 +81,22 @@ function specRunGoing(receipt = undefined) {
   return card?._run ? (state.specRun = { card, all: false, stopped: false, receipt }) : null;
 }
 
-// What the task's turn shows of its tests: the verification made in it, else the last test run under it.
+// The tests that marked it done (codepilot ran them: task_tests.py), or why it had none.
+function doneNote(el) {
+  const done = [...(el?.querySelectorAll(".pi-steps details.tool[data-tool=update_task]") || [])]
+    .filter((d) => d.querySelector(":scope > summary .st.ok"))
+    .map((d) => { try { return JSON.parse(d.querySelector(":scope > .traw pre").textContent); } catch { return null; } })
+    .filter((i) => i?.status === "done").at(-1);
+  if (!done) return "";
+  const n = (Array.isArray(done.tests) ? done.tests : String(done.tests || "").split(/\s+/)).filter((t) => String(t).trim()).length;
+  return n ? `✓ ${plural(n, "test")} pass${n === 1 ? "es" : ""}` : done.untested ? `not tested: ${done.untested}` : "";
+}
+
+// What the task's turn shows of its tests: the tests that marked it done, else the verification made in it, else the
+// last test run under it.
 function testNote(going, el) {
+  const marked = doneNote(el);
+  if (marked) return marked;
   const r = state.receipt;
   if (r && going.receipt !== undefined && r.id !== going.receipt) return r.status === "fail" ? `✗ ${plural(r.newly_failing.length, "test")} newly failing` : RECEIPT_NOTE[r.status] || "";
   const ran = [...(el?.querySelectorAll(".pi-steps details.tool[data-tool=run_tests]") || [])]

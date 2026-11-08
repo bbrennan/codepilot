@@ -13,7 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import deps_guard, github, shellparse, webtools
+from . import deps_guard, github, shellparse, task_tests, webtools
 
 SHELLS = {"sh", "bash", "zsh", "dash"}
 RUNS_STDIN = SHELLS | {"python", "python3", "perl", "ruby", "node"}
@@ -205,6 +205,8 @@ def _is_guarded(tu: dict) -> bool:
         return True
     if tu["name"] == "run_tests":  # arguments are the model's: pytest runs whatever file it's pointed at
         return bool(str(tu["input"].get("args", "")).strip())
+    if tu["name"] == "update_task":  # done runs the tests the model names, likewise
+        return task_tests.runs(tu["input"])
     # Arguments that can't be parsed can't run (the tool parses them the same way and fails), so the model is told at
     # once instead of you being asked to approve a call that would only fail.
     return tu["name"] == "github" and bool(_gh_args(tu)) and github.classify(_gh_args(tu)) != "read"

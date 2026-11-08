@@ -19,8 +19,8 @@ from pathlib import Path
 from typing import Any
 
 from . import (approval_policy, checkpoints, checks, gitstate, images, mentions, models, modes, plans, prompts, repomap,
-               router, skills, spec_profiles, spec_reminder, spec_runs, specs, spend, steering, unanswered, verification,
-               webtools)
+               router, skills, spec_profiles, spec_reminder, spec_runs, specs, spend, steering, task_tests, unanswered,
+               verification, webtools)
 from .bedrock import BedrockError, make_client
 from .config import Config
 from .context import CLEARED_PREFIX, ContextManager, is_overflow
@@ -656,6 +656,8 @@ class Agent:
             return f"{cmd} {inp.get('args', '')}".strip()
         if tu["name"] == "github":
             return f"gh {str(inp.get('args', '')).removeprefix('gh ')}"
+        if tu["name"] == "update_task":  # marking a spec task done runs its tests
+            return task_tests.describe(inp, detect_test_cmd(root, self.cfg))
         if tu["name"] == "web_fetch":
             return f"fetch {inp.get('url', '')}"
         if tu["name"] == "view_image":
