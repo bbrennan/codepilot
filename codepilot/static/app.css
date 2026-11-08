@@ -479,6 +479,11 @@ a.loc:hover { text-decoration: underline; }
 .plan-card .pi.doing .box { border-color: var(--accent); background: var(--accent-soft); }
 .plan-card .pi.before .box { border-style: dashed; }
 .plan-card .mk { display: flex; flex: none; } .plan-card .mk .spinner { width: 12px; height: 12px; }
+.plan-card .pi .note { font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 50%; }
+.plan-card .pi.paused > summary .note { color: var(--warn); } .plan-card .pi.failed > summary .note { color: var(--err); }
+.plan-card .pi.paused .box { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 25%, transparent); }
+.plan-card .pi.failed .box { border-color: var(--err); background: var(--err); }
+.spec-card > .hd > .btn { margin-left: auto; } .plan-card > .hd .cnt { white-space: nowrap; flex: none; }
 .plan-card .pi-steps { padding: 4px 0 2px 19px; }
 .plan-card .pi-steps:empty::before { content: "Nothing done under this step yet."; color: var(--muted); font-size: var(--fs-sm); }
 .plan-head > svg { width: 14px; height: 14px; color: var(--fg-2); flex: none; }

@@ -33,8 +33,8 @@ from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 
 from .http_input import HANDLERS, json_body
-from . import (checkpoints, checks, diagnostics, github, images, mentions, models, modes, plans, skills, specs, steering,
-               textfile, traces, uploads, version)
+from . import (checkpoints, checks, diagnostics, github, images, mentions, models, modes, plans, skills, spec_runs, specs,
+               steering, textfile, traces, uploads, version)
 from .agent import Agent, history_events
 from .config import TIER_CHOICES, TIERS, Config
 from .store import Store
@@ -535,6 +535,22 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                 return err("This session is working; its plan isn't paused.", 409)
             event = plans.dismiss(store, sid)
         return JSONResponse(event) if event else err("There's no unfinished plan to dismiss.", 409)
+
+    async def spec_run(request: Request) -> Response:
+        """Keep a spec run's card as it is now (the browser runs the tasks), so a reload draws it where it was."""
+        sid = request.path_params["sid"]
+        try:
+            store.get_session(sid)
+        except KeyError:
+            return err("No such session", 404)
+        data = await json_body(request)
+        with busy_lock:
+            if sid in busy:  # a turn saves the session's state as it goes: record between turns
+                return err("This session is working; record the spec run between turns.", 409)
+            try:
+                return JSONResponse(spec_runs.record(store, sid, data))
+            except ValueError as exc:
+                return err(str(exc))
 
     async def checkpoint(request: Request) -> Response:
         """The changes applied from a message onwards, and whether each can still be undone."""
@@ -1147,6 +1163,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         Route("/api/sessions/{sid}/rewind", rewind, methods=["POST"]),
         Route("/api/sessions/{sid}/checkpoint", checkpoint),
         Route("/api/sessions/{sid}/plan/dismiss", plan_dismiss, methods=["POST"]),
+        Route("/api/sessions/{sid}/spec-run", spec_run, methods=["POST"]),
         Route("/api/sessions/{sid}/verify", verify, methods=["POST"]),
         Route("/api/sessions/{sid}/restore", restore, methods=["POST"]),
         Route("/api/sessions/{sid}/compact", compact, methods=["POST"]),

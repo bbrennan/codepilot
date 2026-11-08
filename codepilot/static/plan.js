@@ -17,6 +17,7 @@ const planRow = () => [...$$("#transcript details.tool[data-plan]")].filter((r) 
 
 function placePlanCard(row) {
   const card = newTaskCard("Plan");
+  if (row?.dataset.filed) { card.dataset.filed = "1"; card._turn = row._turn; } // under a spec task: it goes with that turn
   (row || add("<div></div>")).replaceWith(card);
   return card;
 }
@@ -35,7 +36,7 @@ function onPlanEvent(ev) {
   const live = openCard();
   if (!ev.items.length) state.planCard = null;
   else if (ev.kind === "restore") {
-    state.planCard = [...$$("#transcript .plan-card")].at(-1) || placePlanCard(null);
+    state.planCard = [...$$("#transcript .plan-card:not(.spec-card)")].at(-1) || placePlanCard(null);
     reviveTaskCard(state.planCard); // live again only if the server says so
   } else if (ev.kind === "new" || !live) state.planCard = placePlanCard(row); // a new plan starts where it was made
   if (ev.kind === "restore") settleRewound();
@@ -46,7 +47,7 @@ function onPlanEvent(ev) {
     setTaskItems(card, ev.items, planCount(ev.progress));
     if (done && !card.classList.contains("complete")) endTaskCard(card, "✓ Plan complete", "complete");
     else if (!done) startFiling(card);
-  } else stopFiling();
+  } else if (!filingCard?.classList.contains("spec-card")) stopFiling(); // no plan; a spec run files on
   // A finished plan restored by Edit/Retry stays out of the way, as after a reload: its card is in the transcript.
   state.plan = ev.items.length && !(ev.kind === "restore" && done) ? { items: ev.items, progress: ev.progress, complete: ev.kind === "complete" } : null;
   renderPinnedPlan();
@@ -88,7 +89,7 @@ function showPlanCard() {
 }
 
 function renderPinnedPlan() {
-  if (state.planCard?.isConnected) refreshTaskCard(state.planCard); // its step in progress spins only while a turn runs
+  for (const card of $$("#transcript .plan-card.live")) refreshTaskCard(card); // a step in progress spins only while a turn runs
   const el = $("#plan");
   const p = state.plan;
   if (!p) { el.hidden = true; el.innerHTML = ""; return; }
