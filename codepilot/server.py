@@ -404,6 +404,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             "usage": agent.spend.view(sid),
             "context": agent.context_usage(sid),
             "receipt": store.latest_receipt(sid),
+            "review_batch": _review_batch(store, sid),
         })
 
     async def chat(request: Request) -> Response:
@@ -1270,6 +1271,15 @@ def _change_ids(value) -> bool:
 
 def _item_json(item: checkpoints.Item) -> dict:
     return {"id": item.proposal.id, "path": item.proposal.path, "ok": item.ok, "reason": item.reason}
+
+
+def _review_batch(store: Store, sid: str) -> list[int]:
+    """The changes the last turn left for review: those still waiting, and those applied since it ended (so a reload in
+    between doesn't forget them, and reviewing the rest still carries on)."""
+    last = store.last_message(sid)
+    ended = store.message_created(last[0]) if last else None
+    return [p.id for p in store.list_proposals(sid) if p.status == "pending"
+            or (ended is not None and p.status == "applied" and (p.applied_at or 0) >= ended)]
 
 
 def _proposal_json(prop, root: Path | None = None) -> dict:

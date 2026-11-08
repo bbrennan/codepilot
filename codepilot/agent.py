@@ -657,7 +657,7 @@ class Agent:
         if tu["name"] == "github":
             return f"gh {str(inp.get('args', '')).removeprefix('gh ')}"
         if tu["name"] == "update_task":  # marking a spec task done runs its tests
-            return task_tests.describe(inp, detect_test_cmd(root, self.cfg))
+            return task_tests.describe(inp, detect_test_cmd(root, self.cfg), root)
         if tu["name"] == "web_fetch":
             return f"fetch {inp.get('url', '')}"
         if tu["name"] == "view_image":

@@ -59,8 +59,9 @@ run, unless **auto-run tests** is on. While changes are waiting for your review,
 aren't on disk, so their tests can't run yet; after you review, codepilot carries on and marks it then. A task with
 nothing to test (documentation, say) is marked done with the reason instead, which `tasks.md` and the card show ("not
 tested: documentation only"). Without a test command (set `CODEPILOT_TEST_CMD`), only that route is open. The test
-command must take test names: `go test ./...` runs just the named packages, `npm test` gets them after `--`, and a
-`make` target can't take them, so with `make test` set `CODEPILOT_TEST_CMD` to the runner itself (pytest, say).
+command must take test names: `go test ./...` runs just the named packages, `npm test` gets them after `--`, a
+pytest command's own folder (`pytest -q tests`) is left out, and `cargo test` runs once per name. A `make` target can't
+take them, so with `make test` set `CODEPILOT_TEST_CMD` to the runner itself (pytest, say).
 
 Until the task list is approved, codepilot can't propose code changes in a spec. The planning phases plan.
 Click any finished step in the stepper to look back at its document.

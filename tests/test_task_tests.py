@@ -172,3 +172,34 @@ def test_the_command_selects_just_the_named_tests(cmd, runs):
 def test_a_command_that_cannot_select_tests_says_so(setup):
     out, err, spec, _ = done(setup, "make test", tests=["tests/test_core.py"])
     assert err and "can't run single tests" in out and "CODEPILOT_TEST_CMD" in out and spec.tasks[0].status == "todo"
+
+
+def test_a_configured_selection_is_left_out_so_just_the_named_tests_run(tmp_path):
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "pytest.ini").write_text("[pytest]\n")
+    ran = []
+    run = lambda argv: ran.append(argv) or "exit code 0 in 0.1s\n"  # noqa: E731
+    task_tests.check([], ["tests/test_core.py::test_add"], "", "uv run pytest -c pytest.ini -q tests", run, tmp_path)
+    assert ran == [["uv", "run", "pytest", "-c", "pytest.ini", "-q", "tests/test_core.py::test_add"]]
+    shown = task_tests.describe({"task": "1", "tests": ["tests/test_core.py::test_add"]},
+                                "uv run pytest -c pytest.ini -q tests", tmp_path)
+    assert shown.startswith("uv run pytest -c pytest.ini -q tests/test_core.py::test_add (")
+
+
+def test_cargo_runs_each_named_test_and_all_must_pass():
+    ran = []
+    run = lambda argv: ran.append(argv) or f"exit code {1 if argv[-1] == 'b' else 0} in 0.1s\n"  # noqa: E731
+    with pytest.raises(task_tests.NotDone):
+        task_tests.check([], ["a", "b"], "", "cargo test", run)
+    assert ran == [["cargo", "test", "a"], ["cargo", "test", "b"]]
+    done = task_tests.check([], ["a", "c"], "", "cargo test", lambda argv: "exit code 0 in 0.1s\n")
+    assert done.event == {"tests": 2}
+    shown = task_tests.describe({"task": "1", "tests": ["a", "c"]}, "cargo test")
+    assert shown.startswith("cargo test a && cargo test c (")
+
+
+def test_report_and_log_files_given_to_pytest_stay(tmp_path):
+    for name in ("tests", "report.xml", "run.log"):
+        (tmp_path / name).touch()
+    argv = task_tests.selector("pytest --junit-xml report.xml --log-file run.log tests", tmp_path)
+    assert argv == ["pytest", "--junit-xml", "report.xml", "--log-file", "run.log"]

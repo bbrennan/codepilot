@@ -69,7 +69,7 @@ function refreshTaskCard(card, running = state.streams.has(state.sid)) {
 // card), and filing goes back to that one when it stops, if it's still live.
 function startFiling(card) {
   if (filingCard === card) return;
-  if (filingCard) { refreshTaskCard(filingCard, false); card._outer = filingCard; }
+  if (filingCard) { refreshTaskCard(filingCard, false); if (!card.contains(filingCard)) card._outer = filingCard; } // (never its own child)
   filingCard = card;
 }
 function stopFiling(card = filingCard) {

@@ -60,6 +60,8 @@ def test_a_rewind_forgets_what_the_card_said_after_that_message(cfg, store, repo
     {**card("doing"), "items": [{"text": "x" * 2000, "status": "todo"}]},
     {**card("doing"), "items": [{"text": "1. Task", "status": ["done"]}]},  # not a string (unhashable)
     {**card("doing"), "ended": {"why": "x"}},
+    {**card("doing"), "receipt": "3"},
+    {**card("doing"), "receipt": True},
 ])
 def test_a_malformed_card_is_refused(cfg, store, repo, bad):
     sess = store.create_session(str(repo), "main")
@@ -78,3 +80,10 @@ def test_the_browser_records_the_card_and_a_session_load_replays_it(cfg, store, 
     assert client.post(f"/api/sessions/{sid}/spec-run", json={"run": "r1"}, headers=H).status_code == 400
     events = client.get(f"/api/sessions/{sid}").json()["events"]
     assert [e for e in events if e["type"] == "spec_run"] == [{"type": "spec_run", **sent}]
+
+
+def test_the_verification_before_a_task_is_kept_so_a_reload_knows_its_own(cfg, store, repo):
+    sess = store.create_session(str(repo), "main")
+    assert spec_runs.record(store, sess.id, {**card("doing"), "receipt": 3})["receipt"] == 3
+    assert spec_runs.record(store, sess.id, {**card("doing"), "receipt": None})["receipt"] is None
+    assert "receipt" not in spec_runs.record(store, sess.id, card("doing"))  # unknown: not said

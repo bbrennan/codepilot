@@ -30,18 +30,24 @@ function onSpecRun(ev) {
 }
 
 function drawSpecRun(card, ev) {
-  card._run = { run: ev.run, spec: ev.spec, items: ev.items.map((i) => ({ ...i })), ended: ev.ended, why: ev.why };
-  const n = ev.items.filter((i) => i.status === "done").length;
+  card._run = { run: ev.run, spec: ev.spec, items: ev.items.map((i) => ({ ...i })), ended: ev.ended, why: ev.why, receipt: ev.receipt };
+  const n = ev.items.filter((i) => i.status === "done").length, was = card.dataset.active;
   setTaskItems(card, ev.items, `${n} of ${ev.items.length} done`);
   if (ev.ended === "complete") endTaskCard(card, `✓ Spec ${ev.spec} · ${plural(n, "task")} done`, "complete");
   else if (ev.ended) endTaskCard(card, `Spec ${ev.spec} · ${ev.ended === "stopped" ? "stopped" : `paused: ${ev.why}`}`, "retired");
-  else { liveTaskCard(card); startFiling(card); }
+  else {
+    liveTaskCard(card);
+    // A new task files here; the same task, now waiting for you, keeps filing where it was (a plan made inside it).
+    if (card.dataset.active !== was || !card.contains(filingCard)) startFiling(card);
+  }
 }
 
 // Draw the run's card as it is now (if its session is still the one open) and keep it with that session (before the
-// message that follows, so a reload agrees).
+// message that follows, so a reload agrees). `receipt`: the verification before the task in progress, so a reload can
+// tell its own from an older one.
 async function recordSpecRun(run, sid = state.sid) {
-  const ev = { type: "spec_run", run: run.run, spec: run.spec, items: run.items.map((i) => ({ ...i })), ended: run.ended || null, ...(run.why ? { why: run.why } : {}) };
+  const ev = { type: "spec_run", run: run.run, spec: run.spec, items: run.items.map((i) => ({ ...i })), ended: run.ended || null,
+    ...(run.why ? { why: run.why } : {}), ...(run.receipt !== undefined ? { receipt: run.receipt } : {}) };
   const card = sid === state.sid ? onSpecRun(ev) : null;
   try { await api(`/api/sessions/${sid}/spec-run`, { method: "POST", body: ev }); }
   catch (err) { toast(`The spec run's card won't survive a reload: ${err.message}`, true); }
@@ -62,9 +68,15 @@ async function startSpecRun(spec, task = null) {
 async function runSpecItem(spec, run, item) {
   const sid = state.sid, going = state.specRun;
   item.status = "doing"; delete item.note;
+  run.receipt = going.receipt = state.receipt?.id ?? null; // a verification after this is this task's
   going.card = await recordSpecRun(run, sid);
-  going.receipt = state.receipt?.id ?? null; // a verification after this is this task's
-  if (state.sid === sid && state.specRun === going) await ensureSpecActive(spec).catch((err) => toast(err.message, true));
+  let failed = null;
+  if (state.sid === sid && state.specRun === going) await ensureSpecActive(spec).catch((err) => { failed = err; });
+  if (failed) { // the task would run against whichever spec is active: it doesn't start
+    item.status = "todo"; run.ended = "paused"; run.why = `couldn't make spec ${spec.name} the active spec (${failed.message})`;
+    if (state.specRun === going) { state.specRun = null; toast(`Spec run paused: ${run.why}.`, true); } // (not another's)
+    return recordSpecRun(run, sid);
+  }
   if (state.sid !== sid || state.specRun !== going) { // you opened another session meanwhile: this task doesn't start
     item.status = "todo"; run.ended = "stopped";
     return recordSpecRun(run, sid);
@@ -78,18 +90,27 @@ async function runSpecItem(spec, run, item) {
 function specRunGoing(receipt = undefined) {
   if (state.specRun?.card?.isConnected) return state.specRun;
   const card = [...$$("#transcript .spec-card.live")].at(-1);
-  return card?._run ? (state.specRun = { card, all: false, stopped: false, receipt }) : null;
+  return card?._run ? (state.specRun = { card, all: false, stopped: false, receipt: receipt !== undefined ? receipt : card._run.receipt }) : null;
 }
 
-// The tests that marked it done (codepilot ran them: task_tests.py), or why it had none.
+// The tests that marked it done (codepilot ran them: task_tests.py), or why it had none; or that they failed, the last
+// time it tried (not a refusal for another reason, such as changes waiting for review).
+const TESTS_FAILED = "The task's tests failed"; // task_tests.check's words
+// The tests named, read as the server reads them (task_tests.names): a JSON array string, else one per line.
+function testNames(tests) {
+  if (typeof tests === "string") { try { tests = JSON.parse(tests); } catch { tests = tests.split("\n"); } }
+  return Array.isArray(tests) ? tests.filter((t) => String(t).trim()) : [];
+}
 function doneNote(el) {
-  const done = [...(el?.querySelectorAll(".pi-steps details.tool[data-tool=update_task]") || [])]
-    .filter((d) => d.querySelector(":scope > summary .st.ok"))
-    .map((d) => { try { return JSON.parse(d.querySelector(":scope > .traw pre").textContent); } catch { return null; } })
-    .filter((i) => i?.status === "done").at(-1);
-  if (!done) return "";
-  const n = (Array.isArray(done.tests) ? done.tests : String(done.tests || "").split(/\s+/)).filter((t) => String(t).trim()).length;
-  return n ? `✓ ${plural(n, "test")} pass${n === 1 ? "es" : ""}` : done.untested ? `not tested: ${done.untested}` : "";
+  const tried = [...(el?.querySelectorAll(".pi-steps details.tool[data-tool=update_task]") || [])].map((d) => {
+    let input = null; try { input = JSON.parse(d.querySelector(":scope > .traw pre").textContent); } catch { /* not JSON */ }
+    const ok = !!d.querySelector(":scope > summary .st.ok"), failed = !ok && !!d.querySelector(":scope > pre")?.textContent.startsWith(TESTS_FAILED);
+    return input?.status === "done" && (ok || failed) ? { input, ok } : null;
+  }).filter(Boolean).at(-1);
+  if (!tried) return "";
+  if (!tried.ok) return "✗ its tests fail";
+  const n = testNames(tried.input.tests).length;
+  return n ? `✓ ${plural(n, "test")} pass${n === 1 ? "es" : ""}` : tried.input.untested ? `not tested: ${tried.input.untested}` : "";
 }
 
 // What the task's turn shows of its tests: the tests that marked it done, else the verification made in it, else the
@@ -123,10 +144,11 @@ async function afterSpecTurn() {
   const pending = [...state.proposals.values()].some((p) => p.status === "pending");
   const tests = testNote(going, el);
   const note = (...parts) => parts.filter(Boolean).join(" · ");
+  if (going.receipt !== undefined) run.receipt = going.receipt; // (a Retry's turn has its own)
   if (task?.status !== "done" && spec && !going.stopped && (state.approval || pending)) {
     // Not finished, but waiting for you: it carries on (and is filed here) once you approve or review.
-    item.note = note(state.approval ? "waiting for your approval" : "waiting for your review", tests);
-    await recordSpecRun(run);
+    const waiting = note(state.approval ? "waiting for your approval" : "waiting for your review", tests);
+    if (waiting !== item.note) { item.note = waiting; await recordSpecRun(run); } // (reopening a session changes nothing)
     return;
   }
   let why = null;

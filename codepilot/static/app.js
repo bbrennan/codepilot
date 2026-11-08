@@ -284,6 +284,11 @@ async function openSession(sid) {
   setWorkspace(data.session.repo, prevWorkspace !== (data.session.repo || ""));
   renderProposalList(); loadSessions(); scrollEnd(true);
   loadSteering(true);
+  // As when its last turn ended: changes it left waiting carry on once reviewed, and a spec task that ended while you
+  // were away ends on its card (specrun.js).
+  const waiting = data.proposals.filter((p) => p.status === "pending").map((p) => p.id);
+  if (waiting.length && !data.busy) { state.awaitingReview = sid; state.reviewBatch = new Set(data.review_batch || waiting); }
+  if (!data.busy && specRunGoing()) afterSpecTurn();
   followIfRunning(sid, data.busy);
 }
 
@@ -867,7 +872,10 @@ function maybeResumeAfterReview() {
   const props = [...state.proposals.values()];
   if (props.some((p) => p.status === "pending")) return;
   state.awaitingReview = null;
-  if (!props.some((p) => p.status === "applied" && state.reviewBatch?.has(p.id))) return; // all rejected: wait for you
+  if (!props.some((p) => p.status === "applied" && state.reviewBatch?.has(p.id))) { // all rejected: wait for you
+    if (specRunGoing()) afterSpecTurn(); // specrun.js: its task ends there, not waiting for a review that's done
+    return;
+  }
   add(`<div class="wait-row approved">${icon("refresh")}<span>Continuing after your review…</span></div>`);
   streamTo(sid, `/api/sessions/${sid}/chat`, { message: REVIEW_DONE, tier: selectedTier() });
 }
@@ -1479,10 +1487,7 @@ async function streamTo(sid, url, body) {
   } catch (err) { if (sid === state.sid) render({ type: "error", message: err.message }); }
   finally {
     typing?.remove(); state.streams.delete(sid); state.streamEnds.delete(sid); ended(); updateBusy(); loadSessions();
-    if (follow) { // redraw it whole; a spec task it was running ends now (specrun.js)
-      if (sid === state.sid) { await openSession(sid).catch(() => null); if (sid === state.sid && specRunGoing()) afterSpecTurn(); }
-      return;
-    }
+    if (follow) { if (sid === state.sid) await openSession(sid).catch(() => null); return; } // redraw it whole
     notifyDone(sid);
     if (sid === state.sid) {
       const pending = [...state.proposals.values()].filter((p) => p.status === "pending");
