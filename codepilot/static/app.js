@@ -180,7 +180,7 @@ async function init() {
     $("#sbGithub").innerHTML = g.available ? `${icon("branch")}github: ${esc(g.user)}${g.host !== "github.com" ? " @ " + esc(g.host) : ""}` : `<span title="GitHub isn't connected: ${esc(g.reason || "")}">${icon("branch")}github off</span>`;
     $("#sbGithub").className = "sb-item"; // not connected is a state you chose, not a warning
   }).catch(() => {});
-  setView(store("cp-view") || "explorer", false); // keep a hidden sidebar hidden
+  setView(store("cp-view") || "sessions", false); // keep a hidden sidebar hidden; a first visit shows Sessions
   const list = await loadSessions();
   const last = store("cp-session");
   if (last && list.some((s) => s.id === last)) await openSession(last);
@@ -222,11 +222,7 @@ const shortModel = (m) => String(m).replace(/^((us|eu|apac|global)\.)?anthropic\
 async function loadSessions() {
   const list = await api("/api/sessions").catch(() => []);
   state.sessionList = list;
-  $("#sessionList").innerHTML = list.map((s) => `<div class="session ${s.id === state.sid ? "on" : ""}" data-id="${s.id}">
-      <div class="t">${esc(s.title || "New session")}</div>
-      <div class="r">${s.busy || state.streams.has(s.id) ? '<span class="spinner"></span>' : ""}<span>${esc(s.repo ? base(s.repo) : "no folder")}</span><span>·</span><span>${ago(s.updated)}</span></div>
-      <button class="icon-btn sm del" data-del="${s.id}" title="Delete session">${icon("trash")}</button></div>`).join("")
-    || `<div class="empty-state">No sessions yet.<br><button class="btn primary" onclick="newSession()">${icon("plus")}New session</button></div>`;
+  renderSessions(list); // sessions.js
   return list;
 }
 async function pollSessions() {

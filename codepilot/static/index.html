@@ -51,7 +51,10 @@
   <aside class="sidebar" id="sidebar">
     <section class="view" data-view="sessions">
       <div class="view-head"><span>Sessions</span><div class="actions"><button class="icon-btn sm" id="newSessionBtn" title="New session" data-icon="plus"></button></div></div>
-      <div class="view-body" id="sessionList"></div>
+      <div class="view-body">
+        <div class="sess-search"><input class="field" id="sessFilter" placeholder="Search sessions" spellcheck="false" aria-label="Search sessions"></div>
+        <div id="sessionList"></div>
+      </div>
     </section>
     <section class="view" data-view="explorer">
       <div class="view-head"><span id="explorerTitle">Explorer</span><div class="actions">
@@ -158,11 +161,15 @@
   <!-- Chat -->
   <aside class="chat" id="chat">
     <div class="chat-head">
-      <div class="chat-title" id="chatTitle">New session</div>
+      <button class="chat-title" id="chatTitleBtn" title="Switch session" aria-haspopup="listbox" aria-expanded="false"><span id="chatTitle">New session</span><span data-icon="chevron" class="caret"></span></button>
       <select class="field sm mode-select" id="modeSelect" title="Mode: a focused agent profile"></select>
       <select class="field sm" id="tier" title="Model tier"></select>
       <button class="taint-chip" id="taintChip" hidden></button>
       <button class="icon-btn sm" id="newChatBtn" title="New session" data-icon="plus"></button>
+    </div>
+    <div class="sess-pop" id="sessPop" hidden>
+      <input class="field" id="sessSearch" placeholder="Search sessions by title or folder" spellcheck="false" aria-label="Search sessions" role="combobox" aria-controls="sessPopList" aria-expanded="false" aria-autocomplete="list">
+      <div id="sessPopList" role="listbox" aria-label="Sessions"></div>
     </div>
     <div class="transcript" id="transcript"></div>
     <div class="composer">
@@ -248,6 +255,7 @@
 
 <script src="/static/layout.js"></script>
 <script src="/static/app.js"></script>
+<script src="/static/sessions.js"></script>
 <script src="/static/diff.js"></script>
 <script src="/static/steps.js"></script>
 <script src="/static/checkpoints.js"></script>
