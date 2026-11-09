@@ -34,7 +34,8 @@
 - **Activity bar (far left):** switches the sidebar between Sessions, Explorer, Search, Traces, Changes and
   Memory. Click the active icon to collapse the sidebar.
 - **Editor:** opens files (with syntax highlighting), trace timelines and diffs as tabs.
-- **Chat (right):** the conversation, with every tool call shown as a card you can expand.
+- **Chat (right):** the conversation, with every tool call shown as a card you can expand. Its title switches
+  sessions.
 - **Bottom panel** (closed until you open it: ⌘J, the toggle in the title bar, or the Terminal menu; then it remembers):
   **Activity** lists every model call and tool call with timings and tokens. **Output**
   runs tests, analyser checks or any command yourself. **Terminal** holds your shells (see
@@ -55,9 +56,13 @@ Either:
 - click **Open folder…** (title bar or Explorer) and browse to the project, or
 - just say it in chat: "Review ~/code/payments for bugs". codepilot asks before opening the folder.
 
-A session is one conversation about one folder at a time. Make as many as you like (**+** in Sessions);
+A session is one conversation about one folder at a time. Make as many as you like (**+** in the chat header);
 they run independently, so one can keep working while you look at another. Each session keeps its full
-history, reopenable from the sidebar.
+history. To go back to one:
+- **click the chat's title**: a list of your sessions opens under it, newest first, with each one's folder and age
+  and **New session** at the top. Type to search by title or folder, then **Enter** (or **↑/↓** first) or click;
+- or open **Sessions** in the sidebar (what codepilot shows the first time): sessions grouped by folder, the folder you
+  used last first, with a search box.
 
 When a folder opens, codepilot reads:
 - its steering: `.codepilot/steering/`, your global `~/.codepilot/steering/`, and other tools' files
