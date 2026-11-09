@@ -47,36 +47,49 @@ function filterSessionList() {
 $("#sessFilter").addEventListener("input", filterSessionList);
 
 // ---------------------------------------------------------------- the switcher under the chat's title
-const sw = { hits: [], idx: 0 };
+// A combobox: focus stays in the search box, and the highlighted option (by session id, so a refresh that reorders the
+// list keeps it; "new" for New session, just above the first) is its active descendant.
+const sw = { hits: [], sel: null };
+const NEW = "new";
 function openSwitcher() {
-  $("#sessPop").hidden = false; $("#chatTitleBtn").setAttribute("aria-expanded", "true");
-  $("#sessSearch").value = ""; sw.idx = 0; renderSwitcher(); $("#sessSearch").focus();
+  $("#sessPop").hidden = false; $("#chatTitleBtn").setAttribute("aria-expanded", "true"); $("#sessSearch").setAttribute("aria-expanded", "true");
+  $("#sessSearch").value = ""; sw.sel = null; renderSwitcher(); $("#sessSearch").focus();
   loadSessions(); // (fresh ages and spinners; it redraws this when it arrives)
 }
-function closeSwitcher() { $("#sessPop").hidden = true; $("#chatTitleBtn").setAttribute("aria-expanded", "false"); }
+function closeSwitcher() {
+  $("#sessPop").hidden = true; $("#chatTitleBtn").setAttribute("aria-expanded", "false"); $("#sessSearch").setAttribute("aria-expanded", "false");
+}
 function renderSwitcher() {
   sw.hits = (state.sessionList || []).filter((s) => sessionMatches(s, $("#sessSearch").value));
-  sw.idx = Math.max(0, Math.min(sw.idx, sw.hits.length - 1));
-  $("#sessPopList").innerHTML = `<div class="opt sess-new" role="option">${icon("plus")}<span class="t">New session</span></div>`
-    + (sw.hits.map((s, i) => `<div class="opt sess-opt${s.id === state.sid ? " on" : ""}${i === sw.idx ? " hi" : ""}" data-id="${s.id}" role="option" aria-selected="${i === sw.idx}">
-        ${sessionBusy(s) ? '<span class="spinner"></span>' : icon("history")}<span class="t">${esc(sessionTitle(s))}</span>
-        <span class="dir">${esc(s.repo ? base(s.repo) : "no folder")}</span><span class="age">${ago(s.updated)}</span></div>`).join("")
+  if (sw.sel !== NEW && !sw.hits.some((s) => s.id === sw.sel)) sw.sel = sw.hits[0]?.id ?? NEW; // (the first shown)
+  const opt = (id, cls, inner) => `<div class="opt ${cls}${id === sw.sel ? " hi" : ""}" id="sess-opt-${id}" ${id === NEW ? "" : `data-id="${id}"`} role="option" aria-selected="${id === sw.sel}">${inner}</div>`;
+  $("#sessPopList").innerHTML = opt(NEW, "sess-new", `${icon("plus")}<span class="t">New session</span>`)
+    + (sw.hits.map((s) => opt(s.id, `sess-opt${s.id === state.sid ? " on" : ""}`,
+        `${sessionBusy(s) ? '<span class="spinner"></span>' : icon("history")}<span class="t">${esc(sessionTitle(s))}</span>
+        <span class="dir">${esc(s.repo ? base(s.repo) : "no folder")}</span><span class="age">${ago(s.updated)}</span>`)).join("")
       || '<div class="hint sess-none">No sessions match.</div>');
+  $("#sessSearch").setAttribute("aria-activedescendant", `sess-opt-${sw.sel}`);
   $("#sessPopList .hi")?.scrollIntoView({ block: "nearest" });
 }
 function pickSession(sid) {
   closeSwitcher();
-  if (sid && sid !== state.sid) openSession(sid);
+  if (sid === NEW) newSession();
+  else if (sid && sid !== state.sid) openSession(sid);
 }
 $("#chatTitleBtn").onclick = () => ($("#sessPop").hidden ? openSwitcher() : closeSwitcher());
-$("#sessSearch").addEventListener("input", () => { sw.idx = 0; renderSwitcher(); });
+$("#sessSearch").addEventListener("input", () => { sw.sel = null; renderSwitcher(); });
 $("#sessSearch").addEventListener("keydown", (e) => {
-  if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); sw.idx += e.key === "ArrowDown" ? 1 : -1; renderSwitcher(); }
-  else if (e.key === "Enter") { e.preventDefault(); pickSession(sw.hits[sw.idx]?.id); }
+  if (e.isComposing) return; // (Enter that ends an IME composition isn't a choice)
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    const ids = [NEW, ...sw.hits.map((s) => s.id)], at = ids.indexOf(sw.sel) + (e.key === "ArrowDown" ? 1 : -1);
+    sw.sel = ids[Math.max(0, Math.min(at, ids.length - 1))]; renderSwitcher();
+  }
+  else if (e.key === "Enter") { e.preventDefault(); pickSession(sw.sel); }
   else if (e.key === "Escape") { e.stopPropagation(); closeSwitcher(); $("#chatTitleBtn").focus(); }
 });
 $("#sessPopList").addEventListener("click", (e) => {
-  if (e.target.closest(".sess-new")) { closeSwitcher(); newSession(); return; }
+  if (e.target.closest(".sess-new")) return pickSession(NEW);
   const o = e.target.closest(".sess-opt"); if (o) pickSession(o.dataset.id);
 });
 document.addEventListener("mousedown", (e) => { if (!e.target.closest("#sessPop, #chatTitleBtn")) closeSwitcher(); });

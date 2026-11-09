@@ -127,3 +127,54 @@ def test_a_first_visit_shows_the_sessions(page, server, session):
     page.click("[data-view=explorer]")
     page.reload()
     page.locator("#tree [data-file]").first.wait_for()  # a view you chose is kept
+
+
+# -- from review: keyboard, screen readers and refreshes ------------------------------------------------------------
+
+
+def test_a_refresh_keeps_the_highlighted_session(page, server, session, tmp_path):
+    docs, parser, loose = sessions(server, tmp_path)
+    server.store.update_session(session.id, title="the newest")
+    open_app(page)
+    page.click("#chatTitleBtn")
+    page.press("#sessSearch", "ArrowDown")  # "a question", the second
+    server.store.update_session(parser.id, title="fix the tokenizer")  # it moves to the top
+    page.evaluate("loadSessions()")
+    page.wait_for_function("() => document.querySelector('#sessPop .sess-opt .t').textContent === 'fix the tokenizer'")
+    page.press("#sessSearch", "Enter")
+    page.wait_for_function("() => document.querySelector('#chatTitle').textContent === 'a question'")
+
+
+def test_new_session_can_be_chosen_with_the_keyboard(page, server, session):
+    open_app(page)
+    page.click("#chatTitleBtn")
+    page.press("#sessSearch", "ArrowUp")  # above the first session: New session
+    assert page.locator("#sessPop .sess-new").get_attribute("aria-selected") == "true"
+    page.press("#sessSearch", "Enter")
+    page.wait_for_function("() => document.querySelectorAll('#sessionList .session').length === 2")
+
+
+def test_screen_readers_hear_which_session_enter_opens(page, server, session, tmp_path):
+    sessions(server, tmp_path)
+    open_app(page, wait_tree=False)  # (the newest session has no folder)
+    page.click("#chatTitleBtn")
+    box = page.locator("#sessSearch")
+    assert box.get_attribute("role") == "combobox" and box.get_attribute("aria-controls") == "sessPopList"
+    assert box.get_attribute("aria-expanded") == "true"
+    for _ in range(2):
+        active = box.get_attribute("aria-activedescendant")
+        option = page.locator(f"#{active}")
+        assert option.get_attribute("role") == "option" and option.get_attribute("aria-selected") == "true"
+        page.press("#sessSearch", "ArrowDown")
+    assert box.get_attribute("aria-activedescendant") != active
+
+
+def test_enter_that_ends_an_ime_composition_doesnt_pick(page, server, session, tmp_path):
+    sessions(server, tmp_path)
+    open_app(page, wait_tree=False)  # (the newest session has no folder)
+    page.click("#chatTitleBtn")
+    page.fill("#sessSearch", "docs")  # mid-composition: "write the docs" would be picked
+    page.evaluate("""() => document.querySelector('#sessSearch').dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true, cancelable: true }))""")
+    assert page.locator("#sessPop").is_visible()
+    assert page.locator("#chatTitle").text_content() == "a question"  # still the one open
