@@ -1,7 +1,7 @@
-"""Spec runs in the chat: "Run all remaining" (or one task's Run) shows its tasks as a card, each ending done, paused
-with the reason, or failed, with its test result, and the work its turn did a click away. The card links to the Spec
-tab rather than repeating it. The same after a reload, and Retry takes back what the rewound turn did.
-(Spec in-chat-progress, task 5: 3.1-3.4.)"""
+"""Spec runs in Progress, with a line in the chat: "Run all remaining" (or one task's Run) shows its tasks as a card,
+each ending done, paused with the reason, or failed, with its test result, and the work its turn did a click away. The
+card links to the Spec tab rather than repeating it. The same after a reload, and Retry takes back what the rewound
+turn did. (Spec in-chat-progress, task 5: 3.1-3.4.)"""
 
 import sys
 from dataclasses import replace
@@ -9,7 +9,7 @@ from dataclasses import replace
 from test_cost_ui import wait_idle
 from uihelpers import open_app
 
-CARD = """() => [...document.querySelectorAll('#transcript .spec-card')].map((c) => ({
+CARD = """() => [...document.querySelectorAll('#progressList .spec-card')].map((c) => ({
   title: c.querySelector(':scope > summary .ttl').textContent,
   live: c.classList.contains('live'),
   items: [...c.querySelectorAll(':scope > .plan-list > .pi')].map((i) => [
@@ -51,22 +51,22 @@ def test_run_all_shows_each_task_with_how_it_ended_and_its_work(page, server, se
     open_spec(page, server, session)
     page.click("#spAll")
     # A task in progress spins while its turn runs, before it has done anything.
-    task2 = page.locator("#transcript .spec-card .pi.doing", has_text="2. Left undone")
+    task2 = page.locator("#progressList .spec-card .pi.doing", has_text="2. Left undone")
     task2.locator(":scope > summary .spinner").wait_for()
-    page.locator("#transcript .spec-card:not(.live)").wait_for()
+    page.locator("#progressList .spec-card:not(.live)").wait_for()
     wait_idle(page)
     [card] = cards(page)
     assert card["title"] == "Spec demo · paused: task 2 isn't marked done" and card["items"] == RAN
     assert page.locator("#transcript > details.tool").count() == 0  # the steps are in the card, the words in the chat
     page.locator(".msg.assistant", has_text="I couldn't finish this one.").wait_for()
 
-    page.locator("#transcript .spec-card > summary .ttl").click()  # it folded away when the run ended
-    item = page.locator("#transcript .spec-card .pi").first
+    page.locator("#progressList .spec-card > summary .ttl").click()  # it folded away when the run ended
+    item = page.locator("#progressList .spec-card .pi").first
     item.locator(":scope > summary").click()
     assert item.evaluate("(el) => el.open") and item.locator(".pi-steps details.tool").first.is_visible()
 
     page.reload()
-    page.locator("#transcript .spec-card").wait_for()
+    page.locator("#progressList .spec-card").wait_for()
     assert cards(page) == [card]
 
 
@@ -74,7 +74,7 @@ def test_one_task_run_is_a_card_too(page, server, session):
     spec(server, "Read first", "Left undone")
     open_spec(page, server, session)
     page.click("#spNext")
-    page.locator("#transcript .spec-card.complete").wait_for()
+    page.locator("#progressList .spec-card.complete").wait_for()
     wait_idle(page)
     [card] = cards(page)
     assert card["title"] == "✓ Spec demo · 1 task done" and card["items"] == RAN[:1]
@@ -84,11 +84,11 @@ def test_the_card_links_to_the_spec_tab(page, server, session):
     spec(server, "Read first")
     open_spec(page, server, session)
     page.click("#spNext")
-    page.locator("#transcript .spec-card.complete").wait_for()
+    page.locator("#progressList .spec-card.complete").wait_for()
     wait_idle(page)
     page.locator(".tab.on [data-close]").click()  # close the Spec tab
     page.locator(".spec-tab").wait_for(state="detached")
-    card = page.locator("#transcript .spec-card")
+    card = page.locator("#progressList .spec-card")
     was_open = card.evaluate("(el) => el.open")
     card.locator("[data-spec-open]").click()
     page.locator(".spec-tab .sp-task", has_text="Read first").wait_for()
@@ -99,18 +99,18 @@ def test_retrying_a_task_takes_back_how_it_ended_and_ends_it_again(page, server,
     spec(server, "Read first", "Left undone")
     open_spec(page, server, session)
     page.click("#spAll")
-    page.locator("#transcript .spec-card:not(.live)").wait_for()
+    page.locator("#progressList .spec-card:not(.live)").wait_for()
     wait_idle(page)
     [before] = cards(page)
     msg = page.locator(".msg.user", has_text="Implement task 2")
     msg.hover()
     msg.locator("[data-act=retry]").click()
-    page.locator("#transcript .spec-card.live .pi.doing").wait_for()  # task 2 is in progress again
-    page.locator("#transcript .spec-card:not(.live)").wait_for()
+    page.locator("#progressList .spec-card.live .pi.doing").wait_for()  # task 2 is in progress again
+    page.locator("#progressList .spec-card:not(.live)").wait_for()
     wait_idle(page)
     assert cards(page) == [before] and page.locator(".msg.user", has_text="Implement task 2").count() == 1
     page.reload()
-    page.locator("#transcript .spec-card").wait_for()
+    page.locator("#progressList .spec-card").wait_for()
     assert cards(page) == [before]
 
 
@@ -123,10 +123,10 @@ def test_a_task_waiting_for_your_approval_stays_in_progress_and_carries_on(page,
     [card] = cards(page)
     assert card["live"] and card["items"][0][1:3] == ["doing", "waiting for your approval"]
     page.click("#rbApprove")
-    page.locator("#transcript .spec-card .pi.doing .note", has_text="tests pass").wait_for()  # ran; now, marking it
+    page.locator("#progressList .spec-card .pi.doing .note", has_text="tests pass").wait_for()  # ran; now, marking it
     page.locator("#rbApprove").wait_for()  # done runs its tests, which asks too
     page.click("#rbApprove")
-    page.locator("#transcript .spec-card:not(.live)").wait_for()
+    page.locator("#progressList .spec-card:not(.live)").wait_for()
     wait_idle(page)
     assert cards(page)[0]["items"] == RAN  # it went on to task 2 once the first was done
 
@@ -135,9 +135,9 @@ def test_a_plan_made_during_a_task_goes_under_that_task(page, server, session):
     spec(server, "Plan first", "Read first")
     open_spec(page, server, session)
     page.click("#spAll")
-    page.locator("#transcript .spec-card.complete").wait_for()
+    page.locator("#progressList .spec-card.complete").wait_for()
     wait_idle(page)
-    tasks = page.locator("#transcript .spec-card > .plan-list > .pi")
+    tasks = page.locator("#progressList .spec-card > .plan-list > .pi")
     plan = tasks.nth(0).locator(".pi-steps .plan-card")
     assert plan.count() == 1 and page.locator("#transcript > .plan-card:not(.spec-card)").count() == 0
     # The plan was left at its step in progress, so the rest of the task's work went under that step.
@@ -159,7 +159,7 @@ def test_switching_sessions_as_a_run_starts_leaves_the_new_session_alone(page, s
     with page.expect_response("**/spec-run"):
         held[0].continue_()
     page.wait_for_timeout(500)
-    assert len(server.llm.calls) == calls and page.locator(".msg.user, #transcript .spec-card").count() == 0
+    assert len(server.llm.calls) == calls and page.locator(".msg.user, #progressList .spec-card").count() == 0
 
 
 def test_a_second_click_while_a_run_starts_runs_nothing_twice(page, server, session):
@@ -173,7 +173,7 @@ def test_a_second_click_while_a_run_starts_runs_nothing_twice(page, server, sess
     page.wait_for_timeout(300)
     for route in held:
         route.continue_()
-    page.locator("#transcript .spec-card.complete").wait_for()
+    page.locator("#progressList .spec-card.complete").wait_for()
     wait_idle(page)
     assert len(held) == 1 and len(cards(page)) == 1
     assert page.locator(".msg.user", has_text="Implement task").count() == 1
@@ -183,14 +183,14 @@ def test_reloading_during_a_task_still_ends_it(page, server, session):
     spec(server, "Read first", "Left undone")
     open_spec(page, server, session)
     page.click("#spAll")
-    page.locator("#transcript .spec-card .pi.doing", has_text="2. Left undone").wait_for()
+    page.locator("#progressList .spec-card .pi.doing", has_text="2. Left undone").wait_for()
     page.reload()  # task 2 is still running: the page follows it
-    page.locator("#transcript .spec-card:not(.live)").wait_for()
+    page.locator("#progressList .spec-card:not(.live)").wait_for()
     wait_idle(page)
     [card] = cards(page)
     assert card["items"] == RAN and card["title"] == "Spec demo · paused: task 2 isn't marked done"
     page.reload()
-    page.locator("#transcript .spec-card").wait_for()
+    page.locator("#progressList .spec-card").wait_for()
     assert cards(page) == [card]
 
 
@@ -213,7 +213,7 @@ def test_approving_while_the_last_turn_is_still_settling_lets_the_task_finish(pa
     wait_idle(page)
     assert cards(page)[0]["items"][0][1:3] == ["doing", "waiting for your approval · tests pass"]
     page.click("#rbApprove")
-    page.locator("#transcript .spec-card:not(.live)").wait_for()
+    page.locator("#progressList .spec-card:not(.live)").wait_for()
     wait_idle(page)
     assert [i[1] for i in cards(page)[0]["items"]] == ["done", "paused"]
 
@@ -222,7 +222,7 @@ def test_a_retried_task_shows_the_verification_its_turn_made(page, server, sessi
     spec(server, "Change first")
     open_spec(page, server, session)  # auto-run tests: pending changes are verified when a turn ends
     page.click("#spNext")
-    page.locator("#transcript .spec-card .pi.doing .note", has_text="waiting for your review").wait_for()
+    page.locator("#progressList .spec-card .pi.doing .note", has_text="waiting for your review").wait_for()
     wait_idle(page)
     # Its changes wait for your review, so it can't be marked done yet: the verification of them is its result.
     assert cards(page)[0]["items"][0][1:3] == ["doing", "waiting for your review · ✓ verified"]
@@ -231,8 +231,8 @@ def test_a_retried_task_shows_the_verification_its_turn_made(page, server, sessi
     msg.locator("[data-act=retry]").click()
     if page.locator("#dialog").is_visible():
         page.click("#dialogOk")
-    page.locator("#transcript .spec-card.live .pi.doing .note:empty").wait_for(state="attached")  # as before
-    page.locator("#transcript .spec-card .pi.doing .note", has_text="waiting for your review").wait_for()
+    page.locator("#progressList .spec-card.live .pi.doing .note:empty").wait_for(state="attached")  # as before
+    page.locator("#progressList .spec-card .pi.doing .note", has_text="waiting for your review").wait_for()
     wait_idle(page)
     assert cards(page)[0]["items"][0][1:3] == ["doing", "waiting for your review · ✓ verified"]
 
@@ -241,7 +241,7 @@ def test_a_task_done_without_tests_says_why(page, server, session):
     spec(server, "Write the docs")  # the scripted model marks it done as having nothing to test
     open_spec(page, server, session)
     page.click("#spNext")
-    page.locator("#transcript .spec-card.complete").wait_for()
+    page.locator("#progressList .spec-card.complete").wait_for()
     wait_idle(page)
     assert cards(page)[0]["items"][0][1:3] == ["done", "not tested: a scripted task"]
     assert "  - _Tests: none (a scripted task)_" in (server.repo / ".codepilot/specs/demo/tasks.md").read_text()
@@ -257,7 +257,7 @@ def test_a_spec_that_cannot_be_activated_runs_no_task(page, server, session):
     page.route("**/activate", lambda route: route.fulfill(status=500, json={"error": "disk full"}))
     calls = len(server.llm.calls)
     page.click("#spNext")
-    page.locator("#transcript .spec-card:not(.live)").wait_for()
+    page.locator("#progressList .spec-card:not(.live)").wait_for()
     assert len(server.llm.calls) == calls and page.locator(".msg.user").count() == 0
     [card] = cards(page)
     assert card["items"][0][1] == "todo" and "couldn't make spec demo the active spec" in card["title"]
@@ -267,12 +267,12 @@ def test_after_a_reload_reviewing_the_changes_carries_on(page, server, session):
     spec(server, "Change first")
     open_spec(page, server, session)
     page.click("#spNext")
-    page.locator("#transcript .spec-card .pi.doing .note", has_text="waiting for your review").wait_for()
+    page.locator("#progressList .spec-card .pi.doing .note", has_text="waiting for your review").wait_for()
     wait_idle(page)
     page.reload()
     page.locator("#rbApplyAll").click()
     page.locator(".wait-row", has_text="Continuing after your review").wait_for()
-    page.locator("#transcript .spec-card:not(.live)").wait_for()  # that turn ends the task
+    page.locator("#progressList .spec-card:not(.live)").wait_for()  # that turn ends the task
     wait_idle(page)
 
 
@@ -280,12 +280,12 @@ def test_a_task_that_ended_while_you_were_away_ends_on_the_card(page, server, se
     spec(server, "Left undone")
     open_spec(page, server, session)
     page.click("#spNext")
-    page.locator("#transcript .spec-card .pi.doing > summary .spinner").wait_for()
+    page.locator("#progressList .spec-card .pi.doing > summary .spinner").wait_for()
     page.goto("about:blank")  # the page closes while the task runs
     while page.request.get(f"/api/sessions/{session.id}", headers={"X-Codepilot": "1"}).json()["busy"]:
         page.wait_for_timeout(100)
     page.goto("/")  # back after it finished
-    page.locator("#transcript .spec-card:not(.live)").wait_for()
+    page.locator("#progressList .spec-card:not(.live)").wait_for()
     assert cards(page)[0]["items"][0][1:3] == ["paused", "not marked done"]
 
 
@@ -293,9 +293,9 @@ def test_a_plan_inside_a_waiting_task_keeps_its_work(page, server, session):
     spec(server, "Plan first")
     open_spec(page, server, session, auto_run=False)  # marking it done asks: the task waits, its plan still open
     page.click("#spNext")
-    page.locator("#transcript .spec-card .pi.doing .note", has_text="waiting for your approval").wait_for()
+    page.locator("#progressList .spec-card .pi.doing .note", has_text="waiting for your approval").wait_for()
     wait_idle(page)
-    assert page.evaluate("""() => { const spec = document.querySelector('#transcript .spec-card');
+    assert page.evaluate("""() => { const spec = document.querySelector('#progressList .spec-card');
       return filingCard !== spec && spec.contains(filingCard) && !spec.contains(spec._outer || null); }""")
 
 
@@ -303,9 +303,9 @@ def test_a_reload_during_a_task_keeps_its_verification(page, server, session):
     spec(server, "Change first slowly")
     open_spec(page, server, session)
     page.click("#spNext")
-    page.locator("#transcript .card.prop").wait_for(state="attached")  # proposed; still working
+    page.locator("#progressList .card.prop").wait_for(state="attached")  # proposed; still working
     page.reload()
-    page.locator("#transcript .spec-card .pi.doing .note", has_text="waiting for your review").wait_for()
+    page.locator("#progressList .spec-card .pi.doing .note", has_text="waiting for your review").wait_for()
     wait_idle(page)
     assert cards(page)[0]["items"][0][2] == "waiting for your review · ✓ verified"
 
@@ -316,7 +316,7 @@ def test_tests_that_fail_when_marking_it_done_show_on_the_card(page, server, ses
     spec(server, "Read first")
     open_spec(page, server, session)
     page.click("#spNext")
-    page.locator("#transcript .spec-card:not(.live)").wait_for()
+    page.locator("#progressList .spec-card:not(.live)").wait_for()
     wait_idle(page)
     assert cards(page)[0]["items"][0][1:3] == ["paused", "not marked done · ✗ its tests fail"]
 
@@ -325,13 +325,13 @@ def test_rejecting_every_change_ends_the_task_and_frees_run(page, server, sessio
     spec(server, "Change first")
     open_spec(page, server, session)
     page.click("#spNext")
-    page.locator("#transcript .spec-card .pi.doing .note", has_text="waiting for your review").wait_for()
+    page.locator("#progressList .spec-card .pi.doing .note", has_text="waiting for your review").wait_for()
     wait_idle(page)
     page.click("#rbRejectAll")
-    page.locator("#transcript .spec-card:not(.live)").wait_for()
+    page.locator("#progressList .spec-card:not(.live)").wait_for()
     assert cards(page)[0]["items"][0][1] == "paused"
     page.click("#spNext")  # not "a spec run is already going"
-    page.locator("#transcript .spec-card.live").wait_for()
+    page.locator("#progressList .spec-card.live").wait_for()
     wait_idle(page)
 
 
@@ -348,7 +348,7 @@ def test_a_failed_activation_leaves_a_run_in_another_session_alone(page, server,
         page.wait_for_timeout(50)
     page.click("[data-view=sessions]")
     page.locator(f".session[data-id='{other.id}']").click()
-    page.wait_for_function("() => !document.querySelector('#transcript .spec-card')")
+    page.wait_for_function("() => !document.querySelector('#progressList .spec-card')")
     page.route("**/spec-run", lambda route: held_record.append(route) if hold[0] else route.continue_())
     page.click("[data-view=specs]")
     page.locator("[data-spec-open=demo]").click()
@@ -359,7 +359,7 @@ def test_a_failed_activation_leaves_a_run_in_another_session_alone(page, server,
     page.wait_for_timeout(200)
     hold[0] = False
     held_record[0].continue_()
-    page.locator("#transcript .spec-card.complete").wait_for()  # it ran: not stopped by the other's failure
+    page.locator("#progressList .spec-card.complete").wait_for()  # it ran: not stopped by the other's failure
     wait_idle(page)
 
 
@@ -367,7 +367,7 @@ def test_two_tests_given_as_one_json_string_count_as_two(page, server, session):
     spec(server, "Two tests")
     open_spec(page, server, session)
     page.click("#spNext")
-    page.locator("#transcript .spec-card.complete").wait_for()
+    page.locator("#progressList .spec-card.complete").wait_for()
     wait_idle(page)
     assert cards(page)[0]["items"][0][2] == "✓ 2 tests pass"
 

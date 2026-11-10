@@ -78,7 +78,7 @@ function receiptCard(r) {
 
 function showReceiptCard() {
   const r = state.receipt; if (!r) return;
-  let card = $(`#transcript .card.verify[data-receipt="${r.id}"]`);
+  let card = $(`${CHAT_AND_PROGRESS} .card.verify[data-receipt="${r.id}"]`);
   if (!card) card = add(receiptCard(r)); // e.g. after a reload: the card of an automatic run isn't in the history
   card.open = true; card.scrollIntoView({ block: "nearest" });
 }

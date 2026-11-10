@@ -1,11 +1,12 @@
 "use strict";
-// Task cards: a list of steps in the chat (a plan's items; a spec run's tasks), each holding the work done under it.
+// Task cards: a list of steps (a plan's items; a spec run's tasks), each holding the work done under it. They live in the
+// Progress view (progress.js), with a line in the chat where each started.
 // While a card is filing, each step row that arrives (a tool call, a group of reads, a change) goes under the card's
 // item in progress, or the last one that was, or "Before the plan" while none has started. codepilot's words stay in
 // the chat. Each filed row remembers the message it came from, so Edit and Retry, which rewind the chat to a message,
 // take that work back out of the card, and a card that ended after that message comes back to life.
 
-let filingCard = null;
+let filingCard = null, cardSeq = 0;
 const itemKey = (text) => String(text).toLowerCase().split(/\s+/).filter(Boolean).join(" ");
 const lastUserMsg = () => [...document.querySelectorAll("#transcript > .msg.user:not(.queued)")].at(-1) || null;
 
@@ -13,7 +14,7 @@ function newTaskCard(title) {
   const d = document.createElement("div");
   d.innerHTML = `<details class="card plan-card live" open><summary class="hd">${icon("list")}<span class="ttl"></span><span class="muted cnt"></span></summary><div class="plan-list"></div></details>`;
   const card = d.firstElementChild;
-  card.dataset.title = title; card.querySelector(".ttl").textContent = title;
+  card.dataset.title = title; card.querySelector(".ttl").textContent = title; card._seq = ++cardSeq;
   return card;
 }
 
@@ -46,7 +47,7 @@ function setTaskItems(card, items, count) {
   for (const el of old.values()) if (stepsIn(el).length) { el.className = "pi it gone"; keep.push(el); } else el.remove();
   list.append(...keep);
   card.querySelector(".cnt").textContent = count ? `· ${count}` : "";
-  refreshTaskCard(card);
+  refreshTaskCard(card); refreshProgress();
 }
 
 const stepsIn = (item) => [...item.querySelector(":scope > .pi-steps").children];
@@ -85,6 +86,7 @@ function endTaskCard(card, title, cls) {
   card.classList.remove("live", "retired", "complete"); card.classList.add(cls);
   card.querySelector(".ttl").textContent = title; card.open = false;
   card._endedBy = lastUserMsg();
+  refreshProgress();
 }
 
 // A tool step as it's drawn. update_plan steps make the plan card rather than work under it (plan.js): during a spec
@@ -116,24 +118,27 @@ function fileStep(el, card = filingCard) {
 // After a rewind: the work from the removed messages leaves the cards. A card they ended may be live again, which the
 // server's restore event decides (reviveTaskCard): a plan you dismissed after them stays dismissed.
 function unfileRewound() {
-  for (const el of document.querySelectorAll("#transcript .pi-steps [data-filed]")) if (!el._turn?.isConnected) el.remove();
-  for (const g of document.querySelectorAll("#transcript .pi-steps details.step-group")) refreshReadGroup(g);
-  for (const item of document.querySelectorAll("#transcript .pi.before, #transcript .pi.gone")) if (!stepsIn(item).length) item.remove();
-  for (const card of document.querySelectorAll("#transcript .plan-card")) {
+  for (const el of document.querySelectorAll("#progressList .pi-steps [data-filed]")) if (!el._turn?.isConnected) el.remove();
+  for (const g of document.querySelectorAll("#progressList .pi-steps details.step-group")) refreshReadGroup(g);
+  for (const item of document.querySelectorAll("#progressList .pi.before, #progressList .pi.gone")) if (!stepsIn(item).length) item.remove();
+  dropRewoundCards(); // progress.js
+  for (const card of document.querySelectorAll("#progressList .plan-card")) {
     card._actives = (card._actives || []).filter((a) => a.by?.isConnected);
     if (card._actives.length) card.dataset.active = card._actives.at(-1).key; else delete card.dataset.active;
     card._rewound = !!card._endedBy && !card._endedBy.isConnected; // may come back: the restore event decides
     refreshTaskCard(card);
   }
+  refreshProgress();
 }
 
 function liveTaskCard(card) {
   if (card.classList.contains("live")) return;
   card.classList.remove("retired", "complete"); card.classList.add("live"); card.open = true;
   card.querySelector(".ttl").textContent = card.dataset.title; card._endedBy = null;
+  refreshProgress();
 }
 // After a rewind, the card whose plan the server says is live again (not one you dismissed, which stays put away).
 function reviveTaskCard(card) { if (card?._rewound) liveTaskCard(card); }
-function settleRewound() { for (const card of document.querySelectorAll("#transcript .plan-card")) card._rewound = false; }
+function settleRewound() { for (const card of document.querySelectorAll("#progressList .plan-card")) card._rewound = false; }
 
-function resetTaskCards() { filingCard = null; state.specRun = null; } // another session: its cards, its run
+function resetTaskCards() { filingCard = null; state.specRun = null; clearProgress(); } // another session: its cards, its run

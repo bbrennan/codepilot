@@ -74,6 +74,7 @@ const ICONS = {
   up: '<path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>',
   home: '<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
   cloud: '<path d="M17.5 19a4.5 4.5 0 1 0-1.4-8.8A6 6 0 0 0 4.3 12.6 3.5 3.5 0 0 0 6.5 19z"/>',
+  progress: '<path d="m3 6 2 2 4-4"/><path d="m3 16 2 2 4-4"/><path d="M13 6h8M13 12h8M13 18h8"/>',
   link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
 };
 const icon = (name, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ICONS.file}</svg>`;
@@ -236,7 +237,7 @@ $("#sessionList").addEventListener("click", async (e) => {
     e.stopPropagation();
     if (!confirm("Delete this session and its history?")) return;
     await api(`/api/sessions/${del.dataset.del}`, { method: "DELETE" });
-    if (del.dataset.del === state.sid) { state.sid = null; store("cp-session", ""); renderChatEmpty(); }
+    if (del.dataset.del === state.sid) { state.sid = null; store("cp-session", ""); renderChatEmpty(); resetPlan(); } // (its Progress too)
     loadSessions(); return;
   }
   const row = e.target.closest(".session"); if (row) openSession(row.dataset.id);
@@ -268,9 +269,10 @@ async function openSession(sid) {
   state.prompts = data.events.filter((ev) => ev.type === "user").map((ev) => ev.text); resetHistory();
   state.workspace = data.session.repo || "";
   if (!data.events.length) renderChatEmpty();
-  for (const ev of data.events) render(ev, true);
+  state.replaying = true; // (progress.js: a replayed plan doesn't switch the sidebar)
+  try { for (const ev of data.events) render(ev, true); } finally { state.replaying = false; }
   // Changes are redrawn where they were proposed (proposal_ref); anything still waiting that wasn't goes last.
-  for (const p of data.proposals) if (p.status === "pending" && !$(`#transcript [data-prop="${p.id}"]`)) renderProposalCard(p);
+  for (const p of data.proposals) if (p.status === "pending" && !$(`${CHAT_AND_PROGRESS} [data-prop="${p.id}"]`)) renderProposalCard(p);
   state.approval = null; state.allow = data.allow || []; state.receipt = data.receipt; state.verifying = null;
   state.taint = data.taint || []; renderTaintChip();
   if (data.pending) render({ type: "approval_needed", tools: data.pending }, true);
@@ -1350,11 +1352,11 @@ function render(ev, replay) {
       endText();
       const known = state.proposals.get(ev.proposal.id);
       state.proposals.set(ev.proposal.id, { ...known, ...ev.proposal, diff: ev.proposal.diff || known?.diff || "" });
-      if ($(`#transcript [data-prop="${ev.proposal.id}"]`)) refreshProposalViews(ev.proposal.id); // e.g. superseded
+      if ($(`${CHAT_AND_PROGRESS} [data-prop="${ev.proposal.id}"]`)) refreshProposalViews(ev.proposal.id); // e.g. superseded
       else { renderProposalCard(state.proposals.get(ev.proposal.id)); foldChangeStep(ev.proposal.id); renderProposalList(); renderReviewBar(); }
       break;
     }
-    case "proposal_ref": { const p = state.proposals.get(ev.id); if (p && !$(`#transcript [data-prop="${p.id}"]`)) { renderProposalCard(p); foldChangeStep(p.id); } break; }
+    case "proposal_ref": { const p = state.proposals.get(ev.id); if (p && !$(`${CHAT_AND_PROGRESS} [data-prop="${p.id}"]`)) { renderProposalCard(p); foldChangeStep(p.id); } break; }
     case "proposals_changed": for (const id of ev.ids) { const p = state.proposals.get(id); if (p) { p.status = "discarded"; refreshProposalViews(id); } } break;
     case "approval_needed": {
       endText();
@@ -1405,7 +1407,8 @@ function renderProposalCard(p) {
     <span class="pacts">${propActions(p)}</span></summary>
     ${p.reason ? `<div class="reason">${esc(p.reason)}</div>` : ""}${diffHtml(p.diff)}</details>`);
 }
-$("#transcript").addEventListener("click", (e) => {
+// The chat's links and buttons; the same for the work filed under a step in Progress.
+function chatClick(e) {
   const act = e.target.closest(".msg.user[data-mid] .msg-actions [data-act]");
   if (act) { const el = act.closest(".msg.user"); ({ edit: editMessage, retry: retryFrom, undo: undoFrom })[act.dataset.act](el); return; }
   if (e.target.closest("[data-retry-last]")) { const el = lastTurnBubble(); if (el) retryFrom(el); return; }
@@ -1428,7 +1431,9 @@ $("#transcript").addEventListener("click", (e) => {
   const so = e.target.closest("[data-spec-open]"); if (so) { openSpec(so.dataset.specOpen); return; }
   const cp = e.target.closest(".copy");
   if (cp) { navigator.clipboard?.writeText(cp.parentElement.querySelector("code").innerText); toast("Copied"); }
-});
+}
+$("#transcript").addEventListener("click", chatClick);
+$("#progressList").addEventListener("click", chatClick);
 
 function activity(kind, name, detail, body) {
   state.activity++; $("#actCount").textContent = state.activity;
