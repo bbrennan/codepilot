@@ -415,10 +415,14 @@ $("#tree").addEventListener("dragstart", (e) => {
 const isFileDrag = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
 // A file dropped anywhere else would make the browser navigate to it and leave codepilot behind.
 for (const ev of ["dragover", "drop"]) window.addEventListener(ev, (e) => { if (isFileDrag(e)) e.preventDefault(); });
-function dropDir(e) { const r = e.target.closest?.("[data-file],[data-dir]"); return !r ? "" : r.dataset.dir ?? dirOf(r.dataset.file); }
+function dropDir(e) {
+  const root = e.target.closest?.(".row.root"); // a folder's own entry (folders.js): the main one is the top level
+  if (root) return root.dataset.root === state.workspace ? "" : root.dataset.root;
+  const r = e.target.closest?.("[data-file],[data-dir]"); return !r ? "" : r.dataset.dir ?? dirOf(r.dataset.file);
+}
 function markDropTarget(e) {
   $$("#tree .drop-target").forEach((r) => r.classList.remove("drop-target"));
-  const dir = dropDir(e); (dir ? $(`#tree [data-dir="${CSS.escape(dir)}"]`) : $("#tree"))?.classList.add("drop-target");
+  const dir = dropDir(e); (dir ? $(`#tree [data-dir="${CSS.escape(dir)}"], #tree .row.root[data-root="${CSS.escape(dir)}"]`) : $("#tree"))?.classList.add("drop-target");
 }
 $("#tree").addEventListener("dragover", (e) => { if (!isFileDrag(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = "copy"; markDropTarget(e); });
 $("#tree").addEventListener("dragleave", (e) => { if (!$("#tree").contains(e.relatedTarget)) $$("#tree .drop-target").forEach((r) => r.classList.remove("drop-target")); });

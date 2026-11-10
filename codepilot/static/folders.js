@@ -15,9 +15,8 @@ async function setFolders(body) {
   try {
     const d = await api(`/api/sessions/${sid}`, { method: "PATCH", body });
     if (state.sid !== sid) { loadSessions(); return; } // you've opened another session meanwhile: leave it be
-    const mainChanged = (d.session.repo || "") !== (state.workspace || "");
-    state.session = { ...state.session, ...d.session };
-    setWorkspace(d.session.repo, mainChanged); loadSessions();
+    // Reopened as the server now has it: changes rebased onto the new main folder, or outdated by a removed one.
+    if (d.session) await openSession(sid);
   } catch (err) { toast(err.message, true); }
 }
 const browseNear = () => browseFolder(dirOf(state.workspace) || state.workspace || state.cfg.default_repo || "");

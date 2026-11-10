@@ -220,7 +220,7 @@ def test_an_added_folders_files_get_its_own_file_steering_not_the_main_folders(c
     text, _ = agent._message_steering(ctx.session_id, ctx.root, f"look at @{(api / 'src' / 'app.py').resolve()}")
     assert "API Python rule." in text and "Main folder Python rule." not in text
     docs = agent._file_steering(ctx, {"name": "read_file", "input": {"path": "src/main.py"}})
-    assert [d.body.strip() for d in docs] == ["Main folder Python rule."]  # the main folder's, as before
+    assert [d.body.strip() for d, _ in docs] == ["Main folder Python rule."]  # the main folder's, as before
 
 
 def test_a_glob_matches_an_added_folders_paths_without_ripgrep(ctx, api, monkeypatch):
@@ -228,3 +228,74 @@ def test_a_glob_matches_an_added_folders_paths_without_ripgrep(ctx, api, monkeyp
 
     monkeypatch.setattr(tools.shutil, "which", lambda name: None)
     assert "app.py:1: PORT = 8000" in tools.search_code(ctx, "PORT", glob="src/*.py")
+
+
+# -- from the release review ----------------------------------------------------------------------------------------
+
+
+def test_reordering_the_list_cant_slip_a_nested_folder_in(repo, api):
+    with pytest.raises(ValueError, match="inside"):
+        folders.patch(str(repo), [str(api)], {"folders": [str(api / "src"), str(api)]})
+    with pytest.raises(ValueError, match="inside"):
+        folders.patch(str(repo), [str(api)], {"folders": [str(api), str(api / "src")]})
+
+
+def test_a_missing_folder_cant_be_made_main(repo, api, tmp_path):
+    gone = tmp_path / "gone"
+    with pytest.raises(ValueError, match="doesn't exist"):
+        folders.make_main(str(repo), [str(api), str(gone)], str(gone))
+
+
+def test_steering_from_a_file_codepilot_reads_resolves_in_that_files_folder(ctx, api, cfg, store):
+    from codepilot.agent import Agent
+    from fakes import FakeLLM
+
+    (api / "docs").mkdir()
+    (api / "docs" / "api.md").write_text("The API's own guide.\n")
+    (api / ".codepilot" / "steering").mkdir(parents=True)
+    (api / ".codepilot" / "steering" / "py.md").write_text(
+        "---\ninclusion: fileMatch\nfileMatchPattern: 'src/*.py'\n---\nSee #[[file:docs/api.md]]\n")
+    agent = Agent(cfg, store, llm=FakeLLM([]))
+    found = agent._file_steering(ctx, {"name": "read_file", "input": {"path": str(api / "src" / "app.py")}})
+    [(doc, owner)] = found
+    assert owner == api.resolve() and "The API's own guide." in __import__("codepilot.steering").steering.render(doc, owner)
+
+
+def test_an_added_folders_steering_isnt_mistaken_for_the_main_folders_of_the_same_name(ctx, api, cfg, store):
+    from codepilot import steering
+
+    for folder, rule in ((ctx.root, "Main rule."), (api, "API rule.")):
+        (folder / ".codepilot" / "steering").mkdir(parents=True, exist_ok=True)
+        (folder / ".codepilot" / "steering" / "py.md").write_text(
+            f"---\ninclusion: fileMatch\nfileMatchPattern: 'src/*.py'\n---\n{rule}\n")
+    (ctx.root / "src").mkdir()
+    (ctx.root / "src" / "main.py").write_text("x = 1\n")
+    main = steering.for_paths([ctx.root / "src" / "main.py"], ctx.root, ctx.folders, cfg.home, set())
+    loaded = {d.label for d, _ in main}  # the main folder's py.md is loaded first
+    other = steering.for_paths([(api / "src" / "app.py").resolve()], ctx.root, ctx.folders, cfg.home, loaded)
+    assert [d.body.strip() for d, _ in other] == ["API rule."]
+    twin = api.parent / "elsewhere" / "api"  # another added folder with the same name
+    assert {d.label for d, _ in other}.isdisjoint({f"{twin}/.codepilot/steering/py.md"})
+    assert str(api.resolve()) in next(d.label for d, _ in other)  # identified by its folder, not just its name
+
+
+def test_existing_failures_with_a_skipped_change_dont_read_as_passed(ctx, api, cfg, tmp_path):
+    from dataclasses import asdict, replace
+
+    from codepilot import verification
+
+    propose_edit(ctx, str(api / "src" / "app.py"), "PORT = 8000", "PORT = 9000")
+    receipt = verification.verify(ctx.root, replace(cfg, test_cmd="sh -c 'echo FAILED tests/test_x.py::test_old; exit 1'"), ctx.store.list_proposals(ctx.session_id),
+                                  workdir=tmp_path / "work", analysers=False)
+    text = verification.describe(asdict(receipt))
+    assert receipt.status == "partial" and "passed" not in text.split("\n")[0] and "no new failures" in text
+
+
+def test_a_file_dropped_into_an_added_folder_lands_there(ctx, api):
+    from codepilot import uploads
+
+    out = uploads.store_upload(ctx, str(api.resolve() / "src" / "notes.txt"), b"hi")
+    assert (api / "src" / "notes.txt").read_bytes() == b"hi" and out
+    _git_repo(api)
+    with pytest.raises(uploads.UploadError, match=".git"):
+        uploads.store_upload(ctx, str(api.resolve() / ".git" / "config2"), b"x")  # its own .git stays protected

@@ -275,17 +275,19 @@ def for_paths(paths: list[Path], root: Path, added: Sequence[Path], home: Path, 
               ) -> list[tuple[Doc, Path]]:
     """fileMatch docs for these files, each matched by the folder it's in (the main one or an added one) against
     its path there: a rule in one repo never applies to another's files. Returns (doc, its folder) pairs; an added
-    folder's own docs are labelled with the folder's name."""
+    folder's own docs are labelled with their full path."""
     out: list[tuple[Doc, Path]] = []
     seen = set(already)
     for path in paths:
         owner = next((f for f in added if path == f or f in path.parents), root)
         rel = str(path.relative_to(owner)) if path != owner else "."
-        for d in for_files([rel], owner, home, seen):
+        # An added folder's own docs go by their full path (two folders may both have .codepilot/steering/py.md,
+        # or the same name): checked against what's loaded only once they have it.
+        for d in for_files([rel], owner, home, seen if owner == root else set()):
             if owner != root and d.scope == "workspace":
-                d = replace(d, label=f"{owner.name}/{d.label}")
-                if d.label in seen:
-                    continue
+                d = replace(d, label=str(d.path))
+            if d.label in seen:
+                continue
             seen.add(d.label)
             out.append((d, owner))
     return out

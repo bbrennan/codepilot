@@ -395,18 +395,18 @@ class Agent:
         return "\n\n".join(parts), [d.name for d in asked + matched]
 
     def _file_steering(self, ctx: ToolContext, tu: dict) -> list:
-        """fileMatch docs for a file the model just read or edited (each loads once per session)."""
+        """fileMatch docs for a file the model just read or edited (each loads once per session), as (doc, the folder
+        it belongs to) pairs: its file references resolve there."""
         if tu["name"] not in ("read_file", "propose_edit") or ctx.root is None:
             return []
         try:
             path = ctx.resolve(str(tu["input"].get("path", "")), must_exist=False)
         except ToolError:
             return []
-        docs = [d for d, _ in steering.for_paths([path], ctx.root, ctx.folders, self.cfg.home,
-                                                 self._steering_loaded(ctx.session_id))]
-        if docs:
-            self._mark_steering(ctx.session_id, docs)
-        return docs
+        found = steering.for_paths([path], ctx.root, ctx.folders, self.cfg.home, self._steering_loaded(ctx.session_id))
+        if found:
+            self._mark_steering(ctx.session_id, [d for d, _ in found])
+        return found
 
     def _turn_context(self, sess: Session, root: Path | None) -> str:
         """Per-turn facts that change (mode, git state, applied proposals), sent in the user message.
@@ -958,10 +958,11 @@ class Agent:
             ctx.tool_use_id = tu["toolUseId"]
             output, is_error = execute(self.tools[tu["name"]], ctx, tu["input"])
             yield from self._note_taint(ctx.session_id, tu, is_error)
-            docs = [] if is_error else self._file_steering(ctx, tu)
+            found = [] if is_error else self._file_steering(ctx, tu)
+            docs = [d for d, _ in found]
             if docs:
                 why = "applies to " + ", ".join(sorted({p for d in docs for p in d.patterns}))
-                output += "\n\n" + "\n\n".join(steering.render(d, ctx.root, why) for d in docs) + \
+                output += "\n\n" + "\n\n".join(steering.render(d, owner, why) for d, owner in found) + \
                     "\nFollow the steering above when working on these files."
                 yield {"type": "steering", "names": [d.name for d in docs], "file": str(tu["input"].get("path", ""))}
         return self._told_about_taint(ctx.session_id, output), is_error, time.monotonic() - started

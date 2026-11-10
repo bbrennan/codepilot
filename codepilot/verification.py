@@ -334,7 +334,7 @@ STATUS_TEXT = {
     "pass": "pass", "fail": "newly failing", "preexisting": "no new failures (some fail without the changes too)",
     "inconclusive": "failing, and the output doesn't show whether the changes caused it (it fails without them too)",
     "unverified": "passed, but the copy may have run the workspace's code instead of the changes",
-    "partial": "passed, but not every change was verified",
+    "partial": "no new failures, but not every change was verified",
     "nothing": "nothing to run (no test command or analysers found; set CODEPILOT_TEST_CMD)",
     "error": "couldn't apply the changes together", "timeout": "timed out", "cancelled": "cancelled",
 }
