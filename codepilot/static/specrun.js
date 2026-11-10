@@ -7,7 +7,7 @@
 // message, and when its turn ends): a reload draws the same card, and Edit/Retry take back what the rewound turns did.
 // state.specRun is the run going on: { card, all, stopped, receipt }.
 
-const RECEIPT_NOTE = { pass: "✓ verified", preexisting: "✓ no new failures", unverified: "⚠ may have tested the workspace's code", inconclusive: "⚠ verification inconclusive", error: "✗ couldn't verify", timeout: "verification timed out" };
+const RECEIPT_NOTE = { pass: "✓ verified", preexisting: "✓ no new failures", unverified: "⚠ may have tested the workspace's code", partial: "⚠ partly verified", inconclusive: "⚠ verification inconclusive", error: "✗ couldn't verify", timeout: "verification timed out" };
 
 function specRunCard(ev) {
   const card = newTaskCard(`Spec ${ev.spec}`);

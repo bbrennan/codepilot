@@ -11,13 +11,13 @@ import shlex
 import shutil
 import subprocess
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import (checks, deps_guard, github, gitcmd, images, plans, procenv, skills, spec_profiles, specs, steering,
-               task_tests, textfile, traces, webtools)
+from . import (checks, deps_guard, folders, github, gitcmd, images, plans, procenv, skills, spec_profiles, specs,
+               steering, task_tests, textfile, traces, webtools)
 from .config import Config
 from .store import Store
 
@@ -43,6 +43,7 @@ class ToolContext:
     auto_apply: bool = False  # this session writes edits immediately (CODEPILOT_AUTO_APPLY does it everywhere)
     cancelled: Callable[[], bool] = lambda: False  # the user pressed Stop (long-running tools check it)
     tool_use_id: str = ""  # the call being executed
+    folders: list[Path] = field(default_factory=list)  # the session's added folders (folders.py), resolved
     plan_updates: list = field(default_factory=list)  # update_plan calls in this loop, results maybe not stored yet
 
     def resolve(self, rel: str | None, must_exist: bool = True) -> Path:
@@ -51,13 +52,15 @@ class ToolContext:
         rel = (rel or ".").strip() or "."
         path = Path(rel).expanduser()
         path = (path if path.is_absolute() else self.root / path).resolve()
-        if path != self.root and self.root not in path.parents:
-            raise ToolError(f"{rel!r} is outside the repository")
+        if not folders.inside(path, [self.root, *self.folders]):
+            raise ToolError(f"{rel!r} is outside the session's folders")
         if must_exist and not path.exists():
             raise ToolError(f"{rel!r} does not exist")
         return path
 
     def rel(self, path: Path) -> str:
+        if path != self.root and self.root not in path.parents:  # in an added folder: its full path
+            return str(path)
         return str(path.relative_to(self.root)) if path != self.root else "."
 
 
@@ -528,7 +531,7 @@ def propose_edit(ctx: ToolContext, path: str, old_text: str, new_text: str, reas
     missing = "".join(f"\nNote: `{a['name']}` is not on {deps_guard.REGISTRY[a['eco']]}; check the name."
                       for a in advice if a["level"] == "danger")
     if ctx.cfg.auto_apply_edits or ctx.auto_apply:
-        before, written = apply_proposal(ctx.root, proposal)
+        before, written = apply_proposal(ctx.root, proposal, ctx.folders)
         found = checks.quick_check(ctx.root, rel)
         ctx.store.record_applied(proposal.id, before, written, found)
         ctx.store.take_unreported_outcomes(ctx.session_id)  # the model hears it here, not next turn
@@ -714,12 +717,12 @@ def proposal_view(proposal, diff: str) -> dict:
             "diff": diff, "advice": proposal.advice or []}
 
 
-def apply_proposal(root: Path, proposal) -> tuple[str | None, str]:
+def apply_proposal(root: Path, proposal, added: Sequence[Path] = ()) -> tuple[str | None, str]:
     """Write an approved proposal to disk, re-validating against the current file. Returns (before, after);
     before is None when the proposal created the file."""
     target = (root / proposal.path).resolve()
-    if target != root and root not in target.parents:
-        raise ToolError("proposal path escapes the repository")
+    if not folders.inside(target, [root, *added]):
+        raise ToolError("the change is outside the session's folders")
     if proposal.old_text == "":
         if target.exists():
             raise ToolError(f"{proposal.path} now exists; refusing to overwrite")
@@ -737,10 +740,10 @@ def apply_proposal(root: Path, proposal) -> tuple[str | None, str]:
     return content, after
 
 
-def can_apply(root: Path, proposal) -> bool:
+def can_apply(root: Path, proposal, added: Sequence[Path] = ()) -> bool:
     """Whether a pending proposal still applies cleanly to the file as it is now."""
     target = (root / proposal.path).resolve()
-    if target != root and root not in target.parents:
+    if not folders.inside(target, [root, *added]):
         return False
     if proposal.old_text == "":
         return not target.exists()
@@ -755,19 +758,20 @@ def retire_stale_proposals(store: Store, sid: str, root: Path | None) -> list[in
     edited it, ...) become "outdated", so they stop waiting for review. Returns their ids."""
     if root is None:
         return []
-    stale = [p.id for p in store.list_proposals(sid) if p.status == "pending" and not can_apply(root, p)]
+    added = folders.added(store.get_session(sid)) if store.has_session(sid) else []
+    stale = [p.id for p in store.list_proposals(sid) if p.status == "pending" and not can_apply(root, p, added)]
     for pid in stale:
         store.set_proposal_status(pid, "outdated")
     return stale
 
 
-def revert_proposal(root: Path, proposal) -> None:
+def revert_proposal(root: Path, proposal, added: Sequence[Path] = ()) -> None:
     """Undo an applied proposal, but only if the file still holds exactly what the proposal wrote."""
     if proposal.status != "applied" or proposal.after_text is None:
         raise ToolError("only applied changes can be undone")
     target = (root / proposal.path).resolve()
-    if target != root and root not in target.parents:
-        raise ToolError("proposal path escapes the repository")
+    if not folders.inside(target, [root, *added]):
+        raise ToolError("the change is outside the session's folders")
     if not target.exists() or textfile.read(target, errors="replace") != proposal.after_text:
         raise ToolError(f"{proposal.path} has changed since it was applied; undo it by hand or ask codepilot")
     if proposal.before_text is None:

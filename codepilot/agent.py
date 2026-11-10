@@ -18,9 +18,9 @@ from collections.abc import Callable, Generator, Iterator
 from pathlib import Path
 from typing import Any
 
-from . import (approval_policy, checkpoints, checks, gitstate, images, mentions, models, modes, plans, prompts, repomap,
-               router, skills, spec_profiles, spec_reminder, spec_runs, specs, spend, steering, task_tests, unanswered,
-               verification, webtools)
+from . import (approval_policy, checkpoints, checks, folders, gitstate, images, mentions, models, modes, plans, prompts,
+               repomap, router, skills, spec_profiles, spec_reminder, spec_runs, specs, spend, steering, task_tests,
+               unanswered, verification, webtools)
 from .bedrock import BedrockError, make_client
 from .config import Config
 from .context import CLEARED_PREFIX, ContextManager, is_overflow
@@ -192,7 +192,8 @@ class Agent:
         sess = self.store.get_session(session_id)
         root = Path(sess.repo).expanduser().resolve()
         try:
-            reverted, left = checkpoints.restore(root, self.store, session_id, ids, keep=keep)
+            reverted, left = checkpoints.restore(root, self.store, session_id, ids, keep=keep,
+                                                 folders=folders.added(sess))
         except checkpoints.RestoreError as exc:
             for p in exc.reverted:
                 yield {"type": "proposal", "proposal": proposal_view(p, "")}
@@ -679,7 +680,7 @@ class Agent:
     def _ctx(self, sess: Session) -> ToolContext:
         root = Path(sess.repo).expanduser().resolve() if sess.repo else None
         return ToolContext(root=root, cfg=self.cfg, store=self.store, session_id=sess.id,
-                           logs_client_factory=self._logs_factory,
+                           folders=folders.added(sess) if root else [], logs_client_factory=self._logs_factory,
                            auto_apply=bool((sess.context_state or {}).get("auto_apply")),
                            cancelled=lambda: sess.id in self._cancelled)
 
@@ -697,7 +698,8 @@ class Agent:
             skills.discover(root, self.cfg.home), steering.always_text(root, self.cfg.home),
             steering_auto=steering.auto_listing(root, self.cfg.home),
             repo_map=repomap.build(root) if root else "",
-            checks=[c.name for c in checks.detect(root)] if root else [], auto_apply=self.cfg.auto_apply_edits)
+            checks=[c.name for c in checks.detect(root)] if root else [], auto_apply=self.cfg.auto_apply_edits,
+            folders=ctx.folders)
 
     def _session_system(self, sess: Session, ctx: ToolContext) -> list[dict]:
         """The system prompt, frozen per session. It is rebuilt only at a boundary (new workspace, or memory
@@ -707,7 +709,7 @@ class Agent:
         # Editing a steering doc changes the key, so new instructions apply from the next request. A digest, not hash():
         # Python salts str hashes per process, so a restart would rebuild every session's prompt and drop its reasoning.
         summary = hashlib.sha1((sess.summary or "").encode()).hexdigest()[:16]
-        key = f"{ctx.root}|{summary}|{steering.fingerprint(ctx.root, self.cfg.home)}"
+        key = f"{ctx.root}|{','.join(map(str, ctx.folders))}|{summary}|{steering.fingerprint(ctx.root, self.cfg.home)}"
         if state.get("system") and state.get("key") == key:
             return state["system"]
         system = self._system(sess, ctx)

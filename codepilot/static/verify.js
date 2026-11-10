@@ -32,6 +32,7 @@ function receiptHtml() {
     case "pass": return line(`<span class="ok">✓ verified</span>`, runs, details);
     case "preexisting": return line(`<span class="ok">✓ no new failures</span>`, `<span class="muted">(some fail without the changes too)</span>${runs}`, details);
     case "fail": return line(`<span class="bad">✗ ${r.newly_failing.length} newly failing</span>`, `<span class="muted rb-first">${esc(r.newly_failing[0] || "")}</span>`, `${details}<button class="btn sm" data-receipt-fix>Ask codepilot to fix</button>`);
+    case "partial": return line(`<span class="warn">⚠ passed, but ${idList(r.skipped || [])} in an added folder ${(r.skipped || []).length > 1 ? "weren't" : "wasn't"} verified</span>`, "", details);
     case "unverified": return line(`<span class="warn">⚠ passed, but may have tested the workspace's code</span>`, "", details);
     case "nothing": return line(`<span class="muted">○ nothing to run: no test command or analysers (set CODEPILOT_TEST_CMD)</span>`, "", verify("Verify"));
     case "inconclusive": return line(`<span class="warn">⚠ failing, and it fails without the changes too</span>`, `<span class="muted">the output doesn't show whether they caused it</span>`, details);
@@ -65,7 +66,7 @@ function startVerify() {
 }
 
 function receiptCard(r) {
-  const word = { inconclusive: "⚠ inconclusive", pass: "✓ pass", fail: `✗ ${r.newly_failing.length} newly failing`, preexisting: "✓ no new failures", unverified: "⚠ may have tested the workspace's code", nothing: "nothing to run", error: "✗ couldn't apply together", timeout: "timed out", cancelled: "cancelled" }[r.status] || r.status;
+  const word = { inconclusive: "⚠ inconclusive", pass: "✓ pass", fail: `✗ ${r.newly_failing.length} newly failing`, preexisting: "✓ no new failures", unverified: "⚠ may have tested the workspace's code", partial: "⚠ partly verified", nothing: "nothing to run", error: "✗ couldn't apply together", timeout: "timed out", cancelled: "cancelled" }[r.status] || r.status;
   const cls = { pass: "ok", preexisting: "ok", fail: "bad", error: "bad" }[r.status] || "muted";
   const runs = r.runs.map((run) => `<div class="vf-run"><div><b>${esc(run.name)}</b> <code>${esc(run.argv)}</code> <span class="${run.exit === 0 ? "ok" : "bad"}">${run.exit == null ? "timed out" : "exit " + run.exit}</span>${run.baseline_exit != null ? ` <span class="muted">· without the changes: exit ${run.baseline_exit}</span>` : ""}</div>${run.exit ? `<pre>${esc(run.output)}</pre>` : ""}</div>`).join("");
   return `<details class="card verify" data-receipt="${r.id}"><summary class="hd">${icon("beaker")}<span>Verified change${r.proposal_ids.length > 1 ? "s" : ""} ${idList(r.proposal_ids)} on a copy: <b class="${cls}">${esc(word)}</b></span><span class="spacer"></span><span class="muted">${r.seconds}s</span></summary>

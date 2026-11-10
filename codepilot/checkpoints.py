@@ -7,10 +7,11 @@ the order they were applied, with the same guard as Undo. Files changed by comma
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import textfile
+from . import folders, textfile
 from .store import Proposal, Store
 from .tools import ToolError, revert_proposal
 
@@ -54,12 +55,13 @@ def newest_applied_first(proposals: list[Proposal]) -> list[Proposal]:
     return sorted(proposals, key=lambda p: (p.applied_at or 0, p.id), reverse=True)
 
 
-def _inside(root: Path, rel: str) -> bool:
+def _inside(root: Path, rel: str, added: Sequence[Path] = ()) -> bool:
     target = (root / rel).resolve()  # follows symlinks, so a link out of the repository counts as outside
-    return target == root or root in target.parents
+    return folders.inside(target, [root, *added])  # (a change in an added folder has its full path)
 
 
-def preview(root: Path, proposals: list[Proposal], read=_read, hold: frozenset[int] = frozenset()) -> list[Item]:
+def preview(root: Path, proposals: list[Proposal], read=_read, hold: frozenset[int] = frozenset(),
+            folders: Sequence[Path] = ()) -> list[Item]:
     """Which of these applied changes (most recently applied first) can be undone now, without writing anything.
     `hold`: ids to leave alone whatever their state (the user saw them listed as left).
 
@@ -83,7 +85,7 @@ def preview(root: Path, proposals: list[Proposal], read=_read, hold: frozenset[i
         if p.status != "applied" or p.after_text is None:  # e.g. already undone: it doesn't block older ones
             items.append(Item(p, False, GONE))
             continue
-        if p.path not in expected and not _inside(root, p.path):
+        if p.path not in expected and not _inside(root, p.path, folders):
             leave(p, OUTSIDE)
             continue
         try:
@@ -102,8 +104,8 @@ def preview(root: Path, proposals: list[Proposal], read=_read, hold: frozenset[i
     return items
 
 
-def restore(root: Path, store: Store, sid: str, ids: list[int], revert=revert_proposal, keep: list[int] = ()
-            ) -> tuple[list[Proposal], list[Item]]:
+def restore(root: Path, store: Store, sid: str, ids: list[int], revert=revert_proposal, keep: list[int] = (),
+            folders: Sequence[Path] = ()) -> tuple[list[Proposal], list[Item]]:
     """Undo exactly these changes of this session (the ones the user confirmed), most recently applied first.
     `keep`: changes the user saw listed as left; they're reported, never undone.
 
@@ -119,13 +121,13 @@ def restore(root: Path, store: Store, sid: str, ids: list[int], revert=revert_pr
             continue
         if p.session_id == sid:
             proposals.append(p)
-    items = preview(root, newest_applied_first(proposals), hold=frozenset(keep) - set(ids))
+    items = preview(root, newest_applied_first(proposals), hold=frozenset(keep) - set(ids), folders=folders)
     reverted: list[Proposal] = []
     for n, item in enumerate(items):
         if not item.ok:
             continue
         try:
-            revert(root, item.proposal)
+            revert(root, item.proposal, folders)
         except (OSError, ToolError) as exc:
             left = [i for i in items[n:] if i.ok] + [i for i in items if not i.ok]
             raise RestoreError(reverted, left, exc) from exc

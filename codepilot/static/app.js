@@ -294,7 +294,7 @@ async function openSession(sid) {
 function setWorkspace(repo, changed = true) {
   state.workspace = repo || "";
   if (state.session) state.session.repo = repo;
-  $("#workspaceName").textContent = repo ? base(repo) : "Open folder…";
+  $("#workspaceName").textContent = folderButtonLabel(repo); // folders.js
   $("#workspaceBtn").title = tilde(repo) || "Open folder";
   $("#explorerTitle").textContent = repo ? base(repo) : "Explorer";
   if (changed) {
@@ -308,6 +308,7 @@ function setWorkspace(repo, changed = true) {
   if ($(".view.on")?.dataset.view === "traces") loadTraces();
 }
 async function openFolder() {
+  if (state.workspace) return folderMenu(); // folders.js: add a folder, or open one in a new session
   const path = await browseFolder(state.workspace ? dirOf(state.workspace) || state.workspace : state.cfg.default_repo || "");
   if (!path) return;
   await useFolder(path);
@@ -320,7 +321,7 @@ async function useFolder(path) {
   } catch (err) { toast(err.message, true); }
 }
 $("#workspaceBtn").onclick = openFolder;
-$("#openFolderBtn").onclick = openFolder;
+$("#openFolderBtn").onclick = () => (state.workspace ? addFolder() : openFolder());
 $("#refreshTreeBtn").onclick = () => { state.tree.clear(); renderTree(); };
 $("#collapseTreeBtn").onclick = () => { state.expanded.clear(); renderTree(); };
 
@@ -338,7 +339,7 @@ const disk = { dirs: new Map(), busy: false, sid: null, warned: new Set() };
 async function checkDisk() {
   if (!state.sid || !state.workspace || disk.busy || document.hidden) return;
   if (disk.sid !== state.sid) { disk.sid = state.sid; disk.dirs.clear(); disk.warned.clear(); }
-  const dirs = [...new Set([".", ...state.expanded])].filter((p) => state.tree.has(p));
+  const dirs = [...new Set([".", ...state.expanded, ...openAddedFolders()])].filter((p) => state.tree.has(p)); // (folders.js)
   const tabs = state.tabs.filter((t) => t.kind === "file" && !t.global && t.content != null && t.mtime);
   if (!dirs.length && !tabs.length) return;
   disk.busy = true;
@@ -392,7 +393,7 @@ async function renderTree() {
       }
     }
   };
-  await walk(".", 0);
+  await walkFolders(walk, rows); // folders.js: each of the session's folders
   el.innerHTML = rows.join("") || `<div class="empty-state">Empty folder.</div>`;
 }
 $("#tree").addEventListener("click", (e) => {
@@ -2350,7 +2351,7 @@ $("#rpIssue").onclick = async () => {
 };
 
 // ---------------------------------------------------------------- copy paths & context menu
-const absPath = (rel) => (rel === "." ? state.workspace : state.workspace + "/" + rel);
+const absPath = (rel) => (rel === "." ? state.workspace : rel.startsWith("/") ? rel : state.workspace + "/" + rel); // (an added folder's are full)
 async function copyText(text, label) {
   try { await navigator.clipboard.writeText(text); }
   catch {

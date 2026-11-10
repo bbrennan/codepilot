@@ -833,3 +833,10 @@ details.card.prop:has(.status.outdated), details.card.prop:has(.status.supersede
 /* The sidebar is narrow: a change's name keeps its line, and its stats and buttons go under it. */
 #progressList details.card.prop > summary { flex-wrap: wrap; row-gap: 4px; }
 #progressList details.card.prop > summary .path { flex: 1 1 auto; min-width: 6ch; }
+
+/* ---------- a session's folders: top-level entries in the Explorer once there's more than one ---------- */
+.tree .row.root { font-weight: 650; color: var(--fg); }
+.tree .row.root .root-tag { margin-left: 6px; font-size: var(--fs-xs); font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.tree .row.root.missing { color: var(--muted); }
+.tree .root-missing { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 4px 12px 8px 30px; font-size: var(--fs-sm); color: var(--muted); }
+.tree .root-missing span { overflow-wrap: anywhere; } /* a long path wraps rather than running out of the sidebar */

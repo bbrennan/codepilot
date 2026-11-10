@@ -483,6 +483,7 @@ def chat(cfg: Config, args) -> int:
 
 
 def _proposal_command(store, sess, text: str) -> None:
+    from . import folders
     from .tools import ToolError, apply_proposal
 
     verb, _, num = text.partition(" ")
@@ -499,7 +500,7 @@ def _proposal_command(store, sess, text: str) -> None:
         print(f"rejected #{prop.id}")
         return
     try:
-        before, after = apply_proposal(Path(sess.repo), prop)
+        before, after = apply_proposal(Path(sess.repo).expanduser().resolve(), prop, folders.added(sess))
         store.record_applied(prop.id, before, after)
         print(f"applied #{prop.id} to {prop.path}")
     except (ToolError, OSError) as exc:
