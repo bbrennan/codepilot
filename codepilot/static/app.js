@@ -750,6 +750,7 @@ function renderEditTab(tab) {
   if (tab.editPreview) { renderMermaid($("#docBody")); $("#fDone").onclick = () => { tab.editPreview = false; renderEditor(); }; return; }
   const ta = $("#codeEdit");
   ta.value = tab.draft ?? tab.content;
+  ta.readOnly = !!state.changingFolders; // (folders.js: the session reloads once its folders change)
   const caret = Math.min(tab.caret ?? 0, ta.value.length);
   ta.focus(); ta.setSelectionRange(caret, caret);
   if (tab.scroll) ta.scrollTop = tab.scroll;
@@ -757,7 +758,8 @@ function renderEditTab(tab) {
   ta.onblur = () => { tab.caret = ta.selectionStart; tab.scroll = ta.scrollTop; };
   ta.onkeydown = (e) => {
     if (e.key === "Tab" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
-      e.preventDefault(); ta.setRangeText(indentUnit(tab.content), ta.selectionStart, ta.selectionEnd, "end"); ta.oninput();
+      e.preventDefault(); if (ta.readOnly) return; // setRangeText would write into a locked editor
+      ta.setRangeText(indentUnit(tab.content), ta.selectionStart, ta.selectionEnd, "end"); ta.oninput();
     }
   };
   $("#fSave").onclick = () => saveFile(tab);

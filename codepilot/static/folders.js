@@ -11,6 +11,7 @@ const closedRoots = new Set(); // folders folded in the Explorer (all open by de
 const folderButtonLabel = (repo) => repo ? base(repo) + (addedFolders().length ? ` +${addedFolders().length}` : "") : "Open folder…";
 
 async function setFolders(body) {
+  if (state.changingFolders) return toast("Already changing this session's folders: one moment.", true);
   const sid = state.sid;
   state.changingFolders = true; // editFile waits; open editors are read-only until the session reloads
   $$("#editor textarea").forEach((t) => { t.readOnly = true; });

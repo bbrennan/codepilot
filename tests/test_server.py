@@ -649,3 +649,33 @@ def test_a_receipt_from_the_old_main_folder_is_stale_after_make_main(client_and_
     assert not client.get(f"/api/sessions/{sid}").json()["receipt"].get("stale")
     client.patch(f"/api/sessions/{sid}", json={"make_main": str(api)}, headers=H)
     assert client.get(f"/api/sessions/{sid}").json()["receipt"]["stale"] is True
+
+
+def test_a_command_that_starts_waiting_while_a_folder_change_arrives_still_blocks_it(client_and_llm, store, repo,
+                                                                                       tmp_path, monkeypatch):
+    from codepilot import server
+
+    client, _ = client_and_llm
+    api, sid = _with_api(client, repo, tmp_path)
+    read = server.json_body
+
+    async def slow_body(request, optional=False):  # the turn pauses for approval while the body is read
+        data = await read(request, optional)
+        store.update_session(sid, pending={"awaiting": [{"toolUseId": "t1", "name": "run_command", "input": {}}]})
+        return data
+
+    monkeypatch.setattr(server, "json_body", slow_body)
+    r = client.patch(f"/api/sessions/{sid}", json={"make_main": str(api)}, headers=H)
+    assert r.status_code == 409 and store.get_session(sid).repo == str(repo.resolve())
+
+
+def test_a_receipt_saved_before_receipts_named_their_folder_is_stale(client_and_llm, store, repo, tmp_path):
+    from codepilot import verification
+
+    client, _ = client_and_llm
+    _, sid = _with_api(client, repo, tmp_path)
+    ndjson(client.post(f"/api/sessions/{sid}/chat", json={"message": "fix add"}, headers=H))
+    store.add_receipt(sid, {"proposal_ids": [1], "fingerprint": verification.current_fingerprint(store, sid),
+                            "status": "pass", "runs": [], "newly_failing": [], "conflict": "", "isolation": [],
+                            "seconds": 1.0})  # no "root": which folder it tested isn't known
+    assert client.get(f"/api/sessions/{sid}").json()["receipt"]["stale"] is True

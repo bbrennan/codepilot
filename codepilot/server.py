@@ -363,7 +363,8 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             if ("folders" in data or data.get("make_main") or data.get("repo")) and sid in busy:
                 # A running turn keeps the folders it started with: a removed one would still be in its reach.
                 return err("This session is working; change its folders once it's done.", 409)
-            if ("folders" in data or data.get("make_main") or data.get("repo")) and sess.pending:
+            if ("folders" in data or data.get("make_main") or data.get("repo")) and store.get_session(sid).pending:
+                # (read now: a turn may have paused for approval while this request's body arrived)
                 # Approving it afterwards would run it in whichever folder is main by then.
                 return err("A command is waiting for your approval; answer it before changing folders.", 409)
             try:
@@ -1100,7 +1101,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             return None
         main = str(Path(sess.repo).expanduser().resolve()) if sess.repo else ""
         stale = receipt["fingerprint"] != verification.current_fingerprint(store, sess.id) \
-            or receipt.get("root", main) != main
+            or receipt.get("root") != main  # (one saved before receipts named their folder: unknown, so stale)
         return {**receipt, "stale": stale}
 
     def git_view(request: Request) -> Response:  # blocking I/O: runs in a worker thread
