@@ -679,3 +679,64 @@ def test_a_receipt_saved_before_receipts_named_their_folder_is_stale(client_and_
                             "status": "pass", "runs": [], "newly_failing": [], "conflict": "", "isolation": [],
                             "seconds": 1.0})  # no "root": which folder it tested isn't known
     assert client.get(f"/api/sessions/{sid}").json()["receipt"]["stale"] is True
+
+
+def test_a_make_main_that_lands_after_another_rebases_from_where_things_are_now(client_and_llm, cfg, store, repo,
+                                                                                tmp_path, monkeypatch):
+    from codepilot import server, tools
+
+    client, _ = client_and_llm
+    api, sid = _with_api(client, repo, tmp_path)
+    lib = tmp_path / "lib"
+    lib.mkdir()
+    client.patch(f"/api/sessions/{sid}", json={"folders": [str(api), str(lib)]}, headers=H)
+    ctx = tools.ToolContext(root=repo.resolve(), cfg=cfg, store=store, session_id=sid,
+                            folders=[api.resolve(), lib.resolve()])
+    tools.propose_edit(ctx, str(api / "agent" / "core.py"), "a - b", "a + b")
+    [prop] = store.list_proposals(sid)
+    read = server.json_body
+
+    async def meanwhile(request, optional=False):  # another tab makes api main while this request arrives
+        data = await read(request, optional)
+        store.update_session(sid, repo=str(api.resolve()), folders=[str(repo.resolve()), str(lib.resolve())])
+        store.set_proposal_path(prop.id, "agent/core.py")
+        return data
+
+    monkeypatch.setattr(server, "json_body", meanwhile)
+    assert client.patch(f"/api/sessions/{sid}", json={"make_main": str(lib)}, headers=H).status_code == 200
+    assert store.get_proposal(prop.id).path == str((api / "agent" / "core.py").resolve())  # not the old main's file
+
+
+def test_folders_cant_change_while_a_change_is_being_applied(client_and_llm, store, repo, tmp_path, monkeypatch):
+    from codepilot import server
+
+    client, _ = client_and_llm
+    api, sid = _with_api(client, repo, tmp_path)
+    ndjson(client.post(f"/api/sessions/{sid}/chat", json={"message": "fix add"}, headers=H))
+    [prop] = store.list_proposals(sid)
+    started, release = threading.Event(), threading.Event()
+    real = server.apply_proposal
+
+    def slow_apply(*args):
+        started.set()
+        release.wait(10)
+        return real(*args)
+
+    monkeypatch.setattr(server, "apply_proposal", slow_apply)
+    applied = threading.Thread(target=lambda: client.post(f"/api/proposals/{prop.id}/apply", headers=H))
+    applied.start()
+    assert started.wait(10)
+    r = client.patch(f"/api/sessions/{sid}", json={"make_main": str(api)}, headers=H)
+    release.set()
+    applied.join(10)
+    assert r.status_code == 409 and "applied" in r.json()["error"]
+
+
+def test_an_empty_main_folder_is_refused_rather_than_meaning_the_servers_own_folder(client_and_llm, store, repo,
+                                                                                   tmp_path):
+    client, _ = client_and_llm
+    api, sid = _with_api(client, repo, tmp_path)
+    for body in ({"repo": ""}, {"repo": "", "folders": [str(api)]}, {"repo": "  "}):
+        r = client.patch(f"/api/sessions/{sid}", json=body, headers=H)
+        assert r.status_code == 400, body
+    assert store.get_session(sid).repo == str(repo.resolve())
