@@ -10,7 +10,7 @@ import sqlite3
 import threading
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -91,6 +91,7 @@ class Session:
     mode: str = "act"
     context_state: dict | None = None
     model: str = ""  # explicit model chosen in the UI; empty = use the tier's model
+    folders: list[str] = field(default_factory=list)  # added folders (folders.py); `repo` is the main one
 
     def public(self) -> dict:
         return {
@@ -98,6 +99,7 @@ class Session:
             "auto_approve": self.auto_approve, "has_summary": bool(self.summary),
             "mode": {"act": "build"}.get(self.mode, self.mode), "model": self.model,
             "pending": self.pending is not None, "created": self.created, "updated": self.updated,
+            "folders": list(self.folders),
         }
 
 
@@ -166,7 +168,7 @@ class Store:
     def _migrate(self) -> None:
         """Add columns introduced after a database was created."""
         wanted = {"sessions": [("mode", "TEXT NOT NULL DEFAULT 'act'"), ("context_state", "TEXT"),
-                               ("model", "TEXT NOT NULL DEFAULT ''")],
+                               ("model", "TEXT NOT NULL DEFAULT ''"), ("folders", "TEXT NOT NULL DEFAULT '[]'")],
                   "proposals": [("before_text", "TEXT"), ("after_text", "TEXT"), ("check_text", "TEXT"),
                                 ("applied_at", "REAL"), ("advice", "TEXT")],
                   "usage": [("local", "INTEGER NOT NULL DEFAULT 0"), ("rewound", "INTEGER NOT NULL DEFAULT 0")]}
@@ -219,7 +221,8 @@ class Store:
         return [self._session(r) for r in rows]
 
     def update_session(self, sid: str, **fields: Any) -> None:
-        allowed = {"title", "tier", "auto_approve", "summary", "pending", "repo", "mode", "context_state", "model"}
+        allowed = {"title", "tier", "auto_approve", "summary", "pending", "repo", "mode", "context_state", "model",
+                   "folders"}
         if not fields or not set(fields) <= allowed:
             raise ValueError(f"bad session fields: {set(fields) - allowed}")
         if "pending" in fields:
@@ -228,6 +231,8 @@ class Store:
             fields["context_state"] = None if fields["context_state"] is None else json.dumps(fields["context_state"])
         if "auto_approve" in fields:
             fields["auto_approve"] = int(bool(fields["auto_approve"]))
+        if "folders" in fields:
+            fields["folders"] = json.dumps([str(p) for p in fields["folders"]])
         cols = ", ".join(f"{k} = ?" for k in fields)
         with self._lock, self._db:
             self._db.execute(f"UPDATE sessions SET {cols}, updated = ? WHERE id = ?",
@@ -245,7 +250,7 @@ class Store:
             pending=_decode(json.loads(row["pending"])) if row["pending"] else None,
             created=row["created"], updated=row["updated"], mode=row["mode"] or "act",
             context_state=json.loads(row["context_state"]) if row["context_state"] else None,
-            model=row["model"] or "",
+            model=row["model"] or "", folders=json.loads(row["folders"] or "[]"),
         )
 
     # -- messages -------------------------------------------------------------------------------

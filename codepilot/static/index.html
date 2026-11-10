@@ -23,7 +23,7 @@
   <!-- Title bar -->
   <header class="titlebar">
     <div class="brand"><span class="logo" data-icon="logo"></span>codepilot</div>
-    <button class="workspace-btn" id="workspaceBtn" title="Open folder"><span data-icon="folder"></span><span id="workspaceName">No folder</span></button>
+    <button class="workspace-btn" id="workspaceBtn" title="This session's folders"><span data-icon="folder"></span><span id="workspaceName">No folder</span></button>
     <button class="palette-btn" id="paletteBtn" title="Go to file (⌘P)"><span data-icon="search"></span><span>Search files</span><kbd>⌘P</kbd></button>
     <button class="menu-btn" id="fileMenuBtn" title="New file or folder, open, save"><span data-icon="file"></span><span>File</span><span data-icon="chevron" class="caret"></span></button>
     <button class="menu-btn" id="terminalMenuBtn" title="Terminals: new, switch, rename, kill"><span data-icon="terminal"></span><span>Terminal</span><span data-icon="chevron" class="caret"></span></button>
@@ -61,7 +61,7 @@
       <div class="view-head"><span id="explorerTitle">Explorer</span><div class="actions">
         <button class="icon-btn sm" id="newFileBtn" title="New file (in the selected folder)" data-icon="filePlus"></button>
         <button class="icon-btn sm" id="newFolderBtn" title="New folder (in the selected folder)" data-icon="folderPlus"></button>
-        <button class="icon-btn sm" id="openFolderBtn" title="Open folder" data-icon="folderOpen"></button>
+        <button class="icon-btn sm" id="openFolderBtn" title="Add a folder to this session" data-icon="folderOpen"></button>
         <button class="icon-btn sm" id="refreshTreeBtn" title="Refresh" data-icon="refresh"></button>
         <button class="icon-btn sm" id="collapseTreeBtn" title="Collapse all" data-icon="collapse"></button>
       </div></div>
@@ -261,6 +261,7 @@
 <script src="/static/layout.js"></script>
 <script src="/static/app.js"></script>
 <script src="/static/sessions.js"></script>
+<script src="/static/folders.js"></script>
 <script src="/static/diff.js"></script>
 <script src="/static/steps.js"></script>
 <script src="/static/checkpoints.js"></script>

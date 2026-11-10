@@ -116,7 +116,9 @@ def prepared(root: Path, proposals: list[Proposal], workdir: Path, copier=clone_
     try:
         copier(root, path)
         copy = Copy(path, isolation=relocate_envs(root, path))
-        for n, p in enumerate(sorted(proposals, key=lambda p: p.id)):
+        # A change in an added folder has its full path: it isn't in this copy of the main folder, so it's left out
+        # (applying it here would write to the real file, or fail as a conflict).
+        for n, p in enumerate(sorted((p for p in proposals if not Path(p.path).is_absolute()), key=lambda p: p.id)):
             if p.path not in copy.originals:
                 target = path / p.path
                 copy.originals[p.path] = textfile.read(target, errors="replace") if target.is_file() else None

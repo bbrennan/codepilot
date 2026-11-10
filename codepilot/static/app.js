@@ -294,7 +294,7 @@ async function openSession(sid) {
 function setWorkspace(repo, changed = true) {
   state.workspace = repo || "";
   if (state.session) state.session.repo = repo;
-  $("#workspaceName").textContent = repo ? base(repo) : "Open folder…";
+  $("#workspaceName").textContent = folderButtonLabel(repo); // folders.js
   $("#workspaceBtn").title = tilde(repo) || "Open folder";
   $("#explorerTitle").textContent = repo ? base(repo) : "Explorer";
   if (changed) {
@@ -308,6 +308,7 @@ function setWorkspace(repo, changed = true) {
   if ($(".view.on")?.dataset.view === "traces") loadTraces();
 }
 async function openFolder() {
+  if (state.workspace) return folderMenu(); // folders.js: add a folder, or open one in a new session
   const path = await browseFolder(state.workspace ? dirOf(state.workspace) || state.workspace : state.cfg.default_repo || "");
   if (!path) return;
   await useFolder(path);
@@ -320,7 +321,7 @@ async function useFolder(path) {
   } catch (err) { toast(err.message, true); }
 }
 $("#workspaceBtn").onclick = openFolder;
-$("#openFolderBtn").onclick = openFolder;
+$("#openFolderBtn").onclick = () => (state.workspace ? addFolder() : openFolder());
 $("#refreshTreeBtn").onclick = () => { state.tree.clear(); renderTree(); };
 $("#collapseTreeBtn").onclick = () => { state.expanded.clear(); renderTree(); };
 
@@ -392,7 +393,7 @@ async function renderTree() {
       }
     }
   };
-  await walk(".", 0);
+  await walkFolders(walk, rows); // folders.js: each of the session's folders
   el.innerHTML = rows.join("") || `<div class="empty-state">Empty folder.</div>`;
 }
 $("#tree").addEventListener("click", (e) => {

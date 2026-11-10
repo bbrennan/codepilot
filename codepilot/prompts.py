@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
+
+from .folders import prompt_line as folder_line
 
 STATIC = """You are Codepilot, a senior engineer pairing with the user on code on their machine. You review code, \
 find and fix bugs, explain how things work, write tests, and investigate runs using tests, logs, and traces.
@@ -60,12 +63,15 @@ matter. Do not suggest you will do more work later; this reply is final."""
 def build_system(root: Path | None, test_cmd: str, eval_cmd: str, trace_roots: list[Path], log_groups: list[str],
                  notes: str, summary: str, top_level: list[str], skills: list, instructions: str,
                  repo_map: str = "", git_summary: str = "", mode_text: str = "",
-                 checks: list[str] | None = None, auto_apply: bool = False, steering_auto: str = "") -> list[dict]:
+                 checks: list[str] | None = None, auto_apply: bool = False, steering_auto: str = "",
+                 folders: Sequence[Path] = ()) -> list[dict]:
     """Static text first (cacheable), then workspace and session context marked dynamic."""
     if root is None:
         ctx = ["Workspace: none open yet. Ask the user which directory to work on, or use a path they mention."]
     else:
         ctx = [f"Workspace: {root}", f"Test command: {test_cmd or '(none detected; ask, or use run_command)'}"]
+        if folders:
+            ctx.append(folder_line(folders))
         if eval_cmd:
             ctx.append(f"Eval command (run via run_command): {eval_cmd}")
         if trace_roots:

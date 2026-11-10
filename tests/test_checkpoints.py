@@ -108,7 +108,7 @@ def test_restore_reports_what_it_managed_when_a_write_fails(store, repo):
     created = applied(store, repo, sid, "agent/new.py", "", "x = 1\n")
     calls = []
 
-    def revert(root, p):
+    def revert(root, p, added=()):
         calls.append(p.id)
         if p.path == "agent/core.py":
             raise PermissionError("read-only file system")

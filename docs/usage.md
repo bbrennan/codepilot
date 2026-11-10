@@ -57,6 +57,15 @@ Either:
 - click **Open folder…** (title bar or Explorer) and browse to the project, or
 - just say it in chat: "Review ~/code/payments for bugs". codepilot asks before opening the folder.
 
+**More than one folder.** A session can have folders besides its main one: another repo, a docs folder, a shared
+library. Click the folder button in the title bar (it shows `payments +1` once there's more than one) → **Add
+folder…**; or **Open folder in a new session…** to start fresh there. The button never replaces a session's folder.
+Each folder is then a top-level entry in the Explorer, the main one first; right-click one to **Make main folder** or
+**Remove from session** (from the session, not the disk). codepilot reads, searches and changes files in every folder,
+and changes there are reviewed, applied and undone as usual; it names an added folder's files by their full path. Tests,
+the terminal and specs use the main folder; **Verify** checks the main folder's changes. A folder that has moved or
+gone says so in the Explorer, with **Remove from session**.
+
 A session is one conversation about one folder at a time. Make as many as you like (**+** in the chat header);
 they run independently, so one can keep working while you look at another. Each session keeps its full
 history. To go back to one:
