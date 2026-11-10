@@ -730,3 +730,13 @@ def test_folders_cant_change_while_a_change_is_being_applied(client_and_llm, sto
     release.set()
     applied.join(10)
     assert r.status_code == 409 and "applied" in r.json()["error"]
+
+
+def test_an_empty_main_folder_is_refused_rather_than_meaning_the_servers_own_folder(client_and_llm, store, repo,
+                                                                                   tmp_path):
+    client, _ = client_and_llm
+    api, sid = _with_api(client, repo, tmp_path)
+    for body in ({"repo": ""}, {"repo": "", "folders": [str(api)]}, {"repo": "  "}):
+        r = client.patch(f"/api/sessions/{sid}", json=body, headers=H)
+        assert r.status_code == 400, body
+    assert store.get_session(sid).repo == str(repo.resolve())

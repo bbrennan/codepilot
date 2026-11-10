@@ -59,7 +59,7 @@ def prompt_line(added: Sequence[Path]) -> str:
 def patch(main: str, have: Sequence[str], data: dict) -> dict:
     """The session fields a PATCH asks for: `folders` (the whole list of added folders, so removing one is sending the
     rest), `make_main` (an added folder), or a new main folder `repo` (added folders it overlaps are dropped)."""
-    if data.get("repo") and ("folders" in data or data.get("make_main")):  # each is checked against the other's
+    if "repo" in data and ("folders" in data or data.get("make_main")):  # each is checked against the other's
         raise ValueError("Change the main folder and the added folders separately.")
     if data.get("make_main"):
         repo, rest = make_main(main, have, str(data["make_main"]))

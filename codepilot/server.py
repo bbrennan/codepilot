@@ -361,10 +361,12 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             data = await json_body(request)
             sess = store.get_session(sid)  # as it is now: another request may have changed it while this body arrived
             fields = {k: data[k] for k in ("title", "tier", "auto_approve", "repo", "mode", "model") if k in data}
-            if ("folders" in data or data.get("make_main") or data.get("repo")) and sid in busy:
+            if "repo" in data and not str(data["repo"] or "").strip():  # "" would resolve to the server's own folder
+                return err("Choose a folder.")
+            if ("folders" in data or data.get("make_main") or "repo" in data) and sid in busy:
                 # A running turn keeps the folders it started with: a removed one would still be in its reach.
                 return err("This session is working; change its folders once it's done.", 409)
-            if ("folders" in data or data.get("make_main") or data.get("repo")) and sess.pending:
+            if ("folders" in data or data.get("make_main") or "repo" in data) and sess.pending:
                 # Approving it afterwards would run it in whichever folder is main by then.
                 return err("A command is waiting for your approval; answer it before changing folders.", 409)
             if ("folders" in data or data.get("make_main") or data.get("repo")) \
