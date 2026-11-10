@@ -564,7 +564,7 @@ def test_stop_while_your_message_loads_its_attachments_stops_the_turn(cfg, store
     sess = store.create_session(str(repo), "main")
     list(agent.chat(sess.id, "deploy it"))  # a command waits for approval
 
-    def slow_link(text, root):  # an image link still downloading when you press Stop
+    def slow_link(text, root, added=()):  # an image link still downloading when you press Stop
         agent.cancel(sess.id)
         return [], []
 

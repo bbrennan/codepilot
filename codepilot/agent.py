@@ -323,7 +323,7 @@ class Agent:
         if block:
             blocks.append({"text": block})
             yield {"type": "attached", "paths": labels}
-        linked, problems = images.from_message(text, root)
+        linked, problems = images.from_message(text, root, folders.added(self.store.get_session(session_id)))
         shown = [(b, "pasted") for b in (pasted or [])] + linked
         for problem in problems:
             yield {"type": "notice", "message": f"Couldn't attach image {problem}"}
@@ -383,14 +383,15 @@ class Agent:
         """Docs the user asked for with #name, and fileMatch docs for files they @-referenced."""
         asked = steering.requested(text, root, self.cfg.home)
         added = folders.added(self.store.get_session(session_id))
-        rels = [m["rel"] for m in mentions.find_mentions(root, text, added) if m["path"].is_file()]
+        paths = [m["path"] for m in mentions.find_mentions(root, text, added) if m["path"].is_file()]
         skip = self._steering_loaded(session_id) | {d.label for d in asked}
-        matched = steering.for_files(rels, root, self.cfg.home, skip) if rels else []
+        found = steering.for_paths(paths, root, added, self.cfg.home, skip) if paths and root else []
+        matched = [d for d, _ in found]
         if not asked and not matched:
             return None
         self._mark_steering(session_id, asked + matched)
         parts = [steering.render(d, root, "requested by the user") for d in asked]
-        parts += [steering.render(d, root, "applies to " + ", ".join(d.patterns)) for d in matched]
+        parts += [steering.render(d, owner, "applies to " + ", ".join(d.patterns)) for d, owner in found]
         return "\n\n".join(parts), [d.name for d in asked + matched]
 
     def _file_steering(self, ctx: ToolContext, tu: dict) -> list:
@@ -401,7 +402,8 @@ class Agent:
             path = ctx.resolve(str(tu["input"].get("path", "")), must_exist=False)
         except ToolError:
             return []
-        docs = steering.for_files([ctx.rel(path)], ctx.root, self.cfg.home, self._steering_loaded(ctx.session_id))
+        docs = [d for d, _ in steering.for_paths([path], ctx.root, ctx.folders, self.cfg.home,
+                                                 self._steering_loaded(ctx.session_id))]
         if docs:
             self._mark_steering(ctx.session_id, docs)
         return docs

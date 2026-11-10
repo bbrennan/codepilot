@@ -24,7 +24,8 @@ from __future__ import annotations
 
 import hashlib
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from collections.abc import Sequence
 from pathlib import Path
 
 from .context import DEFAULT_TOKENS_PER_CHAR
@@ -268,6 +269,26 @@ def for_files(rels: list[str], root: Path | None, home: Path, already: set[str])
                 and any(glob_match(r, p) for r in rels for p in d.patterns):
             found.append(d)
     return found
+
+
+def for_paths(paths: list[Path], root: Path, added: Sequence[Path], home: Path, already: set[str]
+              ) -> list[tuple[Doc, Path]]:
+    """fileMatch docs for these files, each matched by the folder it's in (the main one or an added one) against
+    its path there: a rule in one repo never applies to another's files. Returns (doc, its folder) pairs; an added
+    folder's own docs are labelled with the folder's name."""
+    out: list[tuple[Doc, Path]] = []
+    seen = set(already)
+    for path in paths:
+        owner = next((f for f in added if path == f or f in path.parents), root)
+        rel = str(path.relative_to(owner)) if path != owner else "."
+        for d in for_files([rel], owner, home, seen):
+            if owner != root and d.scope == "workspace":
+                d = replace(d, label=f"{owner.name}/{d.label}")
+                if d.label in seen:
+                    continue
+            seen.add(d.label)
+            out.append((d, owner))
+    return out
 
 
 def requested(text: str, root: Path | None, home: Path) -> list[Doc]:

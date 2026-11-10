@@ -214,8 +214,9 @@ def _search_in(ctx: ToolContext, base: Path, regex: re.Pattern, pattern: str, gl
         return fast
     hits: list[str] = []
     for file in _iter_files(ctx, base):
-        rel = ctx.rel(file)
-        if glob and not (fnmatch.fnmatch(rel, glob) or fnmatch.fnmatch(file.name, glob)):
+        rel, top = ctx.rel(file), _folder_of(ctx, file)
+        mine = str(file.relative_to(top))  # the glob is about the path in its own folder, not the full path
+        if glob and not (fnmatch.fnmatch(mine, glob) or fnmatch.fnmatch(file.name, glob)):
             continue
         if _is_binary(file):
             continue

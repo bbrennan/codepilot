@@ -92,9 +92,9 @@ function shownPath(p) {
 function addedGit(list) {
   for (const g of list || []) {
     if (!g.git) continue;
-    const lines = g.status.split("\n").filter(Boolean);
+    const files = g.files || [];
     $("#gitList").insertAdjacentHTML("beforeend", `<div class="group-head" title="${esc(tilde(g.path))}">${esc(base(g.path))} <span class="muted">· ${esc(g.branch)}</span></div>`
-      + (lines.map((l) => { const code = l.slice(0, 2).trim(), path = `${g.path}/${l.slice(3)}`; return `<div class="row" data-gitfile="${esc(path)}">${fileIcon(path)}<span class="name">${esc(l.slice(3))}</span><span class="meta mono">${esc(code)}</span></div>`; }).join("")
+      + (files.map((f) => { const path = `${g.path}/${f.path}`; return `<div class="row" data-gitfile="${esc(path)}">${fileIcon(path)}<span class="name">${esc(f.path)}</span><span class="meta mono">${esc(f.code)}</span></div>`; }).join("")
         || '<div class="hint" style="padding:0 14px">Clean working tree.</div>'));
   }
 }

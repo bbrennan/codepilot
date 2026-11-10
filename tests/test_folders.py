@@ -190,3 +190,41 @@ def test_an_added_folders_steering_is_followed(ctx, api, cfg, store):
     (api / "AGENTS.md").write_text("Use spaces in the API.\n")  # an edit applies from the next request
     after = agent._session_system(store.get_session(ctx.session_id), agent._ctx(sess))
     assert before != after and "Use spaces in the API." in "".join(b.get("text", "") for b in after)
+
+
+# -- from review (task 2) -------------------------------------------------------------------------------------------
+
+
+def test_an_image_mentioned_in_an_added_folder_is_attached(repo, api):
+    from test_images import PNG
+
+    from codepilot import images
+
+    (api / "shot.png").write_bytes(PNG)
+    found, problems = images.from_message(f"what's wrong here? @{api.resolve()}/shot.png", repo.resolve(),
+                                          added=[api.resolve()])
+    assert len(found) == 1 and problems == []
+
+
+def test_an_added_folders_files_get_its_own_file_steering_not_the_main_folders(ctx, api, cfg, store):
+    from codepilot.agent import Agent
+    from fakes import FakeLLM
+
+    for folder, rule in ((ctx.root, "Main folder Python rule."), (api, "API Python rule.")):
+        (folder / ".codepilot" / "steering").mkdir(parents=True, exist_ok=True)
+        (folder / ".codepilot" / "steering" / "py.md").write_text(
+            f"---\ninclusion: fileMatch\nfileMatchPattern: 'src/*.py'\n---\n{rule}\n")
+    (ctx.root / "src").mkdir()
+    (ctx.root / "src" / "main.py").write_text("x = 1\n")
+    agent = Agent(cfg, store, llm=FakeLLM([]))
+    text, _ = agent._message_steering(ctx.session_id, ctx.root, f"look at @{(api / 'src' / 'app.py').resolve()}")
+    assert "API Python rule." in text and "Main folder Python rule." not in text
+    docs = agent._file_steering(ctx, {"name": "read_file", "input": {"path": "src/main.py"}})
+    assert [d.body.strip() for d in docs] == ["Main folder Python rule."]  # the main folder's, as before
+
+
+def test_a_glob_matches_an_added_folders_paths_without_ripgrep(ctx, api, monkeypatch):
+    from codepilot import tools
+
+    monkeypatch.setattr(tools.shutil, "which", lambda name: None)
+    assert "app.py:1: PORT = 8000" in tools.search_code(ctx, "PORT", glob="src/*.py")

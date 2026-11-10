@@ -1106,9 +1106,16 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
 
             branch = out("symbolic-ref", "--short", "-q", "HEAD").stdout.strip() \
                 or out("rev-parse", "--short", "HEAD").stdout.strip()
-            status = out("status", "--short")
-            return {"path": str(folder), "git": True, "branch": branch,
-                    "status": status.stdout if status.returncode == 0 else ""}
+            # NUL-separated porcelain: the real names (no quoting of spaces or accents; a rename's new name).
+            status = out("status", "--porcelain=v1", "-z")
+            entries = status.stdout.split("\0") if status.returncode == 0 else []
+            files, i = [], 0
+            while i < len(entries):
+                entry = entries[i]
+                if len(entry) > 3:
+                    files.append({"path": entry[3:], "code": entry[:2].strip()})
+                i += 2 if entry[:1] in ("R", "C") else 1  # a rename's or copy's old name follows
+            return {"path": str(folder), "git": True, "branch": branch, "files": files}
 
         added = [git_of(f) for f in ctx.folders if f.is_dir()]
         if not (ctx.root / ".git").exists():

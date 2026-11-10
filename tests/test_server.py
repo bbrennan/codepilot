@@ -596,4 +596,20 @@ def test_search_go_to_file_and_git_reach_an_added_folder(client_and_llm, repo, t
     g = client.get(f"/api/sessions/{sid}/git").json()
     [other] = g["folders"]
     assert other["path"] == str(api.resolve()) and other["git"] and other["branch"] == "trunk"
-    assert "README.md" in other["status"]
+    assert "README.md" in {f["path"] for f in other["files"]}
+
+
+def test_an_added_folders_changes_are_listed_by_their_real_names(client_and_llm, repo, tmp_path):
+    import subprocess
+
+    client, _ = client_and_llm
+    api, sid = _with_api(client, repo, tmp_path)
+    git = ["git", "-C", str(api), "-c", "user.name=T", "-c", "user.email=t@example.invalid"]
+    subprocess.run(["git", "init", "-q", str(api)], check=True)
+    (api / "old.py").write_text("x = 1\n")
+    subprocess.run([*git, "add", "-A"], check=True)
+    subprocess.run([*git, "commit", "-qm", "init"], check=True)
+    subprocess.run([*git, "mv", "old.py", "new.py"], check=True)
+    (api / "my file é.py").write_text("y = 2\n")
+    [other] = client.get(f"/api/sessions/{sid}/git").json()["folders"]
+    assert {(f["path"], f["code"]) for f in other["files"]} >= {("new.py", "R"), ("my file é.py", "??")}
