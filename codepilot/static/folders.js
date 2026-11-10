@@ -11,13 +11,17 @@ const closedRoots = new Set(); // folders folded in the Explorer (all open by de
 const folderButtonLabel = (repo) => repo ? base(repo) + (addedFolders().length ? ` +${addedFolders().length}` : "") : "Open folder…";
 
 async function setFolders(body) {
+  if (state.changingFolders) return toast("Already changing this session's folders: one moment.", true);
   const sid = state.sid;
+  state.changingFolders = true; // editFile waits; open editors are read-only until the session reloads
+  $$("#editor textarea").forEach((t) => { t.readOnly = true; });
   try {
     const d = await api(`/api/sessions/${sid}`, { method: "PATCH", body });
     if (state.sid !== sid) { loadSessions(); return; } // you've opened another session meanwhile: leave it be
     // Reopened as the server now has it: changes rebased onto the new main folder, or outdated by a removed one.
     if (d.session) await openSession(sid);
   } catch (err) { toast(err.message, true); }
+  finally { state.changingFolders = false; $$("#editor textarea").forEach((t) => { t.readOnly = false; }); }
 }
 const browseNear = () => browseFolder(dirOf(state.workspace) || state.workspace || state.cfg.default_repo || "");
 async function addFolder() { const path = await browseNear(); if (path) await setFolders({ folders: [...addedFolders(), path] }); }

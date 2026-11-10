@@ -8,7 +8,7 @@ const idList = (ids) => ids.map((i) => `#${i}`).join(", ");
 // A receipt speaks for exactly the changes it tested: any change to the pending set makes it stale.
 function receiptIsCurrent(r) {
   const now = pendingIds(), then = [...(r?.proposal_ids || [])].sort((a, b) => a - b);
-  return !!r && now.length === then.length && now.every((id, i) => id === then[i]);
+  return !!r && !r.stale && now.length === then.length && now.every((id, i) => id === then[i]); // (stale: the server says)
 }
 
 function runWord(run) {
