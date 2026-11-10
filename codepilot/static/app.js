@@ -74,6 +74,7 @@ const ICONS = {
   up: '<path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>',
   home: '<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
   cloud: '<path d="M17.5 19a4.5 4.5 0 1 0-1.4-8.8A6 6 0 0 0 4.3 12.6 3.5 3.5 0 0 0 6.5 19z"/>',
+  progress: '<path d="m3 6 2 2 4-4"/><path d="m3 16 2 2 4-4"/><path d="M13 6h8M13 12h8M13 18h8"/>',
   link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
 };
 const icon = (name, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ICONS.file}</svg>`;
@@ -180,7 +181,7 @@ async function init() {
     $("#sbGithub").innerHTML = g.available ? `${icon("branch")}github: ${esc(g.user)}${g.host !== "github.com" ? " @ " + esc(g.host) : ""}` : `<span title="GitHub isn't connected: ${esc(g.reason || "")}">${icon("branch")}github off</span>`;
     $("#sbGithub").className = "sb-item"; // not connected is a state you chose, not a warning
   }).catch(() => {});
-  setView(store("cp-view") || "explorer", false); // keep a hidden sidebar hidden
+  setView(store("cp-view") || "sessions", false); // keep a hidden sidebar hidden; a first visit shows Sessions
   const list = await loadSessions();
   const last = store("cp-session");
   if (last && list.some((s) => s.id === last)) await openSession(last);
@@ -222,11 +223,7 @@ const shortModel = (m) => String(m).replace(/^((us|eu|apac|global)\.)?anthropic\
 async function loadSessions() {
   const list = await api("/api/sessions").catch(() => []);
   state.sessionList = list;
-  $("#sessionList").innerHTML = list.map((s) => `<div class="session ${s.id === state.sid ? "on" : ""}" data-id="${s.id}">
-      <div class="t">${esc(s.title || "New session")}</div>
-      <div class="r">${s.busy || state.streams.has(s.id) ? '<span class="spinner"></span>' : ""}<span>${esc(s.repo ? base(s.repo) : "no folder")}</span><span>·</span><span>${ago(s.updated)}</span></div>
-      <button class="icon-btn sm del" data-del="${s.id}" title="Delete session">${icon("trash")}</button></div>`).join("")
-    || `<div class="empty-state">No sessions yet.<br><button class="btn primary" onclick="newSession()">${icon("plus")}New session</button></div>`;
+  renderSessions(list); // sessions.js
   return list;
 }
 async function pollSessions() {
@@ -240,7 +237,7 @@ $("#sessionList").addEventListener("click", async (e) => {
     e.stopPropagation();
     if (!confirm("Delete this session and its history?")) return;
     await api(`/api/sessions/${del.dataset.del}`, { method: "DELETE" });
-    if (del.dataset.del === state.sid) { state.sid = null; store("cp-session", ""); renderChatEmpty(); }
+    if (del.dataset.del === state.sid) { state.sid = null; store("cp-session", ""); renderChatEmpty(); resetPlan(); } // (its Progress too)
     loadSessions(); return;
   }
   const row = e.target.closest(".session"); if (row) openSession(row.dataset.id);
@@ -263,6 +260,7 @@ async function openSession(sid) {
   const prevWorkspace = state.workspace;
   state.sid = sid; state.workspace = null; store("cp-session", sid);
   const data = await api(`/api/sessions/${sid}`);
+  if (state.sid !== sid) return; // another session was opened meanwhile: this answer is for one no longer shown
   state.session = data.session;
   $("#chatTitle").textContent = data.session.title || "New session";
   syncModelSelect(); $("#autoApprove").checked = data.session.auto_approve; $("#autoApply").checked = !!data.auto_apply;
@@ -272,9 +270,10 @@ async function openSession(sid) {
   state.prompts = data.events.filter((ev) => ev.type === "user").map((ev) => ev.text); resetHistory();
   state.workspace = data.session.repo || "";
   if (!data.events.length) renderChatEmpty();
-  for (const ev of data.events) render(ev, true);
+  state.replaying = true; // (progress.js: a replayed plan doesn't switch the sidebar)
+  try { for (const ev of data.events) render(ev, true); } finally { state.replaying = false; }
   // Changes are redrawn where they were proposed (proposal_ref); anything still waiting that wasn't goes last.
-  for (const p of data.proposals) if (p.status === "pending" && !$(`#transcript [data-prop="${p.id}"]`)) renderProposalCard(p);
+  for (const p of data.proposals) if (p.status === "pending" && !$(`${CHAT_AND_PROGRESS} [data-prop="${p.id}"]`)) renderProposalCard(p);
   state.approval = null; state.allow = data.allow || []; state.receipt = data.receipt; state.verifying = null;
   state.taint = data.taint || []; renderTaintChip();
   if (data.pending) render({ type: "approval_needed", tools: data.pending }, true);
@@ -296,7 +295,7 @@ async function openSession(sid) {
 function setWorkspace(repo, changed = true) {
   state.workspace = repo || "";
   if (state.session) state.session.repo = repo;
-  $("#workspaceName").textContent = repo ? base(repo) : "Open folder…";
+  $("#workspaceName").textContent = folderButtonLabel(repo); // folders.js
   $("#workspaceBtn").title = tilde(repo) || "Open folder";
   $("#explorerTitle").textContent = repo ? base(repo) : "Explorer";
   if (changed) {
@@ -310,6 +309,7 @@ function setWorkspace(repo, changed = true) {
   if ($(".view.on")?.dataset.view === "traces") loadTraces();
 }
 async function openFolder() {
+  if (state.workspace) return folderMenu(); // folders.js: add a folder, or open one in a new session
   const path = await browseFolder(state.workspace ? dirOf(state.workspace) || state.workspace : state.cfg.default_repo || "");
   if (!path) return;
   await useFolder(path);
@@ -322,7 +322,7 @@ async function useFolder(path) {
   } catch (err) { toast(err.message, true); }
 }
 $("#workspaceBtn").onclick = openFolder;
-$("#openFolderBtn").onclick = openFolder;
+$("#openFolderBtn").onclick = () => (state.workspace ? addFolder() : openFolder());
 $("#refreshTreeBtn").onclick = () => { state.tree.clear(); renderTree(); };
 $("#collapseTreeBtn").onclick = () => { state.expanded.clear(); renderTree(); };
 
@@ -340,7 +340,7 @@ const disk = { dirs: new Map(), busy: false, sid: null, warned: new Set() };
 async function checkDisk() {
   if (!state.sid || !state.workspace || disk.busy || document.hidden) return;
   if (disk.sid !== state.sid) { disk.sid = state.sid; disk.dirs.clear(); disk.warned.clear(); }
-  const dirs = [...new Set([".", ...state.expanded])].filter((p) => state.tree.has(p));
+  const dirs = [...new Set([".", ...state.expanded, ...openAddedFolders()])].filter((p) => state.tree.has(p)); // (folders.js)
   const tabs = state.tabs.filter((t) => t.kind === "file" && !t.global && t.content != null && t.mtime);
   if (!dirs.length && !tabs.length) return;
   disk.busy = true;
@@ -394,7 +394,7 @@ async function renderTree() {
       }
     }
   };
-  await walk(".", 0);
+  await walkFolders(walk, rows); // folders.js: each of the session's folders
   el.innerHTML = rows.join("") || `<div class="empty-state">Empty folder.</div>`;
 }
 $("#tree").addEventListener("click", (e) => {
@@ -416,10 +416,14 @@ $("#tree").addEventListener("dragstart", (e) => {
 const isFileDrag = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
 // A file dropped anywhere else would make the browser navigate to it and leave codepilot behind.
 for (const ev of ["dragover", "drop"]) window.addEventListener(ev, (e) => { if (isFileDrag(e)) e.preventDefault(); });
-function dropDir(e) { const r = e.target.closest?.("[data-file],[data-dir]"); return !r ? "" : r.dataset.dir ?? dirOf(r.dataset.file); }
+function dropDir(e) {
+  const root = e.target.closest?.(".row.root"); // a folder's own entry (folders.js): the main one is the top level
+  if (root) return root.dataset.root === state.workspace ? "" : root.dataset.root;
+  const r = e.target.closest?.("[data-file],[data-dir]"); return !r ? "" : r.dataset.dir ?? dirOf(r.dataset.file);
+}
 function markDropTarget(e) {
   $$("#tree .drop-target").forEach((r) => r.classList.remove("drop-target"));
-  const dir = dropDir(e); (dir ? $(`#tree [data-dir="${CSS.escape(dir)}"]`) : $("#tree"))?.classList.add("drop-target");
+  const dir = dropDir(e); (dir ? $(`#tree [data-dir="${CSS.escape(dir)}"], #tree .row.root[data-root="${CSS.escape(dir)}"]`) : $("#tree"))?.classList.add("drop-target");
 }
 $("#tree").addEventListener("dragover", (e) => { if (!isFileDrag(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = "copy"; markDropTarget(e); });
 $("#tree").addEventListener("dragleave", (e) => { if (!$("#tree").contains(e.relatedTarget)) $$("#tree .drop-target").forEach((r) => r.classList.remove("drop-target")); });
@@ -721,6 +725,7 @@ $("#editor").addEventListener("click", (e) => {
 
 // edit mode: a plain-text editor with Save (⌘S), dirty tracking and a check for changes made on disk
 function editFile(id) {
+  if (state.changingFolders) return toast("Changing the session's folders: edit once that's done.", true); // folders.js
   const t = state.tabs.find((x) => x.id === id); if (!t || t.content == null) return;
   t.editing = true; if (t.draft == null) t.draft = t.content;
   state.active = id; renderEditor();
@@ -745,6 +750,7 @@ function renderEditTab(tab) {
   if (tab.editPreview) { renderMermaid($("#docBody")); $("#fDone").onclick = () => { tab.editPreview = false; renderEditor(); }; return; }
   const ta = $("#codeEdit");
   ta.value = tab.draft ?? tab.content;
+  ta.readOnly = !!state.changingFolders; // (folders.js: the session reloads once its folders change)
   const caret = Math.min(tab.caret ?? 0, ta.value.length);
   ta.focus(); ta.setSelectionRange(caret, caret);
   if (tab.scroll) ta.scrollTop = tab.scroll;
@@ -752,7 +758,8 @@ function renderEditTab(tab) {
   ta.onblur = () => { tab.caret = ta.selectionStart; tab.scroll = ta.scrollTop; };
   ta.onkeydown = (e) => {
     if (e.key === "Tab" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
-      e.preventDefault(); ta.setRangeText(indentUnit(tab.content), ta.selectionStart, ta.selectionEnd, "end"); ta.oninput();
+      e.preventDefault(); if (ta.readOnly) return; // setRangeText would write into a locked editor
+      ta.setRangeText(indentUnit(tab.content), ta.selectionStart, ta.selectionEnd, "end"); ta.oninput();
     }
   };
   $("#fSave").onclick = () => saveFile(tab);
@@ -989,7 +996,7 @@ const runGrep = debounce(async () => {
     for (const r of d.results) { if (!byFile.has(r.path)) byFile.set(r.path, []); byFile.get(r.path).push(r); }
     $("#grepStatus").textContent = `${d.results.length} result${d.results.length === 1 ? "" : "s"} in ${byFile.size} file${byFile.size === 1 ? "" : "s"}${d.truncated ? " (limited)" : ""}`;
     let rx; try { rx = new RegExp(q, "gi"); } catch { rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"); }
-    $("#grepResults").innerHTML = [...byFile].map(([path, hits]) => `<div class="grep-file"><div class="row" data-gfile="${esc(path)}">${fileIcon(path)}<span class="name">${esc(base(path))}</span><span class="meta">${esc(dirOf(path))}</span></div>
+    $("#grepResults").innerHTML = [...byFile].map(([path, hits]) => `<div class="grep-file"><div class="row" data-gfile="${esc(path)}">${fileIcon(path)}<span class="name">${esc(base(path))}</span><span class="meta">${esc(dirOf(shownPath(path)))}</span></div>
       ${hits.map((h) => `<div class="grep-hit" data-gpath="${esc(h.path)}" data-gline="${h.line}"><b>${h.line}</b>${esc(h.text.trim()).replace(rx, (m) => `<mark>${m}</mark>`)}</div>`).join("")}</div>`).join("");
   } catch (err) { $("#grepStatus").textContent = err.message; }
 }, 250);
@@ -1031,7 +1038,7 @@ $("#proposalList").addEventListener("click", (e) => { const r = e.target.closest
 async function loadGit() {
   if (!state.sid || !state.workspace) { $("#gitList").innerHTML = ""; $("#sbBranch").innerHTML = ""; $("#gitBranch").textContent = ""; return; }
   const g = await api(`/api/sessions/${state.sid}/git`).catch(() => null);
-  if (!g || !g.git) { $("#gitList").innerHTML = `<div class="hint" style="padding:0 14px">Not a git repository.</div>`; $("#sbBranch").innerHTML = ""; return; }
+  if (!g || !g.git) { $("#gitList").innerHTML = `<div class="hint" style="padding:0 14px">Not a git repository.</div>`; $("#sbBranch").innerHTML = ""; addedGit(g?.folders); return; }
   $("#gitBranch").textContent = "· " + g.branch;
   $("#sbBranch").innerHTML = `${icon("branch")}${esc(g.branch)}`;
   const lines = g.status.split("\n").filter(Boolean);
@@ -1039,6 +1046,7 @@ async function loadGit() {
     + lines.map((l) => { const code = l.slice(0, 2).trim(), path = l.slice(3); return `<div class="row" data-gitfile="${esc(path)}">${fileIcon(path)}<span class="name">${esc(path)}</span><span class="meta mono">${esc(code)}</span></div>`; }).join("")
     || `<div class="hint" style="padding:0 14px">Clean working tree.</div>`;
   $("#openGitDiff") && ($("#openGitDiff").onclick = openGitDiff);
+  addedGit(g.folders); // folders.js: each added folder's changes under its own heading
 }
 $("#gitList").addEventListener("click", (e) => { const r = e.target.closest("[data-gitfile]"); if (r && !r.dataset.gitfile.endsWith("/")) openFile(r.dataset.gitfile); });
 $("#refreshGitBtn").onclick = loadGit;
@@ -1354,11 +1362,11 @@ function render(ev, replay) {
       endText();
       const known = state.proposals.get(ev.proposal.id);
       state.proposals.set(ev.proposal.id, { ...known, ...ev.proposal, diff: ev.proposal.diff || known?.diff || "" });
-      if ($(`#transcript [data-prop="${ev.proposal.id}"]`)) refreshProposalViews(ev.proposal.id); // e.g. superseded
+      if ($(`${CHAT_AND_PROGRESS} [data-prop="${ev.proposal.id}"]`)) refreshProposalViews(ev.proposal.id); // e.g. superseded
       else { renderProposalCard(state.proposals.get(ev.proposal.id)); foldChangeStep(ev.proposal.id); renderProposalList(); renderReviewBar(); }
       break;
     }
-    case "proposal_ref": { const p = state.proposals.get(ev.id); if (p && !$(`#transcript [data-prop="${p.id}"]`)) { renderProposalCard(p); foldChangeStep(p.id); } break; }
+    case "proposal_ref": { const p = state.proposals.get(ev.id); if (p && !$(`${CHAT_AND_PROGRESS} [data-prop="${p.id}"]`)) { renderProposalCard(p); foldChangeStep(p.id); } break; }
     case "proposals_changed": for (const id of ev.ids) { const p = state.proposals.get(id); if (p) { p.status = "discarded"; refreshProposalViews(id); } } break;
     case "approval_needed": {
       endText();
@@ -1409,7 +1417,8 @@ function renderProposalCard(p) {
     <span class="pacts">${propActions(p)}</span></summary>
     ${p.reason ? `<div class="reason">${esc(p.reason)}</div>` : ""}${diffHtml(p.diff)}</details>`);
 }
-$("#transcript").addEventListener("click", (e) => {
+// The chat's links and buttons; the same for the work filed under a step in Progress.
+function chatClick(e) {
   const act = e.target.closest(".msg.user[data-mid] .msg-actions [data-act]");
   if (act) { const el = act.closest(".msg.user"); ({ edit: editMessage, retry: retryFrom, undo: undoFrom })[act.dataset.act](el); return; }
   if (e.target.closest("[data-retry-last]")) { const el = lastTurnBubble(); if (el) retryFrom(el); return; }
@@ -1432,7 +1441,9 @@ $("#transcript").addEventListener("click", (e) => {
   const so = e.target.closest("[data-spec-open]"); if (so) { openSpec(so.dataset.specOpen); return; }
   const cp = e.target.closest(".copy");
   if (cp) { navigator.clipboard?.writeText(cp.parentElement.querySelector("code").innerText); toast("Copied"); }
-});
+}
+$("#transcript").addEventListener("click", chatClick);
+$("#progressList").addEventListener("click", chatClick);
 
 function activity(kind, name, detail, body) {
   state.activity++; $("#actCount").textContent = state.activity;
@@ -1774,7 +1785,7 @@ function renderMentions() {
   const pop = $("#mentionPop");
   if (!mention.items.length) { pop.hidden = true; mention.open = false; return; }
   mention.open = true; pop.hidden = false;
-  pop.innerHTML = mention.items.map((f, i) => `<div class="opt ${i === mention.idx ? "on" : ""}" data-i="${i}">${fileIcon(f)}<span>${esc(base(f))}</span><span class="dir">${esc(dirOf(f))}</span></div>`).join("");
+  pop.innerHTML = mention.items.map((f, i) => `<div class="opt ${i === mention.idx ? "on" : ""}" data-i="${i}">${fileIcon(f)}<span>${esc(base(f))}</span><span class="dir">${esc(dirOf(shownPath(f)))}</span></div>`).join("");
 }
 function hideMentions() { mention.open = false; $("#mentionPop").hidden = true; }
 function acceptMention(i) {
@@ -2349,7 +2360,7 @@ $("#rpIssue").onclick = async () => {
 };
 
 // ---------------------------------------------------------------- copy paths & context menu
-const absPath = (rel) => (rel === "." ? state.workspace : state.workspace + "/" + rel);
+const absPath = (rel) => (rel === "." ? state.workspace : rel.startsWith("/") ? rel : state.workspace + "/" + rel); // (an added folder's are full)
 async function copyText(text, label) {
   try { await navigator.clipboard.writeText(text); }
   catch {
@@ -2603,7 +2614,7 @@ const palSearch = debounce(async (q) => {
   pal.items = d.files; pal.idx = 0; renderPalette();
 }, 80);
 function renderPalette() {
-  $("#paletteList").innerHTML = pal.items.map((f, i) => `<div class="opt ${i === pal.idx ? "on" : ""}" data-i="${i}">${fileIcon(f)}<span class="n">${esc(base(f))}</span><span class="dir">${esc(dirOf(f))}</span></div>`).join("") || `<div class="hint" style="padding:8px 10px">No matching files.</div>`;
+  $("#paletteList").innerHTML = pal.items.map((f, i) => `<div class="opt ${i === pal.idx ? "on" : ""}" data-i="${i}">${fileIcon(f)}<span class="n">${esc(base(f))}</span><span class="dir">${esc(dirOf(shownPath(f)))}</span></div>`).join("") || `<div class="hint" style="padding:8px 10px">No matching files.</div>`;
   $("#paletteList .opt.on")?.scrollIntoView({ block: "nearest" });
 }
 function closePalette() { $("#palette").hidden = true; }

@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.request
+from collections.abc import Sequence
 from pathlib import Path
 
 FORMATS = ("png", "jpeg", "gif", "webp")
@@ -174,7 +175,7 @@ def _candidates(raw: str) -> list[str]:
     return out
 
 
-def from_message(text: str, root: Path | None) -> tuple[list[tuple[dict, str]], list[str]]:
+def from_message(text: str, root: Path | None, added: Sequence[Path] = ()) -> tuple[list[tuple[dict, str]], list[str]]:
     """Images the user pointed at in a message: image links, local image paths (spaces allowed, quoted or not),
     workspace image paths with or without @. Returns ([(block, source)], [problems])."""
     from . import mentions
@@ -205,12 +206,13 @@ def from_message(text: str, root: Path | None) -> tuple[list[tuple[dict, str]], 
                 add(str(path), lambda p=path: load_path(p))
                 break
     if root is not None:
-        rels = [m["rel"] for m in mentions.find_mentions(root, plain) if is_image_name(m["rel"])]
+        rels = [m["rel"] for m in mentions.find_mentions(root, plain, added) if is_image_name(m["rel"])]
         rels += [r for r in REL_PATH.findall(plain) if not r.startswith(("http", "www."))]
         for rel in rels:
-            path = find_file((root / rel).resolve())
-            if path is not None and root in path.parents:
-                add("@" + str(path.relative_to(root)), lambda p=path: load_path(p), key=str(path))
+            path = find_file((root / rel).resolve())  # (an added folder's is a full path: root / it is it)
+            if path is not None and any(r in path.parents for r in [root, *added]):
+                shown = str(path.relative_to(root)) if root in path.parents else str(path)
+                add("@" + shown, lambda p=path: load_path(p), key=str(path))
     return found, problems
 
 

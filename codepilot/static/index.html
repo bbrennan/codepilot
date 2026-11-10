@@ -23,7 +23,7 @@
   <!-- Title bar -->
   <header class="titlebar">
     <div class="brand"><span class="logo" data-icon="logo"></span>codepilot</div>
-    <button class="workspace-btn" id="workspaceBtn" title="Open folder"><span data-icon="folder"></span><span id="workspaceName">No folder</span></button>
+    <button class="workspace-btn" id="workspaceBtn" title="This session's folders"><span data-icon="folder"></span><span id="workspaceName">No folder</span></button>
     <button class="palette-btn" id="paletteBtn" title="Go to file (⌘P)"><span data-icon="search"></span><span>Search files</span><kbd>⌘P</kbd></button>
     <button class="menu-btn" id="fileMenuBtn" title="New file or folder, open, save"><span data-icon="file"></span><span>File</span><span data-icon="chevron" class="caret"></span></button>
     <button class="menu-btn" id="terminalMenuBtn" title="Terminals: new, switch, rename, kill"><span data-icon="terminal"></span><span>Terminal</span><span data-icon="chevron" class="caret"></span></button>
@@ -39,6 +39,7 @@
   <nav class="activitybar" id="activitybar">
     <button data-view="sessions" title="Sessions" data-icon="history"></button>
     <button data-view="explorer" title="Explorer" data-icon="files"></button>
+    <button data-view="progress" title="Progress: the plan or spec run under way" aria-label="Progress" data-icon="progress"><span class="badge" id="progressBadge" hidden></span></button>
     <button data-view="search" title="Search" data-icon="search"></button>
     <button data-view="traces" title="Traces" data-icon="pulse"></button>
     <button data-view="changes" title="Changes" data-icon="branch"><span class="badge" id="changesBadge" hidden></span></button>
@@ -51,17 +52,24 @@
   <aside class="sidebar" id="sidebar">
     <section class="view" data-view="sessions">
       <div class="view-head"><span>Sessions</span><div class="actions"><button class="icon-btn sm" id="newSessionBtn" title="New session" data-icon="plus"></button></div></div>
-      <div class="view-body" id="sessionList"></div>
+      <div class="view-body">
+        <div class="sess-search"><input class="field" id="sessFilter" placeholder="Search sessions" spellcheck="false" aria-label="Search sessions"></div>
+        <div id="sessionList"></div>
+      </div>
     </section>
     <section class="view" data-view="explorer">
       <div class="view-head"><span id="explorerTitle">Explorer</span><div class="actions">
         <button class="icon-btn sm" id="newFileBtn" title="New file (in the selected folder)" data-icon="filePlus"></button>
         <button class="icon-btn sm" id="newFolderBtn" title="New folder (in the selected folder)" data-icon="folderPlus"></button>
-        <button class="icon-btn sm" id="openFolderBtn" title="Open folder" data-icon="folderOpen"></button>
+        <button class="icon-btn sm" id="openFolderBtn" title="Add a folder to this session" data-icon="folderOpen"></button>
         <button class="icon-btn sm" id="refreshTreeBtn" title="Refresh" data-icon="refresh"></button>
         <button class="icon-btn sm" id="collapseTreeBtn" title="Collapse all" data-icon="collapse"></button>
       </div></div>
       <div class="view-body tree" id="tree"></div>
+    </section>
+    <section class="view" data-view="progress">
+      <div class="view-head"><span>Progress</span></div>
+      <div class="view-body" id="progressList"><div class="empty-state progress-empty">Nothing under way. When codepilot makes a plan, or you run a spec's tasks, its steps show here, with the work done under each.</div></div>
     </section>
     <section class="view" data-view="search">
       <div class="view-head"><span>Search</span></div>
@@ -158,11 +166,15 @@
   <!-- Chat -->
   <aside class="chat" id="chat">
     <div class="chat-head">
-      <div class="chat-title" id="chatTitle">New session</div>
+      <button class="chat-title" id="chatTitleBtn" title="Switch session" aria-haspopup="listbox" aria-expanded="false"><span id="chatTitle">New session</span><span data-icon="chevron" class="caret"></span></button>
       <select class="field sm mode-select" id="modeSelect" title="Mode: a focused agent profile"></select>
       <select class="field sm" id="tier" title="Model tier"></select>
       <button class="taint-chip" id="taintChip" hidden></button>
       <button class="icon-btn sm" id="newChatBtn" title="New session" data-icon="plus"></button>
+    </div>
+    <div class="sess-pop" id="sessPop" hidden>
+      <input class="field" id="sessSearch" placeholder="Search sessions by title or folder" spellcheck="false" aria-label="Search sessions" role="combobox" aria-controls="sessPopList" aria-expanded="false" aria-autocomplete="list">
+      <div id="sessPopList" role="listbox" aria-label="Sessions"></div>
     </div>
     <div class="transcript" id="transcript"></div>
     <div class="composer">
@@ -248,11 +260,14 @@
 
 <script src="/static/layout.js"></script>
 <script src="/static/app.js"></script>
+<script src="/static/sessions.js"></script>
+<script src="/static/folders.js"></script>
 <script src="/static/diff.js"></script>
 <script src="/static/steps.js"></script>
 <script src="/static/checkpoints.js"></script>
 <script src="/static/verify.js"></script>
 <script src="/static/taskcard.js"></script>
+<script src="/static/progress.js"></script>
 <script src="/static/plan.js"></script>
 <script src="/static/specrun.js"></script>
 <script src="/static/policy.js"></script>

@@ -33,8 +33,8 @@ from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 
 from .http_input import HANDLERS, json_body
-from . import (checkpoints, checks, diagnostics, github, images, mentions, models, modes, plans, skills, spec_runs, specs,
-               steering, textfile, traces, uploads, version)
+from . import (checkpoints, checks, diagnostics, folders, github, images, mentions, models, modes, plans, skills,
+               spec_runs, specs, steering, textfile, traces, uploads, verification, version)
 from .agent import Agent, history_events
 from .config import TIER_CHOICES, TIERS, Config
 from .store import Store
@@ -95,7 +95,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         root = Path(sess.repo).expanduser().resolve() if sess.repo else None
         if root is None:
             raise ToolError("No workspace open in this session yet.")
-        return ToolContext(root=root, cfg=cfg, store=store, session_id=sid)
+        return ToolContext(root=root, cfg=cfg, store=store, session_id=sid, folders=folders.added(sess))
 
     # A turn runs on its own thread, so closing or reloading the page doesn't stop it. Its events are kept
     # until it ends; the page that started it reads them from the start, and a reloaded page from where it is.
@@ -359,7 +359,23 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             return JSONResponse({"ok": True})
         if request.method == "PATCH":
             data = await json_body(request)
+            sess = store.get_session(sid)  # as it is now: another request may have changed it while this body arrived
             fields = {k: data[k] for k in ("title", "tier", "auto_approve", "repo", "mode", "model") if k in data}
+            if "repo" in data and not str(data["repo"] or "").strip():  # "" would resolve to the server's own folder
+                return err("Choose a folder.")
+            if ("folders" in data or data.get("make_main") or "repo" in data) and sid in busy:
+                # A running turn keeps the folders it started with: a removed one would still be in its reach.
+                return err("This session is working; change its folders once it's done.", 409)
+            if ("folders" in data or data.get("make_main") or "repo" in data) and sess.pending:
+                # Approving it afterwards would run it in whichever folder is main by then.
+                return err("A command is waiting for your approval; answer it before changing folders.", 409)
+            if ("folders" in data or data.get("make_main") or data.get("repo")) \
+                    and any(_session_of(pid) == sid for pid in applying):
+                return err("A change is being applied; change folders once it's done.", 409)
+            try:
+                fields.update(folders.patch(sess.repo, sess.folders, data))
+            except ValueError as exc:
+                return err(str(exc))
             clear_taint = data.get("taint") == []  # clearing is all a client can do with it
             if isinstance(data.get("allow"), list) or "auto_apply" in data or clear_taint:
                 state = dict(sess.context_state or {})
@@ -384,6 +400,11 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                 if not path.is_dir():
                     return err(f"Not a directory: {path}")
                 fields["repo"] = str(path)
+            if data.get("make_main") and sess.repo:  # (validated above) each change keeps pointing at its own file
+                old, new = Path(sess.repo).expanduser().resolve(), Path(fields["repo"])
+                for p in store.list_proposals(sid):
+                    if (moved := folders.rebased(p.path, old, new)) != p.path:
+                        store.set_proposal_path(p.id, moved)
             if fields:
                 store.update_session(sid, **fields)
             sess = store.get_session(sid)
@@ -391,7 +412,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         if root is not None and root.is_dir():
             await run_in_threadpool(retire_stale_proposals, store, sid, root)
         return JSONResponse({
-            "session": sess.public(),
+            "session": {**sess.public(), "missing": folders.missing(sess)},  # (added folders that are gone)
             "busy": sid in busy,
             "summary": sess.summary,
             "events": history_events(store, sid),
@@ -403,7 +424,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             "proposals": [_proposal_json(p, root) for p in store.list_proposals(sid)],
             "usage": agent.spend.view(sid),
             "context": agent.context_usage(sid),
-            "receipt": store.latest_receipt(sid),
+            "receipt": _receipt_now(sess),
             "review_batch": _review_batch(store, sid),
         })
 
@@ -566,7 +587,8 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         if not sess.repo:
             return JSONResponse({"changes": []})
         root = Path(sess.repo).expanduser().resolve()
-        items = await run_in_threadpool(lambda: checkpoints.preview(root, checkpoints.since(store, sid, mid)))
+        items = await run_in_threadpool(lambda: checkpoints.preview(root, checkpoints.since(store, sid, mid),
+                                                                    folders=folders.added(sess)))
         return JSONResponse({"changes": [_item_json(i) for i in items]})
 
     async def restore(request: Request) -> Response:
@@ -586,7 +608,8 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                 return err("This session is already working; wait for it to finish.", 409)
             busy.add(sid)
         try:
-            reverted, left = await run_in_threadpool(lambda: checkpoints.restore(root, store, sid, ids, keep=keep))
+            reverted, left = await run_in_threadpool(lambda: checkpoints.restore(root, store, sid, ids, keep=keep,
+                                                                                 folders=folders.added(sess)))
         except checkpoints.RestoreError as exc:
             return JSONResponse({"error": checkpoints.failure(exc), "left": [_item_json(i) for i in exc.left],
                                  "reverted": [_proposal_json(p, root) for p in exc.reverted]}, status_code=409)
@@ -631,7 +654,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         root = Path(sess.repo).expanduser().resolve()
         if action == "revert":
             try:
-                revert_proposal(root, prop)
+                revert_proposal(root, prop, folders.added(sess))
             except (ToolError, OSError) as exc:
                 return err(str(exc), 409)
             store.set_proposal_status(pid, "reverted")
@@ -650,7 +673,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         applying.add(pid)
         try:
             try:
-                before, after = await run_in_threadpool(apply_proposal, root, prop)
+                before, after = await run_in_threadpool(apply_proposal, root, prop, folders.added(sess))
             except (ToolError, OSError) as exc:
                 store.set_proposal_status(pid, "failed")
                 return err(str(exc), 409)
@@ -715,7 +738,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
     async def find(request: Request) -> Response:
         ctx = ctx_for(request.path_params["sid"])
         q = request.query_params.get("q", "")
-        found = await run_in_threadpool(mentions.find_files, ctx.root, q, 30)
+        found = await run_in_threadpool(mentions.find_files, ctx.root, q, 30, ctx.folders)
         return JSONResponse({"files": found})
 
     def trace_list(request: Request) -> Response:  # blocking I/O: runs in a worker thread
@@ -770,6 +793,11 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             # otherwise list children whose paths equal their parent's, and the explorer would recurse forever.
             # Only for a plain relative path; for `link/..` or an absolute one the canonical path is the right name.
             if asked is None:
+                # A plain full path in an added folder: under it as asked, so a link back up goes deeper rather than
+                # naming its parent again. (`..`, or the main folder's: the canonical path, as for `link/..`.)
+                raw = request.query_params.get("path", ".").rstrip("/")
+                if os.path.isabs(raw) and ".." not in Path(raw).parts and not folders.inside(base, [ctx.root]):
+                    return f"{raw}/{p.name}"
                 return ctx.rel(p)
             return p.name if asked == "" else f"{asked}/{p.name}"
 
@@ -856,7 +884,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
 
     def file_op(ctx: ToolContext, data: dict) -> dict:
         op = data.get("op")
-        rel = str(data.get("path") or "").strip().strip("/")
+        rel = str(data.get("path") or "").strip().rstrip("/")  # (a full path: a file in an added folder)
         if op == "restore":
             return restore_from_trash(ctx, str(data.get("trash_id") or ""))
         path = workspace_path(ctx, rel)
@@ -872,7 +900,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                 path.write_text(str(data.get("content") or ""))
             return {"path": ctx.rel(path), "dir": op == "new_folder", "mtime": str(path.stat().st_mtime_ns)}
         if op == "rename":
-            to = str(data.get("to") or "").strip().strip("/")
+            to = str(data.get("to") or "").strip().rstrip("/")
             dest = workspace_path(ctx, to)
             if (dest.exists() or dest.is_symlink()) and dest != path and dest.resolve() != path.resolve():
                 raise FileOpError(f"{to} already exists.", 409)
@@ -901,7 +929,8 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
     def workspace_path(ctx: ToolContext, rel: str) -> Path:
         """A path inside the workspace. The parent is resolved and checked; the last part isn't followed, so
         renaming or deleting a symlink acts on the link, never on what it points to."""
-        if not rel or rel.startswith("~") or "\0" in rel or any(part in ("", ".", "..") for part in rel.split("/")):
+        parts = rel.split("/")[1:] if rel.startswith("/") else rel.split("/")  # full: inside an added folder
+        if not rel or rel.startswith("~") or "\0" in rel or any(part in ("", ".", "..") for part in parts):
             raise FileOpError("Enter a file or folder name inside the workspace.")
         parent = ctx.resolve(str(Path(rel).parent), must_exist=False)
         return parent / Path(rel).name
@@ -1069,6 +1098,23 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
             "X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"})
 
+    def _session_of(pid: int) -> str | None:
+        try:
+            return store.get_proposal(pid).session_id
+        except KeyError:
+            return None
+
+    def _receipt_now(sess) -> dict | None:
+        """The latest verification, marked stale when the pending changes or the main folder it tested have changed
+        since (e.g. Make main folder rebased their paths): the review then offers Verify again."""
+        receipt = store.latest_receipt(sess.id)
+        if receipt is None:
+            return None
+        main = str(Path(sess.repo).expanduser().resolve()) if sess.repo else ""
+        stale = receipt["fingerprint"] != verification.current_fingerprint(store, sess.id) \
+            or receipt.get("root") != main  # (one saved before receipts named their folder: unknown, so stale)
+        return {**receipt, "stale": stale}
+
     def git_view(request: Request) -> Response:  # blocking I/O: runs in a worker thread
         ctx = ctx_for(request.path_params["sid"])
 
@@ -1077,11 +1123,26 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                                   text=True, timeout=60, errors="replace")
             return proc.stdout if proc.returncode == 0 else ""  # never show git's error text as data
 
+        def git_of(folder: Path) -> dict:  # an added folder: its branch and changed files, under its own heading
+            if not (folder / ".git").exists():
+                return {"path": str(folder), "git": False}
+            def out(*args: str) -> subprocess.CompletedProcess:
+                return subprocess.run(["git", "--no-pager", "-C", str(folder), *args], capture_output=True, text=True,
+                                      timeout=60, errors="replace")
+
+            branch = out("symbolic-ref", "--short", "-q", "HEAD").stdout.strip() \
+                or out("rev-parse", "--short", "HEAD").stdout.strip()
+            # NUL-separated porcelain: the real names (no quoting of spaces or accents; a rename's new name).
+            status = out("status", "--porcelain=v1", "-z")
+            files = folders.git_status(status.stdout) if status.returncode == 0 else []
+            return {"path": str(folder), "git": True, "branch": branch, "files": files}
+
+        added = [git_of(f) for f in ctx.folders if f.is_dir()]
         if not (ctx.root / ".git").exists():
-            return JSONResponse({"git": False})
+            return JSONResponse({"git": False, "folders": added})
         # symbolic-ref works before the first commit too; a detached HEAD shows its short hash.
         branch = run("symbolic-ref", "--short", "-q", "HEAD").strip() or run("rev-parse", "--short", "HEAD").strip()
-        return JSONResponse({"git": True, "branch": branch,
+        return JSONResponse({"git": True, "branch": branch, "folders": added,
                              "status": run("status", "--short"),
                              # The page reads names from a/ and b/: settings like diff.noprefix mustn't change them.
                              "diff": run("-c", "diff.noprefix=false", "-c", "diff.mnemonicPrefix=false", "diff",

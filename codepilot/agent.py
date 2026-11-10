@@ -18,9 +18,9 @@ from collections.abc import Callable, Generator, Iterator
 from pathlib import Path
 from typing import Any
 
-from . import (approval_policy, checkpoints, checks, gitstate, images, mentions, models, modes, plans, prompts, repomap,
-               router, skills, spec_profiles, spec_reminder, spec_runs, specs, spend, steering, task_tests, unanswered,
-               verification, webtools)
+from . import (approval_policy, checkpoints, checks, folders, gitstate, images, mentions, models, modes, plans, prompts,
+               repomap, router, skills, spec_profiles, spec_reminder, spec_runs, specs, spend, steering, task_tests,
+               unanswered, verification, webtools)
 from .bedrock import BedrockError, make_client
 from .config import Config
 from .context import CLEARED_PREFIX, ContextManager, is_overflow
@@ -192,7 +192,8 @@ class Agent:
         sess = self.store.get_session(session_id)
         root = Path(sess.repo).expanduser().resolve()
         try:
-            reverted, left = checkpoints.restore(root, self.store, session_id, ids, keep=keep)
+            reverted, left = checkpoints.restore(root, self.store, session_id, ids, keep=keep,
+                                                 folders=folders.added(sess))
         except checkpoints.RestoreError as exc:
             for p in exc.reverted:
                 yield {"type": "proposal", "proposal": proposal_view(p, "")}
@@ -318,11 +319,11 @@ class Agent:
             blocks.append({"text": f'<skill name="{skill.name}">\n{intro} Follow these instructions:\n\n'
                                    f"{skill.body}\n</skill>"})
             yield {"type": "skill", "name": skill.name}
-        block, labels = mentions.attachment_block(root, text)
+        block, labels = mentions.attachment_block(root, text, folders.added(self.store.get_session(session_id)))
         if block:
             blocks.append({"text": block})
             yield {"type": "attached", "paths": labels}
-        linked, problems = images.from_message(text, root)
+        linked, problems = images.from_message(text, root, folders.added(self.store.get_session(session_id)))
         shown = [(b, "pasted") for b in (pasted or [])] + linked
         for problem in problems:
             yield {"type": "notice", "message": f"Couldn't attach image {problem}"}
@@ -381,28 +382,31 @@ class Agent:
     def _message_steering(self, session_id: str, root: Path | None, text: str) -> tuple[str, list[str]] | None:
         """Docs the user asked for with #name, and fileMatch docs for files they @-referenced."""
         asked = steering.requested(text, root, self.cfg.home)
-        rels = [m["rel"] for m in mentions.find_mentions(root, text) if m["path"].is_file()]
+        added = folders.added(self.store.get_session(session_id))
+        paths = [m["path"] for m in mentions.find_mentions(root, text, added) if m["path"].is_file()]
         skip = self._steering_loaded(session_id) | {d.label for d in asked}
-        matched = steering.for_files(rels, root, self.cfg.home, skip) if rels else []
+        found = steering.for_paths(paths, root, added, self.cfg.home, skip) if paths and root else []
+        matched = [d for d, _ in found]
         if not asked and not matched:
             return None
         self._mark_steering(session_id, asked + matched)
         parts = [steering.render(d, root, "requested by the user") for d in asked]
-        parts += [steering.render(d, root, "applies to " + ", ".join(d.patterns)) for d in matched]
+        parts += [steering.render(d, owner, "applies to " + ", ".join(d.patterns)) for d, owner in found]
         return "\n\n".join(parts), [d.name for d in asked + matched]
 
     def _file_steering(self, ctx: ToolContext, tu: dict) -> list:
-        """fileMatch docs for a file the model just read or edited (each loads once per session)."""
+        """fileMatch docs for a file the model just read or edited (each loads once per session), as (doc, the folder
+        it belongs to) pairs: its file references resolve there."""
         if tu["name"] not in ("read_file", "propose_edit") or ctx.root is None:
             return []
         try:
             path = ctx.resolve(str(tu["input"].get("path", "")), must_exist=False)
         except ToolError:
             return []
-        docs = steering.for_files([ctx.rel(path)], ctx.root, self.cfg.home, self._steering_loaded(ctx.session_id))
-        if docs:
-            self._mark_steering(ctx.session_id, docs)
-        return docs
+        found = steering.for_paths([path], ctx.root, ctx.folders, self.cfg.home, self._steering_loaded(ctx.session_id))
+        if found:
+            self._mark_steering(ctx.session_id, [d for d, _ in found])
+        return found
 
     def _turn_context(self, sess: Session, root: Path | None) -> str:
         """Per-turn facts that change (mode, git state, applied proposals), sent in the user message.
@@ -679,7 +683,7 @@ class Agent:
     def _ctx(self, sess: Session) -> ToolContext:
         root = Path(sess.repo).expanduser().resolve() if sess.repo else None
         return ToolContext(root=root, cfg=self.cfg, store=self.store, session_id=sess.id,
-                           logs_client_factory=self._logs_factory,
+                           folders=folders.added(sess) if root else [], logs_client_factory=self._logs_factory,
                            auto_apply=bool((sess.context_state or {}).get("auto_apply")),
                            cancelled=lambda: sess.id in self._cancelled)
 
@@ -694,10 +698,13 @@ class Agent:
         return prompts.build_system(
             root, detect_test_cmd(root, self.cfg), self.cfg.eval_cmd, trace_roots(ctx) if root else [],
             self.cfg.log_groups, self.store.read_notes(str(root)) if root else "", sess.summary, top,
-            skills.discover(root, self.cfg.home), steering.always_text(root, self.cfg.home),
+            skills.discover(root, self.cfg.home),
+            "\n\n".join(filter(None, [steering.always_text(root, self.cfg.home),
+                                      steering.added_text(ctx.folders, self.cfg.home)])),
             steering_auto=steering.auto_listing(root, self.cfg.home),
             repo_map=repomap.build(root) if root else "",
-            checks=[c.name for c in checks.detect(root)] if root else [], auto_apply=self.cfg.auto_apply_edits)
+            checks=[c.name for c in checks.detect(root)] if root else [], auto_apply=self.cfg.auto_apply_edits,
+            folders=ctx.folders)
 
     def _session_system(self, sess: Session, ctx: ToolContext) -> list[dict]:
         """The system prompt, frozen per session. It is rebuilt only at a boundary (new workspace, or memory
@@ -707,7 +714,8 @@ class Agent:
         # Editing a steering doc changes the key, so new instructions apply from the next request. A digest, not hash():
         # Python salts str hashes per process, so a restart would rebuild every session's prompt and drop its reasoning.
         summary = hashlib.sha1((sess.summary or "").encode()).hexdigest()[:16]
-        key = f"{ctx.root}|{summary}|{steering.fingerprint(ctx.root, self.cfg.home)}"
+        prints = "".join(steering.fingerprint(f, self.cfg.home) for f in [ctx.root, *ctx.folders])
+        key = f"{ctx.root}|{','.join(map(str, ctx.folders))}|{summary}|{prints}"
         if state.get("system") and state.get("key") == key:
             return state["system"]
         system = self._system(sess, ctx)
@@ -950,10 +958,11 @@ class Agent:
             ctx.tool_use_id = tu["toolUseId"]
             output, is_error = execute(self.tools[tu["name"]], ctx, tu["input"])
             yield from self._note_taint(ctx.session_id, tu, is_error)
-            docs = [] if is_error else self._file_steering(ctx, tu)
+            found = [] if is_error else self._file_steering(ctx, tu)
+            docs = [d for d, _ in found]
             if docs:
                 why = "applies to " + ", ".join(sorted({p for d in docs for p in d.patterns}))
-                output += "\n\n" + "\n\n".join(steering.render(d, ctx.root, why) for d in docs) + \
+                output += "\n\n" + "\n\n".join(steering.render(d, owner, why) for d, owner in found) + \
                     "\nFollow the steering above when working on these files."
                 yield {"type": "steering", "names": [d.name for d in docs], "file": str(tu["input"].get("path", ""))}
         return self._told_about_taint(ctx.session_id, output), is_error, time.monotonic() - started

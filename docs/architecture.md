@@ -54,6 +54,7 @@ store.py (SQLite in ~/.codepilot): sessions, messages, proposals, usage, notes
 | `pricing.py` | Tokens to dollars, shared by the app and the benchmark. A model with no price is unpriced, never $0 |
 | `spend.py` | What this has cost, per session, per turn and today, and the optional daily cap |
 | `plans.py` | The plan checklist's lifecycle: new, update, complete, clear and restore, the same live and on reload |
+| `folders.py` | A session's folders: the main one plus added ones (checking a folder to add, making one main, telling the model) |
 | `checkpoints.py` | Turn checkpoints: the changes applied from a message onwards, and undoing them together (guarded like Undo) |
 | `server.py` | HTTP API, NDJSON streaming, localhost and CSRF guards, static files, terminal endpoints. Blocking filesystem and git work runs in worker threads so it can't stall streams or terminals |
 | `terminal.py` | Server-side terminals: PTY shells with scrollback that outlive the page, bridged to xterm.js over WebSockets |
@@ -110,5 +111,5 @@ failing.
 `static/index.html` is the layout. `app.css` holds the theme tokens, with dark and light variants.
 `app.js` is plain DOM with no framework or build step. `layout.js` fits the saved pane sizes to the window; it loads
 before `app.js` (which restores the layout before the first paint) and uses none of its helpers. A feature with its own UI gets its own classic script
-(`checkpoints.js`, `verify.js`, `steps.js`, `taskcard.js`, `plan.js`, `specrun.js`, `policy.js`, `deps.js`, `cost.js`, `specs-quick.js`, `diff.js`), loaded after `app.js` and using its helpers, so `app.js` only wires it in. It vendors highlight.js (BSD-3) for highlighting and
+(`sessions.js`, `folders.js`, `checkpoints.js`, `verify.js`, `steps.js`, `taskcard.js`, `progress.js`, `plan.js`, `specrun.js`, `policy.js`, `deps.js`, `cost.js`, `specs-quick.js`, `diff.js`), loaded after `app.js` and using its helpers, so `app.js` only wires it in. It vendors highlight.js (BSD-3) for highlighting and
 xterm.js (MIT) for the terminal; see [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).

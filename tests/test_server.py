@@ -477,3 +477,266 @@ def test_the_working_tree_diff_has_the_usual_prefixes_whatever_git_is_set_to(cfg
     sid = client.post("/api/sessions", json={"repo": str(repo)}, headers=H).json()["id"]
     diff = client.get(f"/api/sessions/{sid}/git").json()["diff"]
     assert "diff --git a/agent/core.py b/agent/core.py" in diff and "+++ b/agent/core.py" in diff, diff[:200]
+
+
+def test_a_session_gets_folders_added_and_reads_files_in_them(client_and_llm, repo, tmp_path):
+    """Spec multi-folder 1.1–1.4, 2.4: add a folder, refuse what can't be added, read and list it, make it main."""
+    client, _ = client_and_llm
+    api = tmp_path / "api"
+    (api / "src").mkdir(parents=True)
+    (api / "src" / "app.py").write_text("PORT = 8000\n")
+    sid = client.post("/api/sessions", json={"repo": str(repo)}, headers=H).json()["id"]
+    r = client.patch(f"/api/sessions/{sid}", json={"folders": [str(api)]}, headers=H)
+    assert r.status_code == 200 and r.json()["session"]["folders"] == [str(api.resolve())]
+    assert client.get(f"/api/sessions/{sid}").json()["session"]["folders"] == [str(api.resolve())]
+    for bad, why in [(str(repo / "agent"), "inside"), (str(tmp_path / "nope"), "doesn't exist")]:
+        r = client.patch(f"/api/sessions/{sid}", json={"folders": [str(api), bad]}, headers=H)
+        assert r.status_code == 400 and why in r.json()["error"]
+    listed = client.get(f"/api/sessions/{sid}/files", params={"path": str(api)}).json()["entries"]
+    assert listed == [{"name": "src", "path": str((api / "src").resolve()), "dir": True}]
+    opened = client.get(f"/api/sessions/{sid}/files", params={"path": str(api / "src" / "app.py")}).json()
+    assert opened["content"] == "PORT = 8000\n"
+    assert client.get(f"/api/sessions/{sid}/files", params={"path": str(tmp_path)}).status_code == 404  # outside
+
+    r = client.patch(f"/api/sessions/{sid}", json={"make_main": str(api)}, headers=H).json()["session"]
+    assert r["repo"] == str(api.resolve()) and r["folders"] == [str(repo.resolve())]
+    r = client.patch(f"/api/sessions/{sid}", json={"folders": []}, headers=H).json()["session"]
+    assert r["folders"] == []  # removed
+
+
+def test_files_in_an_added_folder_are_saved_created_and_renamed(client_and_llm, repo, tmp_path):
+    """Spec multi-folder 2.4: the editor and Explorer name an added folder's files by full path."""
+    client, _ = client_and_llm
+    api = tmp_path / "api"
+    api.mkdir()
+    (api / "app.py").write_text("x = 1\n")
+    sid = client.post("/api/sessions", json={"repo": str(repo)}, headers=H).json()["id"]
+    client.patch(f"/api/sessions/{sid}", json={"folders": [str(api)]}, headers=H)
+    app = str((api / "app.py").resolve())
+
+    def fs(**body):
+        return client.post(f"/api/sessions/{sid}/fs", json=body, headers=H)
+
+    assert fs(op="save", path=app, content="x = 2\n").status_code == 200
+    assert (api / "app.py").read_text() == "x = 2\n"
+    assert fs(op="new_file", path=str(api.resolve() / "new.py")).json()["path"] == str(api.resolve() / "new.py")
+    assert fs(op="rename", path=str(api.resolve() / "new.py"), to=str(api.resolve() / "renamed.py")).status_code == 200
+    assert (api / "renamed.py").exists()
+    (tmp_path / "other.py").write_text("secret\n")
+    r = fs(op="save", path=str(tmp_path.resolve() / "other.py"), content="pwned\n")
+    assert r.status_code >= 400 and (tmp_path / "other.py").read_text() == "secret\n"  # outside: refused
+
+
+# -- multi-folder: from review -------------------------------------------------------------------------------------
+
+
+def _with_api(client, repo, tmp_path):
+    api = tmp_path / "api"
+    (api / "agent").mkdir(parents=True)
+    (api / "agent" / "core.py").write_text("def add(a, b):\n    return a - b\n")  # the same file as the main folder's
+    sid = client.post("/api/sessions", json={"repo": str(repo)}, headers=H).json()["id"]
+    client.patch(f"/api/sessions/{sid}", json={"folders": [str(api)]}, headers=H)
+    return api, sid
+
+
+def test_making_a_folder_main_keeps_each_change_on_its_own_file(client_and_llm, store, repo, tmp_path):
+    client, _ = client_and_llm
+    api, sid = _with_api(client, repo, tmp_path)
+    ndjson(client.post(f"/api/sessions/{sid}/chat", json={"message": "fix add"}, headers=H))  # agent/core.py, main
+    [prop] = store.list_proposals(sid)
+    client.patch(f"/api/sessions/{sid}", json={"make_main": str(api)}, headers=H)
+    assert store.get_proposal(prop.id).path == str((repo / "agent" / "core.py").resolve())  # still the old main's
+    assert client.post(f"/api/proposals/{prop.id}/apply", headers=H).status_code == 200
+    assert "a + b" in (repo / "agent" / "core.py").read_text()
+    assert "a - b" in (api / "agent" / "core.py").read_text()  # not the new main folder's file of the same name
+    client.patch(f"/api/sessions/{sid}", json={"make_main": str(repo)}, headers=H)
+    assert store.get_proposal(prop.id).path == "agent/core.py"  # back in the main folder: relative again
+
+
+def test_folders_cant_change_while_the_session_is_working(cfg, store, repo, tmp_path):
+    gate = threading.Event()
+
+    class GatedLLM(FakeLLM):
+        def stream(self, model, system, messages, tools=None, max_tokens=None):
+            gate.wait(10)
+            yield from super().stream(model, system, messages, tools, max_tokens)
+
+    client = TestClient(create_app(cfg, store, Agent(cfg, store, llm=GatedLLM([[{"text": "ok"}]]))))
+    api, sid = _with_api(client, repo, tmp_path)
+    with client.stream("POST", f"/api/sessions/{sid}/chat", json={"message": "hi"}, headers=H) as r:
+        next(r.iter_lines())
+        removing = client.patch(f"/api/sessions/{sid}", json={"folders": []}, headers=H)
+        making = client.patch(f"/api/sessions/{sid}", json={"make_main": str(api)}, headers=H)
+        gate.set()
+    assert removing.status_code == 409 and making.status_code == 409 and "working" in removing.json()["error"]
+    assert store.get_session(sid).folders == [str(api.resolve())]
+
+
+def test_a_link_back_up_an_added_folder_lists_under_the_path_asked_for(client_and_llm, repo, tmp_path):
+    client, _ = client_and_llm
+    api, sid = _with_api(client, repo, tmp_path)
+    (api / "loop").symlink_to(api)
+    loop = str(api.resolve() / "loop")
+    listed = client.get(f"/api/sessions/{sid}/files", params={"path": loop}).json()["entries"]
+    assert {e["path"] for e in listed} >= {f"{loop}/agent", f"{loop}/loop"}  # deeper each time: no endless tree
+
+
+def test_search_go_to_file_and_git_reach_an_added_folder(client_and_llm, repo, tmp_path):
+    """Spec multi-folder 3.1, 3.3: the Search view, ⌘P and the Changes view."""
+    import subprocess
+
+    client, _ = client_and_llm
+    api, sid = _with_api(client, repo, tmp_path)
+    subprocess.run(["git", "init", "-q", "-b", "trunk", str(api)], check=True)
+    (api / "README.md").write_text("PORT notes\n")
+    core = str((api / "agent" / "core.py").resolve())
+    hits = client.get(f"/api/sessions/{sid}/grep", params={"q": "return a - b"}).json()["results"]
+    assert {h["path"] for h in hits} == {"agent/core.py", core}
+    assert core in client.get(f"/api/sessions/{sid}/find", params={"q": "core.py"}).json()["files"]
+    g = client.get(f"/api/sessions/{sid}/git").json()
+    [other] = g["folders"]
+    assert other["path"] == str(api.resolve()) and other["git"] and other["branch"] == "trunk"
+    assert "README.md" in {f["path"] for f in other["files"]}
+
+
+def test_an_added_folders_changes_are_listed_by_their_real_names(client_and_llm, repo, tmp_path):
+    import subprocess
+
+    client, _ = client_and_llm
+    api, sid = _with_api(client, repo, tmp_path)
+    git = ["git", "-C", str(api), "-c", "user.name=T", "-c", "user.email=t@example.invalid"]
+    subprocess.run(["git", "init", "-q", str(api)], check=True)
+    (api / "old.py").write_text("x = 1\n")
+    subprocess.run([*git, "add", "-A"], check=True)
+    subprocess.run([*git, "commit", "-qm", "init"], check=True)
+    subprocess.run([*git, "mv", "old.py", "new.py"], check=True)
+    (api / "my file é.py").write_text("y = 2\n")
+    [other] = client.get(f"/api/sessions/{sid}/git").json()["folders"]
+    assert {(f["path"], f["code"]) for f in other["files"]} >= {("new.py", "R"), ("my file é.py", "??")}
+
+
+def test_a_refused_make_main_leaves_the_changes_alone(client_and_llm, store, repo, tmp_path):
+    client, _ = client_and_llm
+    api, sid = _with_api(client, repo, tmp_path)
+    ndjson(client.post(f"/api/sessions/{sid}/chat", json={"message": "fix add"}, headers=H))
+    [prop] = store.list_proposals(sid)
+    import shutil
+    shutil.rmtree(api)
+    r = client.patch(f"/api/sessions/{sid}", json={"make_main": str(api)}, headers=H)
+    assert r.status_code == 400
+    assert store.get_proposal(prop.id).path == "agent/core.py" and store.get_session(sid).repo == str(repo.resolve())
+
+
+def test_folders_cant_change_while_a_command_waits_for_approval(client_and_llm, store, repo, tmp_path):
+    client, _ = client_and_llm
+    api, sid = _with_api(client, repo, tmp_path)
+    store.update_session(sid, pending={"awaiting": [{"toolUseId": "t1", "name": "run_command", "input": {}}]})
+    r = client.patch(f"/api/sessions/{sid}", json={"make_main": str(api)}, headers=H)
+    assert r.status_code == 409 and "approval" in r.json()["error"]
+    assert client.patch(f"/api/sessions/{sid}", json={"folders": []}, headers=H).status_code == 409
+    assert store.get_session(sid).repo == str(repo.resolve())
+
+
+def test_a_receipt_from_the_old_main_folder_is_stale_after_make_main(client_and_llm, store, repo, tmp_path):
+    from codepilot import verification
+
+    client, _ = client_and_llm
+    api, sid = _with_api(client, repo, tmp_path)
+    ndjson(client.post(f"/api/sessions/{sid}/chat", json={"message": "fix add"}, headers=H))
+    store.add_receipt(sid, {"proposal_ids": [1], "fingerprint": verification.current_fingerprint(store, sid),
+                            "status": "pass", "runs": [], "newly_failing": [], "conflict": "", "isolation": [],
+                            "skipped": [], "seconds": 1.0, "root": str(repo.resolve())})
+    assert not client.get(f"/api/sessions/{sid}").json()["receipt"].get("stale")
+    client.patch(f"/api/sessions/{sid}", json={"make_main": str(api)}, headers=H)
+    assert client.get(f"/api/sessions/{sid}").json()["receipt"]["stale"] is True
+
+
+def test_a_command_that_starts_waiting_while_a_folder_change_arrives_still_blocks_it(client_and_llm, store, repo,
+                                                                                       tmp_path, monkeypatch):
+    from codepilot import server
+
+    client, _ = client_and_llm
+    api, sid = _with_api(client, repo, tmp_path)
+    read = server.json_body
+
+    async def slow_body(request, optional=False):  # the turn pauses for approval while the body is read
+        data = await read(request, optional)
+        store.update_session(sid, pending={"awaiting": [{"toolUseId": "t1", "name": "run_command", "input": {}}]})
+        return data
+
+    monkeypatch.setattr(server, "json_body", slow_body)
+    r = client.patch(f"/api/sessions/{sid}", json={"make_main": str(api)}, headers=H)
+    assert r.status_code == 409 and store.get_session(sid).repo == str(repo.resolve())
+
+
+def test_a_receipt_saved_before_receipts_named_their_folder_is_stale(client_and_llm, store, repo, tmp_path):
+    from codepilot import verification
+
+    client, _ = client_and_llm
+    _, sid = _with_api(client, repo, tmp_path)
+    ndjson(client.post(f"/api/sessions/{sid}/chat", json={"message": "fix add"}, headers=H))
+    store.add_receipt(sid, {"proposal_ids": [1], "fingerprint": verification.current_fingerprint(store, sid),
+                            "status": "pass", "runs": [], "newly_failing": [], "conflict": "", "isolation": [],
+                            "seconds": 1.0})  # no "root": which folder it tested isn't known
+    assert client.get(f"/api/sessions/{sid}").json()["receipt"]["stale"] is True
+
+
+def test_a_make_main_that_lands_after_another_rebases_from_where_things_are_now(client_and_llm, cfg, store, repo,
+                                                                                tmp_path, monkeypatch):
+    from codepilot import server, tools
+
+    client, _ = client_and_llm
+    api, sid = _with_api(client, repo, tmp_path)
+    lib = tmp_path / "lib"
+    lib.mkdir()
+    client.patch(f"/api/sessions/{sid}", json={"folders": [str(api), str(lib)]}, headers=H)
+    ctx = tools.ToolContext(root=repo.resolve(), cfg=cfg, store=store, session_id=sid,
+                            folders=[api.resolve(), lib.resolve()])
+    tools.propose_edit(ctx, str(api / "agent" / "core.py"), "a - b", "a + b")
+    [prop] = store.list_proposals(sid)
+    read = server.json_body
+
+    async def meanwhile(request, optional=False):  # another tab makes api main while this request arrives
+        data = await read(request, optional)
+        store.update_session(sid, repo=str(api.resolve()), folders=[str(repo.resolve()), str(lib.resolve())])
+        store.set_proposal_path(prop.id, "agent/core.py")
+        return data
+
+    monkeypatch.setattr(server, "json_body", meanwhile)
+    assert client.patch(f"/api/sessions/{sid}", json={"make_main": str(lib)}, headers=H).status_code == 200
+    assert store.get_proposal(prop.id).path == str((api / "agent" / "core.py").resolve())  # not the old main's file
+
+
+def test_folders_cant_change_while_a_change_is_being_applied(client_and_llm, store, repo, tmp_path, monkeypatch):
+    from codepilot import server
+
+    client, _ = client_and_llm
+    api, sid = _with_api(client, repo, tmp_path)
+    ndjson(client.post(f"/api/sessions/{sid}/chat", json={"message": "fix add"}, headers=H))
+    [prop] = store.list_proposals(sid)
+    started, release = threading.Event(), threading.Event()
+    real = server.apply_proposal
+
+    def slow_apply(*args):
+        started.set()
+        release.wait(10)
+        return real(*args)
+
+    monkeypatch.setattr(server, "apply_proposal", slow_apply)
+    applied = threading.Thread(target=lambda: client.post(f"/api/proposals/{prop.id}/apply", headers=H))
+    applied.start()
+    assert started.wait(10)
+    r = client.patch(f"/api/sessions/{sid}", json={"make_main": str(api)}, headers=H)
+    release.set()
+    applied.join(10)
+    assert r.status_code == 409 and "applied" in r.json()["error"]
+
+
+def test_an_empty_main_folder_is_refused_rather_than_meaning_the_servers_own_folder(client_and_llm, store, repo,
+                                                                                   tmp_path):
+    client, _ = client_and_llm
+    api, sid = _with_api(client, repo, tmp_path)
+    for body in ({"repo": ""}, {"repo": "", "folders": [str(api)]}, {"repo": "  "}):
+        r = client.patch(f"/api/sessions/{sid}", json=body, headers=H)
+        assert r.status_code == 400, body
+    assert store.get_session(sid).repo == str(repo.resolve())

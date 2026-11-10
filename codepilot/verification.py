@@ -116,7 +116,9 @@ def prepared(root: Path, proposals: list[Proposal], workdir: Path, copier=clone_
     try:
         copier(root, path)
         copy = Copy(path, isolation=relocate_envs(root, path))
-        for n, p in enumerate(sorted(proposals, key=lambda p: p.id)):
+        # A change in an added folder has its full path: it isn't in this copy of the main folder, so it's left out
+        # (applying it here would write to the real file, or fail as a conflict).
+        for n, p in enumerate(sorted((p for p in proposals if not Path(p.path).is_absolute()), key=lambda p: p.id)):
             if p.path not in copy.originals:
                 target = path / p.path
                 copy.originals[p.path] = textfile.read(target, errors="replace") if target.is_file() else None
@@ -159,6 +161,7 @@ class Receipt:
     conflict: str = ""
     isolation: list[str] = field(default_factory=list)  # files that may still run the workspace's code
     seconds: float = 0.0
+    skipped: list[int] = field(default_factory=list)  # changes in added folders: not in the copy, not verified
 
 
 def _rebase(value: str, roots: set[str], copy: Path) -> str:
@@ -226,7 +229,8 @@ def verify(root: Path, cfg: Config, proposals: list[Proposal], *, workdir: Path,
            clock=time.monotonic) -> Receipt:
     """Apply the pending changes to a copy of the workspace and run its tests and analysers there."""
     started = clock()
-    receipt = Receipt(sorted(p.id for p in proposals), fingerprint(proposals))
+    receipt = Receipt(sorted(p.id for p in proposals), fingerprint(proposals),
+                      skipped=sorted(p.id for p in proposals if Path(p.path).is_absolute()))
     if _inside(workdir, root.resolve()):  # e.g. the home folder opened as the workspace: the copy would contain itself
         receipt.status = "error"
         receipt.conflict = f"codepilot's own folder ({workdir.parent}) is inside the workspace, so it can't be copied"
@@ -242,6 +246,8 @@ def verify(root: Path, cfg: Config, proposals: list[Proposal], *, workdir: Path,
         receipt.status, receipt.conflict = "error", f"couldn't copy the workspace: {exc}"
     if receipt.status == "pass" and receipt.isolation:
         receipt.status = "unverified"
+    if receipt.status in ("pass", "preexisting") and receipt.skipped:  # it can't speak for those
+        receipt.status = "partial"
     receipt.seconds = round(clock() - started, 1)
     return receipt
 
@@ -321,6 +327,7 @@ def verify_session(store, cfg: Config, sid: str, root: Path | None, cancelled=la
         return None
     receipt = asdict(verify(root, cfg, pending, workdir=cfg.home / "verify" / sid, cancelled=cancelled,
                             timeout=cfg.verify_timeout))
+    receipt["root"] = str(root.resolve())  # the main folder it tested: another one makes it stale
     return {**receipt, "id": store.add_receipt(sid, receipt), "told": False}
 
 
@@ -328,6 +335,7 @@ STATUS_TEXT = {
     "pass": "pass", "fail": "newly failing", "preexisting": "no new failures (some fail without the changes too)",
     "inconclusive": "failing, and the output doesn't show whether the changes caused it (it fails without them too)",
     "unverified": "passed, but the copy may have run the workspace's code instead of the changes",
+    "partial": "no new failures, but not every change was verified",
     "nothing": "nothing to run (no test command or analysers found; set CODEPILOT_TEST_CMD)",
     "error": "couldn't apply the changes together", "timeout": "timed out", "cancelled": "cancelled",
 }
@@ -350,6 +358,9 @@ def describe(receipt: dict, lead: str = "") -> str:
         for run in receipt["runs"]:
             if run["exit"] not in (0, None):
                 lines.append(f"{run['name']} output (tail):\n{run['output'][-1500:]}")
+    if receipt.get("skipped"):
+        lines.append(", ".join(f"#{i}" for i in receipt["skipped"]) + " not verified: in an added folder, so not in "
+                     "the copy of the main folder.")
     if receipt["isolation"]:
         lines.append("Couldn't re-point these copied files at the copy: " + ", ".join(receipt["isolation"]))
     return "\n".join(lines)

@@ -24,7 +24,8 @@ from __future__ import annotations
 
 import hashlib
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from collections.abc import Sequence
 from pathlib import Path
 
 from .context import DEFAULT_TOKENS_PER_CHAR
@@ -214,6 +215,17 @@ def always_text(root: Path | None, home: Path) -> str:
     return text
 
 
+def added_text(added: list[Path], home: Path) -> str:
+    """The always-on steering of the session's added folders (AGENTS.md, .codepilot/steering, ...), labelled with
+    the folder's name: its instructions apply to that folder's files."""
+    parts = [f"## {folder.name}/{d.label}\n{expand(d.body, folder)}" for folder in added if folder.is_dir()
+             for d in discover(folder, home) if d.scope == "workspace" and d.inclusion == "always"]
+    text = "\n\n".join(parts)
+    if len(text) > MAX_ALWAYS_CHARS:
+        text = text[:MAX_ALWAYS_CHARS] + "\n[... steering truncated; keep always-on docs short ...]"
+    return text
+
+
 def auto_listing(root: Path | None, home: Path) -> str:
     docs = [d for d in discover(root, home) if d.inclusion == "auto"]
     return "\n".join(f"- {d.name}: {d.description or '(no description)'}" for d in docs)
@@ -257,6 +269,28 @@ def for_files(rels: list[str], root: Path | None, home: Path, already: set[str])
                 and any(glob_match(r, p) for r in rels for p in d.patterns):
             found.append(d)
     return found
+
+
+def for_paths(paths: list[Path], root: Path, added: Sequence[Path], home: Path, already: set[str]
+              ) -> list[tuple[Doc, Path]]:
+    """fileMatch docs for these files, each matched by the folder it's in (the main one or an added one) against
+    its path there: a rule in one repo never applies to another's files. Returns (doc, its folder) pairs; an added
+    folder's own docs are labelled with their full path."""
+    out: list[tuple[Doc, Path]] = []
+    seen = set(already)
+    for path in paths:
+        owner = next((f for f in added if path == f or f in path.parents), root)
+        rel = str(path.relative_to(owner)) if path != owner else "."
+        # An added folder's own docs go by their full path (two folders may both have .codepilot/steering/py.md,
+        # or the same name): checked against what's loaded only once they have it.
+        for d in for_files([rel], owner, home, seen if owner == root else set()):
+            if owner != root and d.scope == "workspace":
+                d = replace(d, label=str(d.path))
+            if d.label in seen:
+                continue
+            seen.add(d.label)
+            out.append((d, owner))
+    return out
 
 
 def requested(text: str, root: Path | None, home: Path) -> list[Doc]:

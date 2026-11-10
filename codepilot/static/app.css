@@ -177,6 +177,11 @@ input[type="checkbox"][role="switch"]:focus-visible { outline: 2px solid var(--a
 .row:hover .hover-act { display: inline-grid; }
 
 /* sessions */
+.sess-search { padding: 8px 10px 4px; }
+.sess-search .field { width: 100%; }
+.sess-gh { display: flex; align-items: center; gap: 6px; padding: 10px 14px 4px; font-size: var(--fs-sm); font-weight: 600; color: var(--muted); text-transform: none; overflow: hidden; white-space: nowrap; }
+.sess-gh svg { width: 13px; height: 13px; flex: none; }
+.sess-gh span { overflow: hidden; text-overflow: ellipsis; }
 .session { padding: 8px 10px 8px 14px; cursor: pointer; border-left: 2px solid transparent; position: relative; }
 .session:hover { background: var(--bg-3); }
 .session.on { background: var(--accent-soft); border-left-color: var(--accent); }
@@ -355,7 +360,26 @@ kbd { font: var(--fs-sm) var(--mono); padding: 1px 6px; border: 1px solid var(--
 /* ---------- chat ---------- */
 .chat { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--bg-1); }
 .chat-head { display: flex; align-items: center; gap: 6px; height: 35px; padding: 0 8px 0 14px; border-bottom: 1px solid var(--line); flex: none; }
-.chat-title { flex: 1 1 0; min-width: 6.5em; font-weight: 600; /* the free space, and room for "New session": the model picker gives way first */ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat { position: relative; } /* the session switcher opens under its header */
+/* The title is the session switcher: it reads as the title, and shows it opens a list on hover. */
+.chat-title { flex: 1 1 0; min-width: calc(6.5em + 28px); /* the free space, and room for "New session" and its arrow: the model picker gives way first */ display: flex; align-items: center; gap: 4px; height: 26px; margin-left: -6px; padding: 0 6px; border: 0; border-radius: var(--r-md); background: transparent; font-weight: 600; text-align: left; }
+.chat-title:hover, .chat-title[aria-expanded="true"] { background: var(--bg-3); }
+#chatTitle { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-title .caret { flex: none; display: inline-grid; color: var(--faint); }
+.chat-title .caret svg { width: 12px; height: 12px; transform: rotate(90deg); }
+.sess-pop { position: absolute; top: 33px; left: 8px; right: 8px; z-index: 30; background: var(--bg-2); border: 1px solid var(--line-2); border-radius: var(--r-lg); box-shadow: var(--shadow); overflow: hidden; }
+.sess-pop input { width: 100%; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; padding: 9px 12px; }
+#sessPopList { max-height: min(60vh, 420px); overflow: auto; padding: 4px; }
+#sessPopList .opt { display: flex; gap: 8px; align-items: center; padding: 6px 8px; border-radius: var(--r-md); cursor: pointer; color: var(--fg-2); min-width: 0; }
+#sessPopList .opt svg { width: 14px; height: 14px; flex: none; color: var(--faint); }
+#sessPopList .opt .t { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
+#sessPopList .opt .dir, #sessPopList .opt .age { flex: none; font-size: var(--fs-sm); color: var(--muted); }
+#sessPopList .opt .dir { font-family: var(--mono); max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#sessPopList .opt:hover, #sessPopList .opt.hi { background: var(--bg-3); }
+#sessPopList .opt.on .t { color: var(--accent); }
+#sessPopList .sess-new { border-bottom: 1px solid var(--line); border-radius: var(--r-md) var(--r-md) 0 0; margin-bottom: 2px; }
+#sessPopList .sess-new .t { color: var(--accent); }
+#sessPopList .sess-none { padding: 8px 10px; }
 .transcript { flex: 1; overflow: auto; padding: 14px 14px 6px; min-height: 0; }
 .msg { margin: 0 0 12px; }
 .msg.user { background: var(--bg-3); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 8px 11px; white-space: pre-wrap; word-break: break-word; }
@@ -795,3 +819,24 @@ details.card.prop:has(.status.outdated), details.card.prop:has(.status.supersede
 #tree .row.dim .name, #tree .row.dim .ficon { opacity: .55; }
 
 #tree.drop-target, #tree .row.drop-target { outline: 1px dashed var(--accent); outline-offset: -2px; background: var(--accent-soft); }
+
+/* ---------- progress: plans and spec runs in the sidebar, a line in the chat ---------- */
+.progress-mark { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; padding: 5px 6px 5px 10px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg-2); color: var(--fg-2); cursor: pointer; min-width: 0; }
+.progress-mark:hover { border-color: var(--line-2); color: var(--fg); }
+.progress-mark > svg { width: 14px; height: 14px; flex: none; color: var(--muted); }
+.progress-mark.live > svg { color: var(--accent); }
+.progress-mark .pm-t { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.progress-mark .btn { flex: none; }
+#progressList { padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+#progressList > .plan-card { margin: 0; flex: none; } /* (cards hide overflow: shrunk, they'd clip; the view scrolls) */
+#progressList .progress-empty { padding: 12px 6px; }
+/* The sidebar is narrow: a change's name keeps its line, and its stats and buttons go under it. */
+#progressList details.card.prop > summary { flex-wrap: wrap; row-gap: 4px; }
+#progressList details.card.prop > summary .path { flex: 1 1 auto; min-width: 6ch; }
+
+/* ---------- a session's folders: top-level entries in the Explorer once there's more than one ---------- */
+.tree .row.root { font-weight: 650; color: var(--fg); }
+.tree .row.root .root-tag { margin-left: 6px; font-size: var(--fs-xs); font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.tree .row.root.missing { color: var(--muted); }
+.tree .root-missing { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 4px 12px 8px 30px; font-size: var(--fs-sm); color: var(--muted); }
+.tree .root-missing span { overflow-wrap: anywhere; } /* a long path wraps rather than running out of the sidebar */
