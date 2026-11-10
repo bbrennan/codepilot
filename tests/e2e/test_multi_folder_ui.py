@@ -268,3 +268,36 @@ def test_dropping_on_a_folders_entry_drops_into_that_folder(page, server, sessio
     at = "(sel) => dropDir({ target: document.querySelector(sel) })"
     assert page.evaluate(at, f"#tree .row.root[data-root='{api}']") == str(api)
     assert page.evaluate(at, "#tree .row.root .name") == ""  # the main folder's entry: its top level
+
+
+def test_a_reload_after_a_folder_change_that_lands_late_leaves_the_new_session_alone(page, server, session, tmp_path):
+    api = api_folder(tmp_path)
+    lib = tmp_path / "lib"
+    (lib / "pkg").mkdir(parents=True)
+    other = server.store.create_session(str(lib), "main")
+    server.store.update_session(session.id, folders=[str(api)], title="with api")
+    held, patched = [], []
+
+    def route(r):
+        if r.request.method == "PATCH":
+            patched.append(1)
+            r.continue_()
+        elif patched and not held:
+            held.append(r)  # the session's reload after the folder change: answered late
+        else:
+            r.continue_()
+
+    page.route(f"**/api/sessions/{session.id}", route)
+    open_app(page)
+    page.locator("#tree .row.root", has_text="api").click(button="right")
+    menu(page, "Remove from session")
+    page.wait_for_function("() => true")
+    page.wait_for_timeout(300)
+    assert held
+    page.click("#chatTitleBtn")
+    page.locator(f"#sessPop .sess-opt[data-id='{other.id}']").click()
+    page.wait_for_function("() => document.querySelector('#workspaceName').textContent === 'lib'")
+    held[0].continue_()
+    page.wait_for_timeout(500)
+    assert page.locator("#workspaceName").text_content() == "lib"
+    assert page.evaluate("() => state.sid") == other.id

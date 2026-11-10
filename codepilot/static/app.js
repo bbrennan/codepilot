@@ -260,6 +260,7 @@ async function openSession(sid) {
   const prevWorkspace = state.workspace;
   state.sid = sid; state.workspace = null; store("cp-session", sid);
   const data = await api(`/api/sessions/${sid}`);
+  if (state.sid !== sid) return; // another session was opened meanwhile: this answer is for one no longer shown
   state.session = data.session;
   $("#chatTitle").textContent = data.session.title || "New session";
   syncModelSelect(); $("#autoApprove").checked = data.session.auto_approve; $("#autoApply").checked = !!data.auto_apply;
