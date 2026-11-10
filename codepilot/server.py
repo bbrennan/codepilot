@@ -729,7 +729,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
     async def find(request: Request) -> Response:
         ctx = ctx_for(request.path_params["sid"])
         q = request.query_params.get("q", "")
-        found = await run_in_threadpool(mentions.find_files, ctx.root, q, 30)
+        found = await run_in_threadpool(mentions.find_files, ctx.root, q, 30, ctx.folders)
         return JSONResponse({"files": found})
 
     def trace_list(request: Request) -> Response:  # blocking I/O: runs in a worker thread
@@ -1097,11 +1097,32 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                                   text=True, timeout=60, errors="replace")
             return proc.stdout if proc.returncode == 0 else ""  # never show git's error text as data
 
+        def git_of(folder: Path) -> dict:  # an added folder: its branch and changed files, under its own heading
+            if not (folder / ".git").exists():
+                return {"path": str(folder), "git": False}
+            def out(*args: str) -> subprocess.CompletedProcess:
+                return subprocess.run(["git", "--no-pager", "-C", str(folder), *args], capture_output=True, text=True,
+                                      timeout=60, errors="replace")
+
+            branch = out("symbolic-ref", "--short", "-q", "HEAD").stdout.strip() \
+                or out("rev-parse", "--short", "HEAD").stdout.strip()
+            # NUL-separated porcelain: the real names (no quoting of spaces or accents; a rename's new name).
+            status = out("status", "--porcelain=v1", "-z")
+            entries = status.stdout.split("\0") if status.returncode == 0 else []
+            files, i = [], 0
+            while i < len(entries):
+                entry = entries[i]
+                if len(entry) > 3:
+                    files.append({"path": entry[3:], "code": entry[:2].strip()})
+                i += 2 if entry[:1] in ("R", "C") else 1  # a rename's or copy's old name follows
+            return {"path": str(folder), "git": True, "branch": branch, "files": files}
+
+        added = [git_of(f) for f in ctx.folders if f.is_dir()]
         if not (ctx.root / ".git").exists():
-            return JSONResponse({"git": False})
+            return JSONResponse({"git": False, "folders": added})
         # symbolic-ref works before the first commit too; a detached HEAD shows its short hash.
         branch = run("symbolic-ref", "--short", "-q", "HEAD").strip() or run("rev-parse", "--short", "HEAD").strip()
-        return JSONResponse({"git": True, "branch": branch,
+        return JSONResponse({"git": True, "branch": branch, "folders": added,
                              "status": run("status", "--short"),
                              # The page reads names from a/ and b/: settings like diff.noprefix mustn't change them.
                              "diff": run("-c", "diff.noprefix=false", "-c", "diff.mnemonicPrefix=false", "diff",

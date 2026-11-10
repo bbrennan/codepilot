@@ -8,8 +8,9 @@
     `app.css`, `app.js` wiring; docs.
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 2.1, 2.2, 2.3, 2.4_
   - _Tests: tests/test_folders.py, tests/test_server.py (folders added, files saved), tests/e2e/test_multi_folder_ui.py_
-- [ ] 2. Finding things in every folder
+- [x] 2. Finding things in every folder
   - Test first: search_code, list_files, find (⌘P), mentions (@) and the Search view reach the second folder; steering
     from it; the Changes view lists its git tree.
   - `tools.py`, `mentions.py`, `steering.py`, `server.py`; `static/folders.js`; docs.
   - _Requirements: 3.1, 3.2, 3.3_
+  - _Tests: tests/test_folders.py (search, gitignore, find and mentions, steering), tests/test_server.py (search, go to file, git), tests/e2e/test_multi_folder_ui.py (go to file, search view, @, changes view)_

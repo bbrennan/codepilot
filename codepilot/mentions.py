@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 import subprocess
 import time
+from collections.abc import Sequence
 from pathlib import Path
 
 # @path, @path:12-40, or @"a path/with spaces.png" (the composer quotes paths that have spaces)
@@ -19,23 +20,31 @@ TOTAL_CHARS = 120_000
 ATTACH_OPEN = "<attached_files>"
 
 
-def _resolve(root: Path, rel: str) -> Path | None:
+def _resolve(root: Path, rel: str, added: Sequence[Path] = ()) -> Path | None:
     p = Path(rel).expanduser()
     p = (p if p.is_absolute() else root / p).resolve()
-    if p != root and root not in p.parents:
+    if not any(p == r or r in p.parents for r in [root, *added]):
         return None
     return p if p.exists() else None
 
 
-def find_mentions(root: Path | None, text: str) -> list[dict]:
-    """Workspace files/dirs referenced with @path or @path:start-end, in order, without duplicates."""
+def _rel(root: Path, path: Path) -> str:
+    """As codepilot names it: relative in the main folder, the full path in an added one."""
+    if path == root:
+        return "."
+    return str(path.relative_to(root)) if root in path.parents else str(path)
+
+
+def find_mentions(root: Path | None, text: str, added: Sequence[Path] = ()) -> list[dict]:
+    """Files/dirs in the session's folders (`added`: besides the main one) referenced with @path or
+    @path:start-end, in order, without duplicates."""
     if root is None:
         return []
     found, seen = [], set()
     for m in MENTION.finditer(text):
         quoted, rel, start, end = m.group(1), m.group(2), m.group(3), m.group(4)
         rel = quoted or (rel if start else rel.rstrip(".,;:"))
-        path = _resolve(root, rel)
+        path = _resolve(root, rel, added)
         if path is None:
             continue
         key = (str(path), start, end)
@@ -43,14 +52,14 @@ def find_mentions(root: Path | None, text: str) -> list[dict]:
             continue
         seen.add(key)
         first = int(start) if start else None
-        found.append({"path": path, "rel": str(path.relative_to(root)) if path != root else ".",
+        found.append({"path": path, "rel": _rel(root, path),
                       "start": first, "end": int(end) if end else first})
     return found
 
 
-def attachment_block(root: Path | None, text: str) -> tuple[str, list[str]]:
+def attachment_block(root: Path | None, text: str, added: Sequence[Path] = ()) -> tuple[str, list[str]]:
     """Build the <attached_files> block for a message; returns (block, labels)."""
-    mentions = find_mentions(root, text)
+    mentions = find_mentions(root, text, added)
     if not mentions:
         return "", []
     parts, labels, total = [ATTACH_OPEN], [], 0
@@ -149,10 +158,15 @@ def _score(path: str, query: str) -> float | None:
     return score - len(p) * 0.1 if i == len(q) else None
 
 
-def find_files(root: Path, query: str, limit: int = 30) -> list[str]:
-    files = _all_files(root)
+def find_files(root: Path, query: str, limit: int = 30, added: Sequence[Path] = ()) -> list[str]:
+    """Files matching a query: the main folder's relative, an added folder's by full path. An added folder's file is
+    scored as "<folder name>/<path>", so its long full path doesn't push it down."""
+    files = [(f, f) for f in _all_files(root)]
+    for folder in added:
+        if folder.is_dir():
+            files += [(f"{folder.name}/{f}", str(folder / f)) for f in _all_files(folder)]
     if not query:
-        return files[:limit]
-    scored = [(s, f) for f in files if (s := _score(f, query)) is not None]
+        return [f for _, f in files[:limit]]
+    scored = [(s, f) for key, f in files if (s := _score(key, query)) is not None]
     scored.sort(key=lambda x: -x[0])
     return [f for _, f in scored[:limit]]

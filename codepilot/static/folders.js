@@ -81,3 +81,20 @@ $("#tree").addEventListener("contextmenu", (e) => {
     { label: "Copy Path", icon: "copy", run: () => copyText(path) },
   ]);
 });
+
+// A path as the lists show it: an added folder's file as "<folder>/<path>" (api/src/app.py), not its long full path.
+function shownPath(p) {
+  const f = addedFolders().find((a) => p === a || p.startsWith(a + "/"));
+  return f ? base(f) + p.slice(f.length) : p;
+}
+
+// The Changes view: each added folder that's a git checkout, under its own heading with its branch.
+function addedGit(list) {
+  for (const g of list || []) {
+    if (!g.git) continue;
+    const files = g.files || [];
+    $("#gitList").insertAdjacentHTML("beforeend", `<div class="group-head" title="${esc(tilde(g.path))}">${esc(base(g.path))} <span class="muted">· ${esc(g.branch)}</span></div>`
+      + (files.map((f) => { const path = `${g.path}/${f.path}`; return `<div class="row" data-gitfile="${esc(path)}">${fileIcon(path)}<span class="name">${esc(f.path)}</span><span class="meta mono">${esc(f.code)}</span></div>`; }).join("")
+        || '<div class="hint" style="padding:0 14px">Clean working tree.</div>'));
+  }
+}

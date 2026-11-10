@@ -180,3 +180,58 @@ def test_new_file_goes_in_the_folder_whose_entry_you_clicked(page, server, sessi
     answer(page, "todo.md")
     page.locator("#codeEdit").wait_for()
     assert (api / "todo.md").exists() and not (server.repo / "todo.md").exists()
+
+
+# -- finding things in every folder (task 2) ------------------------------------------------------------------------
+
+
+def test_go_to_file_finds_a_file_in_an_added_folder(page, server, session, tmp_path):
+    api = api_folder(tmp_path)
+    server.store.update_session(session.id, folders=[str(api)])
+    open_app(page)
+    page.click("#paletteBtn")
+    page.fill("#paletteInput", "app.py")
+    opt = page.locator("#paletteList .opt", has_text="app.py")
+    opt.wait_for()
+    assert opt.locator(".dir").text_content() == "api/src"  # which folder it's in, not a long full path
+    page.press("#paletteInput", "Enter")
+    page.locator("#editor code", has_text="PORT = 8000").wait_for()
+
+
+def test_the_search_view_finds_text_in_an_added_folder(page, server, session, tmp_path):
+    api = api_folder(tmp_path)
+    server.store.update_session(session.id, folders=[str(api)])
+    open_app(page)
+    page.click("[data-view=search]")
+    page.fill("#grepInput", "PORT")
+    row = page.locator("#grepResults .row", has_text="app.py")
+    row.wait_for()
+    assert row.locator(".meta").text_content() == "api/src"
+    page.locator("#grepResults .grep-hit").first.click()
+    page.locator("#editor code", has_text="PORT = 8000").wait_for()
+
+
+def test_at_mentions_suggest_files_in_an_added_folder(page, server, session, tmp_path):
+    api = api_folder(tmp_path)
+    server.store.update_session(session.id, folders=[str(api)])
+    open_app(page)
+    page.type("#input", "look at @app.p")
+    opt = page.locator("#mentionPop .opt", has_text="app.py")
+    opt.wait_for()
+    assert "api/src" in opt.text_content()
+    page.keyboard.press("Enter")
+    assert page.input_value("#input") == f"look at @{api}/src/app.py "
+
+
+def test_the_changes_view_lists_an_added_folders_git_changes(page, server, session, tmp_path):
+    import subprocess
+
+    api = api_folder(tmp_path)
+    subprocess.run(["git", "init", "-q", "-b", "trunk", str(api)], check=True)
+    server.store.update_session(session.id, folders=[str(api)])
+    open_app(page)
+    page.click("[data-view=changes]")
+    head = page.locator("#gitList .group-head", has_text="api")
+    head.wait_for()
+    assert "trunk" in head.text_content()
+    page.locator(f"#gitList [data-gitfile='{api}/src/']").wait_for()  # untracked: git shows the folder

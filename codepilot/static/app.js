@@ -988,7 +988,7 @@ const runGrep = debounce(async () => {
     for (const r of d.results) { if (!byFile.has(r.path)) byFile.set(r.path, []); byFile.get(r.path).push(r); }
     $("#grepStatus").textContent = `${d.results.length} result${d.results.length === 1 ? "" : "s"} in ${byFile.size} file${byFile.size === 1 ? "" : "s"}${d.truncated ? " (limited)" : ""}`;
     let rx; try { rx = new RegExp(q, "gi"); } catch { rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"); }
-    $("#grepResults").innerHTML = [...byFile].map(([path, hits]) => `<div class="grep-file"><div class="row" data-gfile="${esc(path)}">${fileIcon(path)}<span class="name">${esc(base(path))}</span><span class="meta">${esc(dirOf(path))}</span></div>
+    $("#grepResults").innerHTML = [...byFile].map(([path, hits]) => `<div class="grep-file"><div class="row" data-gfile="${esc(path)}">${fileIcon(path)}<span class="name">${esc(base(path))}</span><span class="meta">${esc(dirOf(shownPath(path)))}</span></div>
       ${hits.map((h) => `<div class="grep-hit" data-gpath="${esc(h.path)}" data-gline="${h.line}"><b>${h.line}</b>${esc(h.text.trim()).replace(rx, (m) => `<mark>${m}</mark>`)}</div>`).join("")}</div>`).join("");
   } catch (err) { $("#grepStatus").textContent = err.message; }
 }, 250);
@@ -1030,7 +1030,7 @@ $("#proposalList").addEventListener("click", (e) => { const r = e.target.closest
 async function loadGit() {
   if (!state.sid || !state.workspace) { $("#gitList").innerHTML = ""; $("#sbBranch").innerHTML = ""; $("#gitBranch").textContent = ""; return; }
   const g = await api(`/api/sessions/${state.sid}/git`).catch(() => null);
-  if (!g || !g.git) { $("#gitList").innerHTML = `<div class="hint" style="padding:0 14px">Not a git repository.</div>`; $("#sbBranch").innerHTML = ""; return; }
+  if (!g || !g.git) { $("#gitList").innerHTML = `<div class="hint" style="padding:0 14px">Not a git repository.</div>`; $("#sbBranch").innerHTML = ""; addedGit(g?.folders); return; }
   $("#gitBranch").textContent = "· " + g.branch;
   $("#sbBranch").innerHTML = `${icon("branch")}${esc(g.branch)}`;
   const lines = g.status.split("\n").filter(Boolean);
@@ -1038,6 +1038,7 @@ async function loadGit() {
     + lines.map((l) => { const code = l.slice(0, 2).trim(), path = l.slice(3); return `<div class="row" data-gitfile="${esc(path)}">${fileIcon(path)}<span class="name">${esc(path)}</span><span class="meta mono">${esc(code)}</span></div>`; }).join("")
     || `<div class="hint" style="padding:0 14px">Clean working tree.</div>`;
   $("#openGitDiff") && ($("#openGitDiff").onclick = openGitDiff);
+  addedGit(g.folders); // folders.js: each added folder's changes under its own heading
 }
 $("#gitList").addEventListener("click", (e) => { const r = e.target.closest("[data-gitfile]"); if (r && !r.dataset.gitfile.endsWith("/")) openFile(r.dataset.gitfile); });
 $("#refreshGitBtn").onclick = loadGit;
@@ -1776,7 +1777,7 @@ function renderMentions() {
   const pop = $("#mentionPop");
   if (!mention.items.length) { pop.hidden = true; mention.open = false; return; }
   mention.open = true; pop.hidden = false;
-  pop.innerHTML = mention.items.map((f, i) => `<div class="opt ${i === mention.idx ? "on" : ""}" data-i="${i}">${fileIcon(f)}<span>${esc(base(f))}</span><span class="dir">${esc(dirOf(f))}</span></div>`).join("");
+  pop.innerHTML = mention.items.map((f, i) => `<div class="opt ${i === mention.idx ? "on" : ""}" data-i="${i}">${fileIcon(f)}<span>${esc(base(f))}</span><span class="dir">${esc(dirOf(shownPath(f)))}</span></div>`).join("");
 }
 function hideMentions() { mention.open = false; $("#mentionPop").hidden = true; }
 function acceptMention(i) {
@@ -2605,7 +2606,7 @@ const palSearch = debounce(async (q) => {
   pal.items = d.files; pal.idx = 0; renderPalette();
 }, 80);
 function renderPalette() {
-  $("#paletteList").innerHTML = pal.items.map((f, i) => `<div class="opt ${i === pal.idx ? "on" : ""}" data-i="${i}">${fileIcon(f)}<span class="n">${esc(base(f))}</span><span class="dir">${esc(dirOf(f))}</span></div>`).join("") || `<div class="hint" style="padding:8px 10px">No matching files.</div>`;
+  $("#paletteList").innerHTML = pal.items.map((f, i) => `<div class="opt ${i === pal.idx ? "on" : ""}" data-i="${i}">${fileIcon(f)}<span class="n">${esc(base(f))}</span><span class="dir">${esc(dirOf(shownPath(f)))}</span></div>`).join("") || `<div class="hint" style="padding:8px 10px">No matching files.</div>`;
   $("#paletteList .opt.on")?.scrollIntoView({ block: "nearest" });
 }
 function closePalette() { $("#palette").hidden = true; }

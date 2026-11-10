@@ -126,3 +126,105 @@ def test_verifying_with_a_change_in_an_added_folder_is_only_partly_verified(ctx,
     assert receipt.status == "partial" and receipt.skipped == [1] and receipt.proposal_ids == [1, 2]
     text = verification.describe(__import__("dataclasses").asdict(receipt))
     assert "#1" in text and "added folder" in text and "not verified" in text
+
+
+# -- finding things in every folder (task 2) ------------------------------------------------------------------------
+
+
+def _git_repo(path):
+    import subprocess
+
+    subprocess.run(["git", "init", "-q", str(path)], check=True)
+    for key, value in (("user.name", "Test"), ("user.email", "test@example.invalid")):
+        subprocess.run(["git", "-C", str(path), "config", key, value], check=True)
+
+
+def test_a_search_with_no_folder_given_covers_every_folder(ctx, api):
+    from codepilot.tools import search_code
+
+    _git_repo(api)
+    (api / ".gitignore").write_text("secret.txt\n")
+    (api / "secret.txt").write_text("PORT = 1\n")
+    out = search_code(ctx, r"PORT|return a")
+    assert f"{(api / 'src' / 'app.py').resolve()}:1: PORT = 8000" in out
+    assert "agent/core.py:2:" in out  # the main folder's too
+    assert "secret.txt" not in out  # the added folder's own .gitignore is honoured
+    only = search_code(ctx, "PORT", str(api))
+    assert "app.py" in only and "agent/core.py" not in only
+
+
+def test_the_python_search_honours_an_added_folders_gitignore(ctx, api, monkeypatch):
+    from codepilot import tools
+
+    monkeypatch.setattr(tools.shutil, "which", lambda name: None)  # no ripgrep: the Python engine
+    _git_repo(api)
+    (api / ".gitignore").write_text("secret.txt\n")
+    (api / "secret.txt").write_text("PORT = 1\n")
+    out = tools.search_code(ctx, "PORT")
+    assert "app.py:1: PORT = 8000" in out and "secret.txt" not in out
+
+
+def test_go_to_file_and_mentions_find_files_in_added_folders(repo, api):
+    from codepilot import mentions
+
+    app = str((api / "src" / "app.py").resolve())
+    assert app in mentions.find_files(repo.resolve(), "app.py", 30, added=[api.resolve()])
+    assert "agent/core.py" in mentions.find_files(repo.resolve(), "core", 30, added=[api.resolve()])
+    [m] = mentions.find_mentions(repo.resolve(), f"look at @{app}", added=[api.resolve()])
+    assert m["rel"] == app
+    block, labels = mentions.attachment_block(repo.resolve(), f"look at @{app}", added=[api.resolve()])
+    assert "PORT = 8000" in block and labels == [app]
+    assert mentions.find_mentions(repo.resolve(), f"look at @{app}") == []  # not a session folder: left alone
+
+
+def test_an_added_folders_steering_is_followed(ctx, api, cfg, store):
+    from codepilot.agent import Agent
+    from fakes import FakeLLM
+
+    (api / "AGENTS.md").write_text("Use tabs in the API.\n")
+    agent = Agent(cfg, store, llm=FakeLLM([]))
+    sess = store.get_session(ctx.session_id)
+    text = "".join(b.get("text", "") for b in agent._system(sess, agent._ctx(sess)))
+    assert "api/AGENTS.md" in text and "Use tabs in the API." in text
+    before = agent._session_system(sess, agent._ctx(sess))
+    (api / "AGENTS.md").write_text("Use spaces in the API.\n")  # an edit applies from the next request
+    after = agent._session_system(store.get_session(ctx.session_id), agent._ctx(sess))
+    assert before != after and "Use spaces in the API." in "".join(b.get("text", "") for b in after)
+
+
+# -- from review (task 2) -------------------------------------------------------------------------------------------
+
+
+def test_an_image_mentioned_in_an_added_folder_is_attached(repo, api):
+    from test_images import PNG
+
+    from codepilot import images
+
+    (api / "shot.png").write_bytes(PNG)
+    found, problems = images.from_message(f"what's wrong here? @{api.resolve()}/shot.png", repo.resolve(),
+                                          added=[api.resolve()])
+    assert len(found) == 1 and problems == []
+
+
+def test_an_added_folders_files_get_its_own_file_steering_not_the_main_folders(ctx, api, cfg, store):
+    from codepilot.agent import Agent
+    from fakes import FakeLLM
+
+    for folder, rule in ((ctx.root, "Main folder Python rule."), (api, "API Python rule.")):
+        (folder / ".codepilot" / "steering").mkdir(parents=True, exist_ok=True)
+        (folder / ".codepilot" / "steering" / "py.md").write_text(
+            f"---\ninclusion: fileMatch\nfileMatchPattern: 'src/*.py'\n---\n{rule}\n")
+    (ctx.root / "src").mkdir()
+    (ctx.root / "src" / "main.py").write_text("x = 1\n")
+    agent = Agent(cfg, store, llm=FakeLLM([]))
+    text, _ = agent._message_steering(ctx.session_id, ctx.root, f"look at @{(api / 'src' / 'app.py').resolve()}")
+    assert "API Python rule." in text and "Main folder Python rule." not in text
+    docs = agent._file_steering(ctx, {"name": "read_file", "input": {"path": "src/main.py"}})
+    assert [d.body.strip() for d in docs] == ["Main folder Python rule."]  # the main folder's, as before
+
+
+def test_a_glob_matches_an_added_folders_paths_without_ripgrep(ctx, api, monkeypatch):
+    from codepilot import tools
+
+    monkeypatch.setattr(tools.shutil, "which", lambda name: None)
+    assert "app.py:1: PORT = 8000" in tools.search_code(ctx, "PORT", glob="src/*.py")
