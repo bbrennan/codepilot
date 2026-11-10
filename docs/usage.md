@@ -62,9 +62,13 @@ library. Click the folder button in the title bar (it shows `payments +1` once t
 folder…**; or **Open folder in a new session…** to start fresh there. The button never replaces a session's folder.
 Each folder is then a top-level entry in the Explorer, the main one first; right-click one to **Make main folder** or
 **Remove from session** (from the session, not the disk). codepilot reads, searches and changes files in every folder,
-and changes there are reviewed, applied and undone as usual; it names an added folder's files by their full path. Tests,
-the terminal and specs use the main folder; **Verify** checks the main folder's changes. A folder that has moved or
-gone says so in the Explorer, with **Remove from session**.
+and changes there are reviewed, applied and undone as usual; it names an added folder's files by their full path, and
+follows each folder's steering (`AGENTS.md`, `CLAUDE.md`, `.codepilot/steering/`, …). **@** suggestions, Go to file
+(⌘P) and the **Search** view find files in every folder, shown as `api/src/app.py`; **Changes** lists each folder's git
+changes under its own heading. Tests, the terminal and specs use the main folder; **Verify** checks the main folder's
+changes and says which ones in added folders it didn't. A folder that has moved or gone says so in the Explorer, with
+**Remove from session**. You can't change folders while codepilot is working, and **Make main folder** waits until
+you've saved or closed files with unsaved edits.
 
 A session is one conversation about one folder at a time. Make as many as you like (**+** in the chat header);
 they run independently, so one can keep working while you look at another. Each session keeps its full

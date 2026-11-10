@@ -319,7 +319,7 @@ class Agent:
             blocks.append({"text": f'<skill name="{skill.name}">\n{intro} Follow these instructions:\n\n'
                                    f"{skill.body}\n</skill>"})
             yield {"type": "skill", "name": skill.name}
-        block, labels = mentions.attachment_block(root, text)
+        block, labels = mentions.attachment_block(root, text, folders.added(self.store.get_session(session_id)))
         if block:
             blocks.append({"text": block})
             yield {"type": "attached", "paths": labels}
@@ -382,7 +382,8 @@ class Agent:
     def _message_steering(self, session_id: str, root: Path | None, text: str) -> tuple[str, list[str]] | None:
         """Docs the user asked for with #name, and fileMatch docs for files they @-referenced."""
         asked = steering.requested(text, root, self.cfg.home)
-        rels = [m["rel"] for m in mentions.find_mentions(root, text) if m["path"].is_file()]
+        added = folders.added(self.store.get_session(session_id))
+        rels = [m["rel"] for m in mentions.find_mentions(root, text, added) if m["path"].is_file()]
         skip = self._steering_loaded(session_id) | {d.label for d in asked}
         matched = steering.for_files(rels, root, self.cfg.home, skip) if rels else []
         if not asked and not matched:
@@ -695,7 +696,9 @@ class Agent:
         return prompts.build_system(
             root, detect_test_cmd(root, self.cfg), self.cfg.eval_cmd, trace_roots(ctx) if root else [],
             self.cfg.log_groups, self.store.read_notes(str(root)) if root else "", sess.summary, top,
-            skills.discover(root, self.cfg.home), steering.always_text(root, self.cfg.home),
+            skills.discover(root, self.cfg.home),
+            "\n\n".join(filter(None, [steering.always_text(root, self.cfg.home),
+                                      steering.added_text(ctx.folders, self.cfg.home)])),
             steering_auto=steering.auto_listing(root, self.cfg.home),
             repo_map=repomap.build(root) if root else "",
             checks=[c.name for c in checks.detect(root)] if root else [], auto_apply=self.cfg.auto_apply_edits,
@@ -709,7 +712,8 @@ class Agent:
         # Editing a steering doc changes the key, so new instructions apply from the next request. A digest, not hash():
         # Python salts str hashes per process, so a restart would rebuild every session's prompt and drop its reasoning.
         summary = hashlib.sha1((sess.summary or "").encode()).hexdigest()[:16]
-        key = f"{ctx.root}|{','.join(map(str, ctx.folders))}|{summary}|{steering.fingerprint(ctx.root, self.cfg.home)}"
+        prints = "".join(steering.fingerprint(f, self.cfg.home) for f in [ctx.root, *ctx.folders])
+        key = f"{ctx.root}|{','.join(map(str, ctx.folders))}|{summary}|{prints}"
         if state.get("system") and state.get("key") == key:
             return state["system"]
         system = self._system(sess, ctx)

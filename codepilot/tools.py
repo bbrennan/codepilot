@@ -101,16 +101,22 @@ def clip(text: str, limit: int = MAX_OUTPUT, tail: bool = False) -> str:
     return text[:limit] + f"\n[... {cut} more characters omitted; narrow the request ...]"
 
 
+def _folder_of(ctx: ToolContext, path: Path) -> Path:
+    """The session folder (main or added) a path is in."""
+    return next((r for r in ctx.folders if folders.inside(path, [r])), ctx.root)
+
+
 def _iter_files(ctx: ToolContext, base: Path) -> list[Path]:
-    """Files under base, honouring .gitignore when the repo is a git checkout."""
-    if (ctx.root / ".git").exists():
+    """Files under base, honouring .gitignore when its folder (main or added) is a git checkout."""
+    top = _folder_of(ctx, base)
+    if (top / ".git").exists():
         proc = subprocess.run(
-            ["git", "-C", str(ctx.root), "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--",
-             ctx.rel(base)],
+            ["git", "-C", str(top), "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--",
+             str(base.relative_to(top)) if base != top else "."],
             capture_output=True, timeout=60,
         )
         if proc.returncode == 0:
-            files = [ctx.root / p for p in proc.stdout.decode(errors="replace").split("\0") if p]
+            files = [top / p for p in proc.stdout.decode(errors="replace").split("\0") if p]
             return [f for f in files if f.is_file()]
     if base.is_file():
         return [base]
@@ -185,11 +191,24 @@ def _rg_search(ctx: ToolContext, base: Path, pattern: str, glob: str, max_result
 
 
 def search_code(ctx: ToolContext, pattern: str, path: str = ".", glob: str = "", max_results: int = 100) -> str:
-    base = ctx.resolve(path)
     try:
         regex = re.compile(pattern)
     except re.error as exc:
         raise ToolError(f"invalid regex: {exc}") from exc
+    if (path or ".") != "." or not ctx.folders:
+        return _search_in(ctx, ctx.resolve(path), regex, pattern, glob, max_results)
+    # No folder given: every one of the session's folders, main first, within one result budget.
+    found: list[str] = []
+    for base in [ctx.root, *(f for f in ctx.folders if f.is_dir())]:
+        out = _search_in(ctx, base, regex, pattern, glob, max_results - len(found))
+        if out != "(no matches)":
+            found += out.splitlines()
+        if "[result limit reached" in out or len(found) >= max_results:
+            break
+    return "\n".join(found) or "(no matches)"
+
+
+def _search_in(ctx: ToolContext, base: Path, regex: re.Pattern, pattern: str, glob: str, max_results: int) -> str:
     fast = _rg_search(ctx, base, pattern, glob, max_results)
     if fast is not None:
         return fast

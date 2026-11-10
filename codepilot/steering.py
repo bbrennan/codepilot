@@ -214,6 +214,17 @@ def always_text(root: Path | None, home: Path) -> str:
     return text
 
 
+def added_text(added: list[Path], home: Path) -> str:
+    """The always-on steering of the session's added folders (AGENTS.md, .codepilot/steering, ...), labelled with
+    the folder's name: its instructions apply to that folder's files."""
+    parts = [f"## {folder.name}/{d.label}\n{expand(d.body, folder)}" for folder in added if folder.is_dir()
+             for d in discover(folder, home) if d.scope == "workspace" and d.inclusion == "always"]
+    text = "\n\n".join(parts)
+    if len(text) > MAX_ALWAYS_CHARS:
+        text = text[:MAX_ALWAYS_CHARS] + "\n[... steering truncated; keep always-on docs short ...]"
+    return text
+
+
 def auto_listing(root: Path | None, home: Path) -> str:
     docs = [d for d in discover(root, home) if d.inclusion == "auto"]
     return "\n".join(f"- {d.name}: {d.description or '(no description)'}" for d in docs)
