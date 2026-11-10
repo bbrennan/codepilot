@@ -613,3 +613,15 @@ def test_an_added_folders_changes_are_listed_by_their_real_names(client_and_llm,
     (api / "my file é.py").write_text("y = 2\n")
     [other] = client.get(f"/api/sessions/{sid}/git").json()["folders"]
     assert {(f["path"], f["code"]) for f in other["files"]} >= {("new.py", "R"), ("my file é.py", "??")}
+
+
+def test_a_refused_make_main_leaves_the_changes_alone(client_and_llm, store, repo, tmp_path):
+    client, _ = client_and_llm
+    api, sid = _with_api(client, repo, tmp_path)
+    ndjson(client.post(f"/api/sessions/{sid}/chat", json={"message": "fix add"}, headers=H))
+    [prop] = store.list_proposals(sid)
+    import shutil
+    shutil.rmtree(api)
+    r = client.patch(f"/api/sessions/{sid}", json={"make_main": str(api)}, headers=H)
+    assert r.status_code == 400
+    assert store.get_proposal(prop.id).path == "agent/core.py" and store.get_session(sid).repo == str(repo.resolve())

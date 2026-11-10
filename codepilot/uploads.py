@@ -35,17 +35,20 @@ def _plain_name(name: str) -> bool:
 def store_upload(ctx: ToolContext, rel: str, body: bytes, replace: bool = False) -> dict:
     rel = (rel or "").strip()
     parts = rel.split("/")
-    if not rel or rel.startswith(("~", "/")) or "\0" in rel or not all(_plain_name(p) for p in parts):
+    if rel.startswith("/"):  # an added folder's file, by its full path (ctx.resolve checks it's in one)
+        parts = parts[1:]
+    if not rel or rel.startswith("~") or "\0" in rel or not all(_plain_name(p) for p in parts):
         raise UploadError("Enter a file name inside the workspace.")
     if len(body) > MAX_UPLOAD_BYTES:
         raise UploadError(f"{rel} is larger than {MAX_UPLOAD_BYTES // 1048576} MB.", 413)
     try:
-        parent = ctx.resolve("/".join(parts[:-1]) or ".", must_exist=False)
+        parent = ctx.resolve(("/" if rel.startswith("/") else "") + "/".join(parts[:-1]) or ".", must_exist=False)
     except ToolError as exc:
         raise UploadError(str(exc)) from None
     target = parent / parts[-1]
     # Checked on the resolved location too, so a link to .git and ".GIT" on a case-insensitive disk are caught.
-    if any(p.lower() == ".git" for p in (*parent.relative_to(ctx.root).parts, parts[-1])):
+    top = next((f for f in ctx.folders if parent == f or f in parent.parents), ctx.root)  # the folder it's in
+    if any(p.lower() == ".git" for p in (*parent.relative_to(top).parts, parts[-1])):
         raise UploadError("Files can't be dropped into .git.")
     if target.is_symlink():
         raise UploadError(f"{rel} is a link; not writing through it.", 409)

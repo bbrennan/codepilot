@@ -367,11 +367,6 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                 fields.update(folders.patch(sess.repo, sess.folders, data))
             except ValueError as exc:
                 return err(str(exc))
-            if data.get("make_main") and sess.repo:  # each change keeps pointing at its own file
-                old, new = Path(sess.repo).expanduser().resolve(), Path(fields["repo"])
-                for p in store.list_proposals(sid):
-                    if (moved := folders.rebased(p.path, old, new)) != p.path:
-                        store.set_proposal_path(p.id, moved)
             clear_taint = data.get("taint") == []  # clearing is all a client can do with it
             if isinstance(data.get("allow"), list) or "auto_apply" in data or clear_taint:
                 state = dict(sess.context_state or {})
@@ -396,6 +391,11 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                 if not path.is_dir():
                     return err(f"Not a directory: {path}")
                 fields["repo"] = str(path)
+            if data.get("make_main") and sess.repo:  # (validated above) each change keeps pointing at its own file
+                old, new = Path(sess.repo).expanduser().resolve(), Path(fields["repo"])
+                for p in store.list_proposals(sid):
+                    if (moved := folders.rebased(p.path, old, new)) != p.path:
+                        store.set_proposal_path(p.id, moved)
             if fields:
                 store.update_session(sid, **fields)
             sess = store.get_session(sid)

@@ -42,6 +42,8 @@ def make_main(main: str, added: Sequence[str], new_main: str) -> tuple[str, list
     rest = [Path(p).expanduser().resolve() for p in added]
     if want not in rest:
         raise ValueError(f"{want} isn't one of this session's folders")
+    if not want.is_dir():
+        raise ValueError(f"{want} doesn't exist any more")
     return str(want), [str(Path(main).expanduser().resolve()) if p == want else str(p) for p in rest]
 
 
@@ -70,6 +72,10 @@ def patch(main: str, have: Sequence[str], data: dict) -> dict:
         for p in raw:
             path = Path(p).expanduser().resolve()
             if path in kept and path not in out:  # already in the session: kept even if it's gone missing
+                for have in [p for p in [root, *out] if p]:  # but not under or around another in the list
+                    if inside(path, [have]) or inside(have, [path]):
+                        raise ValueError(f"{path} is inside {have}" if inside(path, [have])
+                                         else f"{have} is inside {path}, which is already in this session")
                 out.append(path)
             else:
                 out.append(check(p, root, out))

@@ -235,3 +235,69 @@ def test_the_changes_view_lists_an_added_folders_git_changes(page, server, sessi
     head.wait_for()
     assert "trunk" in head.text_content()
     page.locator(f"#gitList [data-gitfile='{api}/src/']").wait_for()  # untracked: git shows the folder
+
+
+# -- from the release review ----------------------------------------------------------------------------------------
+
+
+def test_review_shows_changes_as_they_now_are_after_a_folder_change(page, server, session, tmp_path):
+    from codepilot import tools
+
+    api = api_folder(tmp_path)
+    server.store.update_session(session.id, folders=[str(api)])
+    ctx = tools.ToolContext(root=server.repo.resolve(), cfg=server.cfg, store=server.store, session_id=session.id,
+                            folders=[api])
+    tools.propose_edit(ctx, "agent/core.py", "a - b", "a + b")
+    tools.propose_edit(ctx, str(api / "src" / "app.py"), "PORT = 8000", "PORT = 9000")
+    open_app(page)
+    page.locator("#transcript .card.prop").nth(1).wait_for()
+    page.locator("#tree .row.root", has_text="api").click(button="right")
+    menu(page, "Make main folder")
+    main = str(server.repo.resolve())
+    page.wait_for_function("(p) => state.proposals.get(1)?.path === p + '/agent/core.py'", arg=main)
+    assert page.evaluate("() => state.proposals.get(2).path") == "src/app.py"  # now in the main folder
+    page.locator("#tree .row.root", has_text="target").click(button="right")
+    menu(page, "Remove from session")
+    page.wait_for_function("() => state.proposals.get(1)?.status === 'outdated'")  # its folder left the session
+
+
+def test_dropping_on_a_folders_entry_drops_into_that_folder(page, server, session, tmp_path):
+    api = api_folder(tmp_path)
+    server.store.update_session(session.id, folders=[str(api)])
+    open_app(page)
+    at = "(sel) => dropDir({ target: document.querySelector(sel) })"
+    assert page.evaluate(at, f"#tree .row.root[data-root='{api}']") == str(api)
+    assert page.evaluate(at, "#tree .row.root .name") == ""  # the main folder's entry: its top level
+
+
+def test_a_reload_after_a_folder_change_that_lands_late_leaves_the_new_session_alone(page, server, session, tmp_path):
+    api = api_folder(tmp_path)
+    lib = tmp_path / "lib"
+    (lib / "pkg").mkdir(parents=True)
+    other = server.store.create_session(str(lib), "main")
+    server.store.update_session(session.id, folders=[str(api)], title="with api")
+    held, patched = [], []
+
+    def route(r):
+        if r.request.method == "PATCH":
+            patched.append(1)
+            r.continue_()
+        elif patched and not held:
+            held.append(r)  # the session's reload after the folder change: answered late
+        else:
+            r.continue_()
+
+    page.route(f"**/api/sessions/{session.id}", route)
+    open_app(page)
+    page.locator("#tree .row.root", has_text="api").click(button="right")
+    menu(page, "Remove from session")
+    page.wait_for_function("() => true")
+    page.wait_for_timeout(300)
+    assert held
+    page.click("#chatTitleBtn")
+    page.locator(f"#sessPop .sess-opt[data-id='{other.id}']").click()
+    page.wait_for_function("() => document.querySelector('#workspaceName').textContent === 'lib'")
+    held[0].continue_()
+    page.wait_for_timeout(500)
+    assert page.locator("#workspaceName").text_content() == "lib"
+    assert page.evaluate("() => state.sid") == other.id
