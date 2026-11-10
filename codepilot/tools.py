@@ -140,9 +140,11 @@ def _is_binary(path: Path) -> bool:
 
 def list_files(ctx: ToolContext, path: str = ".", pattern: str = "", limit: int = 400) -> str:
     base = ctx.resolve(path)
-    files = [ctx.rel(f) for f in _iter_files(ctx, base)]
-    if pattern:
-        files = [f for f in files if fnmatch.fnmatch(f, pattern) or fnmatch.fnmatch(Path(f).name, pattern)]
+    found = _iter_files(ctx, base)
+    if pattern:  # about the path in its own folder (an added folder's are shown in full)
+        found = [f for f in found if fnmatch.fnmatch(str(f.relative_to(_folder_of(ctx, f))), pattern)
+                 or fnmatch.fnmatch(f.name, pattern)]
+    files = [ctx.rel(f) for f in found]
     total = len(files)
     lines = files[: max(1, min(limit, 2000))]
     suffix = f"\n[{total - len(lines)} more files not shown]" if total > len(lines) else ""

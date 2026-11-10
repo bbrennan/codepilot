@@ -299,3 +299,21 @@ def test_a_file_dropped_into_an_added_folder_lands_there(ctx, api):
     _git_repo(api)
     with pytest.raises(uploads.UploadError, match=".git"):
         uploads.store_upload(ctx, str(api.resolve() / ".git" / "config2"), b"x")  # its own .git stays protected
+
+
+# -- from the final release review ----------------------------------------------------------------------------------
+
+
+def test_changing_the_main_folder_and_the_added_ones_at_once_is_refused(repo, api):
+    with pytest.raises(ValueError, match="separately"):
+        folders.patch(str(repo), [], {"repo": str(api), "folders": [str(api)]})
+
+
+def test_a_rename_in_either_status_column_skips_its_old_name():
+    out = " R new.py\0old.py\0R  moved.py\0was.py\0?? my file é.py\0"
+    assert folders.git_status(out) == [{"path": "new.py", "code": "R"}, {"path": "moved.py", "code": "R"},
+                                       {"path": "my file é.py", "code": "??"}]
+
+
+def test_list_files_matches_a_pattern_in_an_added_folder(ctx, api):
+    assert str((api / "src" / "app.py").resolve()) in list_files(ctx, str(api), pattern="src/*.py")

@@ -359,14 +359,17 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             return JSONResponse({"ok": True})
         if request.method == "PATCH":
             data = await json_body(request)
+            sess = store.get_session(sid)  # as it is now: another request may have changed it while this body arrived
             fields = {k: data[k] for k in ("title", "tier", "auto_approve", "repo", "mode", "model") if k in data}
             if ("folders" in data or data.get("make_main") or data.get("repo")) and sid in busy:
                 # A running turn keeps the folders it started with: a removed one would still be in its reach.
                 return err("This session is working; change its folders once it's done.", 409)
-            if ("folders" in data or data.get("make_main") or data.get("repo")) and store.get_session(sid).pending:
-                # (read now: a turn may have paused for approval while this request's body arrived)
+            if ("folders" in data or data.get("make_main") or data.get("repo")) and sess.pending:
                 # Approving it afterwards would run it in whichever folder is main by then.
                 return err("A command is waiting for your approval; answer it before changing folders.", 409)
+            if ("folders" in data or data.get("make_main") or data.get("repo")) \
+                    and any(_session_of(pid) == sid for pid in applying):
+                return err("A change is being applied; change folders once it's done.", 409)
             try:
                 fields.update(folders.patch(sess.repo, sess.folders, data))
             except ValueError as exc:
@@ -1093,6 +1096,12 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
             "X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"})
 
+    def _session_of(pid: int) -> str | None:
+        try:
+            return store.get_proposal(pid).session_id
+        except KeyError:
+            return None
+
     def _receipt_now(sess) -> dict | None:
         """The latest verification, marked stale when the pending changes or the main folder it tested have changed
         since (e.g. Make main folder rebased their paths): the review then offers Verify again."""
@@ -1123,13 +1132,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                 or out("rev-parse", "--short", "HEAD").stdout.strip()
             # NUL-separated porcelain: the real names (no quoting of spaces or accents; a rename's new name).
             status = out("status", "--porcelain=v1", "-z")
-            entries = status.stdout.split("\0") if status.returncode == 0 else []
-            files, i = [], 0
-            while i < len(entries):
-                entry = entries[i]
-                if len(entry) > 3:
-                    files.append({"path": entry[3:], "code": entry[:2].strip()})
-                i += 2 if entry[:1] in ("R", "C") else 1  # a rename's or copy's old name follows
+            files = folders.git_status(status.stdout) if status.returncode == 0 else []
             return {"path": str(folder), "git": True, "branch": branch, "files": files}
 
         added = [git_of(f) for f in ctx.folders if f.is_dir()]
