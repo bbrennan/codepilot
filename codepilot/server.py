@@ -360,10 +360,18 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         if request.method == "PATCH":
             data = await json_body(request)
             fields = {k: data[k] for k in ("title", "tier", "auto_approve", "repo", "mode", "model") if k in data}
+            if ("folders" in data or data.get("make_main") or data.get("repo")) and sid in busy:
+                # A running turn keeps the folders it started with: a removed one would still be in its reach.
+                return err("This session is working; change its folders once it's done.", 409)
             try:
                 fields.update(folders.patch(sess.repo, sess.folders, data))
             except ValueError as exc:
                 return err(str(exc))
+            if data.get("make_main") and sess.repo:  # each change keeps pointing at its own file
+                old, new = Path(sess.repo).expanduser().resolve(), Path(fields["repo"])
+                for p in store.list_proposals(sid):
+                    if (moved := folders.rebased(p.path, old, new)) != p.path:
+                        store.set_proposal_path(p.id, moved)
             clear_taint = data.get("taint") == []  # clearing is all a client can do with it
             if isinstance(data.get("allow"), list) or "auto_apply" in data or clear_taint:
                 state = dict(sess.context_state or {})
@@ -776,6 +784,11 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             # otherwise list children whose paths equal their parent's, and the explorer would recurse forever.
             # Only for a plain relative path; for `link/..` or an absolute one the canonical path is the right name.
             if asked is None:
+                # A plain full path in an added folder: under it as asked, so a link back up goes deeper rather than
+                # naming its parent again. (`..`, or the main folder's: the canonical path, as for `link/..`.)
+                raw = request.query_params.get("path", ".").rstrip("/")
+                if os.path.isabs(raw) and ".." not in Path(raw).parts and not folders.inside(base, [ctx.root]):
+                    return f"{raw}/{p.name}"
                 return ctx.rel(p)
             return p.name if asked == "" else f"{asked}/{p.name}"
 

@@ -339,7 +339,7 @@ const disk = { dirs: new Map(), busy: false, sid: null, warned: new Set() };
 async function checkDisk() {
   if (!state.sid || !state.workspace || disk.busy || document.hidden) return;
   if (disk.sid !== state.sid) { disk.sid = state.sid; disk.dirs.clear(); disk.warned.clear(); }
-  const dirs = [...new Set([".", ...state.expanded])].filter((p) => state.tree.has(p));
+  const dirs = [...new Set([".", ...state.expanded, ...openAddedFolders()])].filter((p) => state.tree.has(p)); // (folders.js)
   const tabs = state.tabs.filter((t) => t.kind === "file" && !t.global && t.content != null && t.mtime);
   if (!dirs.length && !tabs.length) return;
   disk.busy = true;
@@ -2351,7 +2351,7 @@ $("#rpIssue").onclick = async () => {
 };
 
 // ---------------------------------------------------------------- copy paths & context menu
-const absPath = (rel) => (rel === "." ? state.workspace : state.workspace + "/" + rel);
+const absPath = (rel) => (rel === "." ? state.workspace : rel.startsWith("/") ? rel : state.workspace + "/" + rel); // (an added folder's are full)
 async function copyText(text, label) {
   try { await navigator.clipboard.writeText(text); }
   catch {

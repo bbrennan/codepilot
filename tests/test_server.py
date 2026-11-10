@@ -525,3 +525,57 @@ def test_files_in_an_added_folder_are_saved_created_and_renamed(client_and_llm, 
     (tmp_path / "other.py").write_text("secret\n")
     r = fs(op="save", path=str(tmp_path.resolve() / "other.py"), content="pwned\n")
     assert r.status_code >= 400 and (tmp_path / "other.py").read_text() == "secret\n"  # outside: refused
+
+
+# -- multi-folder: from review -------------------------------------------------------------------------------------
+
+
+def _with_api(client, repo, tmp_path):
+    api = tmp_path / "api"
+    (api / "agent").mkdir(parents=True)
+    (api / "agent" / "core.py").write_text("def add(a, b):\n    return a - b\n")  # the same file as the main folder's
+    sid = client.post("/api/sessions", json={"repo": str(repo)}, headers=H).json()["id"]
+    client.patch(f"/api/sessions/{sid}", json={"folders": [str(api)]}, headers=H)
+    return api, sid
+
+
+def test_making_a_folder_main_keeps_each_change_on_its_own_file(client_and_llm, store, repo, tmp_path):
+    client, _ = client_and_llm
+    api, sid = _with_api(client, repo, tmp_path)
+    ndjson(client.post(f"/api/sessions/{sid}/chat", json={"message": "fix add"}, headers=H))  # agent/core.py, main
+    [prop] = store.list_proposals(sid)
+    client.patch(f"/api/sessions/{sid}", json={"make_main": str(api)}, headers=H)
+    assert store.get_proposal(prop.id).path == str((repo / "agent" / "core.py").resolve())  # still the old main's
+    assert client.post(f"/api/proposals/{prop.id}/apply", headers=H).status_code == 200
+    assert "a + b" in (repo / "agent" / "core.py").read_text()
+    assert "a - b" in (api / "agent" / "core.py").read_text()  # not the new main folder's file of the same name
+    client.patch(f"/api/sessions/{sid}", json={"make_main": str(repo)}, headers=H)
+    assert store.get_proposal(prop.id).path == "agent/core.py"  # back in the main folder: relative again
+
+
+def test_folders_cant_change_while_the_session_is_working(cfg, store, repo, tmp_path):
+    gate = threading.Event()
+
+    class GatedLLM(FakeLLM):
+        def stream(self, model, system, messages, tools=None, max_tokens=None):
+            gate.wait(10)
+            yield from super().stream(model, system, messages, tools, max_tokens)
+
+    client = TestClient(create_app(cfg, store, Agent(cfg, store, llm=GatedLLM([[{"text": "ok"}]]))))
+    api, sid = _with_api(client, repo, tmp_path)
+    with client.stream("POST", f"/api/sessions/{sid}/chat", json={"message": "hi"}, headers=H) as r:
+        next(r.iter_lines())
+        removing = client.patch(f"/api/sessions/{sid}", json={"folders": []}, headers=H)
+        making = client.patch(f"/api/sessions/{sid}", json={"make_main": str(api)}, headers=H)
+        gate.set()
+    assert removing.status_code == 409 and making.status_code == 409 and "working" in removing.json()["error"]
+    assert store.get_session(sid).folders == [str(api.resolve())]
+
+
+def test_a_link_back_up_an_added_folder_lists_under_the_path_asked_for(client_and_llm, repo, tmp_path):
+    client, _ = client_and_llm
+    api, sid = _with_api(client, repo, tmp_path)
+    (api / "loop").symlink_to(api)
+    loop = str(api.resolve() / "loop")
+    listed = client.get(f"/api/sessions/{sid}/files", params={"path": loop}).json()["entries"]
+    assert {e["path"] for e in listed} >= {f"{loop}/agent", f"{loop}/loop"}  # deeper each time: no endless tree

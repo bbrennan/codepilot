@@ -367,6 +367,10 @@ class Store:
         with self._lock, self._db:
             self._db.execute("UPDATE proposals SET advice = ? WHERE id = ?", (json.dumps(advice), pid))
 
+    def set_proposal_path(self, pid: int, path: str) -> None:
+        with self._lock, self._db:
+            self._db.execute("UPDATE proposals SET path = ? WHERE id = ?", (path, pid))
+
     def set_proposal_status(self, pid: int, status: str) -> None:
         with self._lock, self._db:
             self._db.execute("UPDATE proposals SET status = ?, reported = 0 WHERE id = ?", (status, pid))

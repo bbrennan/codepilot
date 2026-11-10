@@ -11,8 +11,10 @@ const closedRoots = new Set(); // folders folded in the Explorer (all open by de
 const folderButtonLabel = (repo) => repo ? base(repo) + (addedFolders().length ? ` +${addedFolders().length}` : "") : "Open folder…";
 
 async function setFolders(body) {
+  const sid = state.sid;
   try {
-    const d = await api(`/api/sessions/${state.sid}`, { method: "PATCH", body });
+    const d = await api(`/api/sessions/${sid}`, { method: "PATCH", body });
+    if (state.sid !== sid) { loadSessions(); return; } // you've opened another session meanwhile: leave it be
     const mainChanged = (d.session.repo || "") !== (state.workspace || "");
     state.session = { ...state.session, ...d.session };
     setWorkspace(d.session.repo, mainChanged); loadSessions();
@@ -22,7 +24,13 @@ const browseNear = () => browseFolder(dirOf(state.workspace) || state.workspace 
 async function addFolder() { const path = await browseNear(); if (path) await setFolders({ folders: [...addedFolders(), path] }); }
 async function openFolderInNewSession() { const path = await browseNear(); if (path) await newSession(path); }
 const removeFolder = (path) => setFolders({ folders: addedFolders().filter((p) => p !== path) });
-const makeMainFolder = (path) => setFolders({ make_main: path });
+// Another main folder closes the open files (their paths are the main folder's): not while one has unsaved edits.
+function makeMainFolder(path) {
+  if (state.tabs.some((t) => t.dirty)) return toast("Save or close the files with unsaved edits first: making another folder main closes open files.", true);
+  return setFolders({ make_main: path });
+}
+// The added folders open in the Explorer, for the disk check to follow (app.js checkDisk).
+const openAddedFolders = () => addedFolders().filter((p) => !closedRoots.has(p) && !(state.session?.missing || []).includes(p));
 
 function folderMenu(anchor = $("#workspaceBtn")) {
   const r = anchor.getBoundingClientRect();
@@ -57,7 +65,10 @@ $("#tree").addEventListener("click", (e) => {
   const rm = e.target.closest("[data-root-remove]");
   if (rm) { removeFolder(rm.dataset.rootRemove); return; }
   const root = e.target.closest(".row.root");
-  if (root) { const p = root.dataset.root; closedRoots.has(p) ? closedRoots.delete(p) : closedRoots.add(p); renderTree(); }
+  if (!root) return;
+  const p = root.dataset.root, main = p === state.workspace;
+  state.picked = main ? null : p; state.pickedDir = !main; // New File/Folder go in this folder
+  closedRoots.has(p) ? closedRoots.delete(p) : closedRoots.add(p); renderTree();
 });
 $("#tree").addEventListener("contextmenu", (e) => {
   const root = e.target.closest(".row.root"); if (!root) return;

@@ -84,3 +84,10 @@ def patch(main: str, have: Sequence[str], data: dict) -> dict:
 def missing(sess) -> list[str]:
     """The session's added folders that aren't there any more (moved, deleted, an unmounted drive)."""
     return [p for p in getattr(sess, "folders", None) or [] if not Path(p).expanduser().is_dir()]
+
+
+def rebased(path: str, old_main: Path, new_main: Path) -> str:
+    """A change's path once `new_main` is the main folder: a file in the old main folder gets its full path (it would
+    otherwise point at the new main folder's file of the same name), and one in the new main folder a relative one."""
+    full = Path(path) if Path(path).is_absolute() else old_main / path
+    return str(full.relative_to(new_main)) if inside(full, [new_main]) and full != new_main else str(full)

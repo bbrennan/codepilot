@@ -111,3 +111,18 @@ def test_verifying_leaves_a_change_in_an_added_folder_alone(ctx, api, tmp_path):
         assert not copy.conflict
         assert "a + b" in (copy.path / "agent" / "core.py").read_text()
     assert (api / "src" / "app.py").read_text() == "PORT = 8000\n"
+
+
+def test_verifying_with_a_change_in_an_added_folder_is_only_partly_verified(ctx, api, cfg, tmp_path):
+    from dataclasses import replace
+
+    from codepilot import verification
+
+    propose_edit(ctx, str(api / "src" / "app.py"), "PORT = 8000", "PORT = 9000")
+    propose_edit(ctx, "agent/core.py", "return a - b", "return a + b")
+    pending = ctx.store.list_proposals(ctx.session_id)
+    ok = replace(cfg, test_cmd="true")
+    receipt = verification.verify(ctx.root, ok, pending, workdir=tmp_path / "work", analysers=False)
+    assert receipt.status == "partial" and receipt.skipped == [1] and receipt.proposal_ids == [1, 2]
+    text = verification.describe(__import__("dataclasses").asdict(receipt))
+    assert "#1" in text and "added folder" in text and "not verified" in text

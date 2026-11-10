@@ -107,3 +107,76 @@ def test_a_folder_can_open_in_a_new_session(page, server, session, tmp_path):
     page.wait_for_function("() => document.querySelector('#workspaceName').textContent === 'api'")
     assert len(server.store.list_sessions()) == 2
     assert server.store.get_session(session.id).repo == str(server.repo.resolve())  # the first session kept its folder
+
+
+# -- from review ------------------------------------------------------------------------------------------------------
+
+
+def test_a_folder_change_that_lands_after_switching_sessions_leaves_the_new_one_alone(page, server, session, tmp_path):
+    api = api_folder(tmp_path)
+    lib = tmp_path / "lib"
+    (lib / "pkg").mkdir(parents=True)
+    other = server.store.create_session(str(lib), "main")
+    server.store.update_session(session.id, folders=[str(api)], title="with api")  # the newest: it opens
+    held = []
+    page.route(f"**/api/sessions/{session.id}", lambda r: held.append(r) if r.request.method == "PATCH" else r.continue_())
+    open_app(page)
+    page.locator("#tree .row.root", has_text="api").click(button="right")
+    menu(page, "Remove from session")
+    page.wait_for_function("() => true")
+    page.click("#chatTitleBtn")
+    page.locator(f"#sessPop .sess-opt[data-id='{other.id}']").click()
+    page.wait_for_function("() => document.querySelector('#workspaceName').textContent === 'lib'")
+    page.wait_for_timeout(100)
+    assert held
+    held[0].continue_()  # the removal answers now
+    page.wait_for_timeout(500)
+    assert page.locator("#workspaceName").text_content() == "lib"
+    page.locator("#tree [data-dir='pkg']").wait_for()
+
+
+def test_making_a_folder_main_keeps_unsaved_edits(page, server, session, tmp_path):
+    api = api_folder(tmp_path)
+    server.store.update_session(session.id, folders=[str(api)])
+    open_app(page)
+    page.click("#tree [data-dir='agent']")
+    page.click("#tree [data-file='agent/core.py']")
+    page.click("#fEdit")
+    page.locator("#codeEdit").wait_for()
+    page.keyboard.type("# draft\n")
+    page.wait_for_function("() => document.querySelector('.tab.on').classList.contains('dirty')")
+    page.locator("#tree .row.root", has_text="api").click(button="right")
+    menu(page, "Make main folder")
+    page.locator(".toast", has_text="unsaved").wait_for()
+    assert server.store.get_session(session.id).repo == str(server.repo.resolve())  # not changed
+    assert page.locator(".tab.dirty").count() == 1
+
+
+def test_an_added_folders_files_have_their_own_full_paths(page, server, session, tmp_path):
+    api = api_folder(tmp_path)
+    server.store.update_session(session.id, folders=[str(api)])
+    open_app(page)
+    assert page.evaluate("(p) => absPath(p)", f"{api}/src") == f"{api}/src"  # Copy path, Open in Terminal
+    assert page.evaluate("() => absPath('agent')") == f"{server.repo.resolve()}/agent"
+
+
+def test_new_files_at_the_top_of_an_added_folder_show_up(page, server, session, tmp_path):
+    api = api_folder(tmp_path)
+    server.store.update_session(session.id, folders=[str(api)])
+    open_app(page)
+    page.locator(f"#tree [data-dir='{api}/src']").wait_for()
+    (api / "NOTES.md").write_text("made in the terminal\n")
+    page.locator(f"#tree [data-file='{api}/NOTES.md']").wait_for(timeout=6000)
+
+
+def test_new_file_goes_in_the_folder_whose_entry_you_clicked(page, server, session, tmp_path):
+    from test_files_ui import answer
+
+    api = api_folder(tmp_path)
+    server.store.update_session(session.id, folders=[str(api)])
+    open_app(page)
+    page.locator("#tree .row.root", has_text="api").click()
+    page.click("#newFileBtn")
+    answer(page, "todo.md")
+    page.locator("#codeEdit").wait_for()
+    assert (api / "todo.md").exists() and not (server.repo / "todo.md").exists()
