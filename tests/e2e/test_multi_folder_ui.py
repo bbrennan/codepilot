@@ -301,3 +301,28 @@ def test_a_reload_after_a_folder_change_that_lands_late_leaves_the_new_session_a
     page.wait_for_timeout(500)
     assert page.locator("#workspaceName").text_content() == "lib"
     assert page.evaluate("() => state.sid") == other.id
+
+
+def test_nothing_can_be_typed_while_the_main_folder_changes(page, server, session, tmp_path):
+    api = api_folder(tmp_path)
+    server.store.update_session(session.id, folders=[str(api)])
+    held = []
+    page.route(f"**/api/sessions/{session.id}",
+               lambda r: held.append(r) if r.request.method == "PATCH" else r.continue_())
+    open_app(page)
+    page.click("#tree [data-dir='agent']")
+    page.click("#tree [data-file='agent/core.py']")
+    page.click("#fEdit")
+    edit = page.locator("#codeEdit")
+    edit.wait_for()
+    page.locator("#tree .row.root", has_text="api").click(button="right")
+    menu(page, "Make main folder")
+    page.wait_for_function("() => true")
+    page.wait_for_timeout(200)
+    assert held
+    before = edit.input_value()
+    edit.click()
+    page.keyboard.type("lost draft")  # while the change is on its way: nothing is typed
+    assert edit.input_value() == before and page.locator(".tab.dirty").count() == 0
+    held[0].continue_()
+    page.wait_for_function("() => document.querySelector('#workspaceName').textContent.startsWith('api')")

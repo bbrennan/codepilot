@@ -327,6 +327,7 @@ def verify_session(store, cfg: Config, sid: str, root: Path | None, cancelled=la
         return None
     receipt = asdict(verify(root, cfg, pending, workdir=cfg.home / "verify" / sid, cancelled=cancelled,
                             timeout=cfg.verify_timeout))
+    receipt["root"] = str(root.resolve())  # the main folder it tested: another one makes it stale
     return {**receipt, "id": store.add_receipt(sid, receipt), "told": False}
 
 

@@ -625,3 +625,27 @@ def test_a_refused_make_main_leaves_the_changes_alone(client_and_llm, store, rep
     r = client.patch(f"/api/sessions/{sid}", json={"make_main": str(api)}, headers=H)
     assert r.status_code == 400
     assert store.get_proposal(prop.id).path == "agent/core.py" and store.get_session(sid).repo == str(repo.resolve())
+
+
+def test_folders_cant_change_while_a_command_waits_for_approval(client_and_llm, store, repo, tmp_path):
+    client, _ = client_and_llm
+    api, sid = _with_api(client, repo, tmp_path)
+    store.update_session(sid, pending={"awaiting": [{"toolUseId": "t1", "name": "run_command", "input": {}}]})
+    r = client.patch(f"/api/sessions/{sid}", json={"make_main": str(api)}, headers=H)
+    assert r.status_code == 409 and "approval" in r.json()["error"]
+    assert client.patch(f"/api/sessions/{sid}", json={"folders": []}, headers=H).status_code == 409
+    assert store.get_session(sid).repo == str(repo.resolve())
+
+
+def test_a_receipt_from_the_old_main_folder_is_stale_after_make_main(client_and_llm, store, repo, tmp_path):
+    from codepilot import verification
+
+    client, _ = client_and_llm
+    api, sid = _with_api(client, repo, tmp_path)
+    ndjson(client.post(f"/api/sessions/{sid}/chat", json={"message": "fix add"}, headers=H))
+    store.add_receipt(sid, {"proposal_ids": [1], "fingerprint": verification.current_fingerprint(store, sid),
+                            "status": "pass", "runs": [], "newly_failing": [], "conflict": "", "isolation": [],
+                            "skipped": [], "seconds": 1.0, "root": str(repo.resolve())})
+    assert not client.get(f"/api/sessions/{sid}").json()["receipt"].get("stale")
+    client.patch(f"/api/sessions/{sid}", json={"make_main": str(api)}, headers=H)
+    assert client.get(f"/api/sessions/{sid}").json()["receipt"]["stale"] is True

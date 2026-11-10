@@ -725,6 +725,7 @@ $("#editor").addEventListener("click", (e) => {
 
 // edit mode: a plain-text editor with Save (⌘S), dirty tracking and a check for changes made on disk
 function editFile(id) {
+  if (state.changingFolders) return toast("Changing the session's folders: edit once that's done.", true); // folders.js
   const t = state.tabs.find((x) => x.id === id); if (!t || t.content == null) return;
   t.editing = true; if (t.draft == null) t.draft = t.content;
   state.active = id; renderEditor();

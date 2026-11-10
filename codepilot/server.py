@@ -34,7 +34,7 @@ from starlette.staticfiles import StaticFiles
 
 from .http_input import HANDLERS, json_body
 from . import (checkpoints, checks, diagnostics, folders, github, images, mentions, models, modes, plans, skills,
-               spec_runs, specs, steering, textfile, traces, uploads, version)
+               spec_runs, specs, steering, textfile, traces, uploads, verification, version)
 from .agent import Agent, history_events
 from .config import TIER_CHOICES, TIERS, Config
 from .store import Store
@@ -363,6 +363,9 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             if ("folders" in data or data.get("make_main") or data.get("repo")) and sid in busy:
                 # A running turn keeps the folders it started with: a removed one would still be in its reach.
                 return err("This session is working; change its folders once it's done.", 409)
+            if ("folders" in data or data.get("make_main") or data.get("repo")) and sess.pending:
+                # Approving it afterwards would run it in whichever folder is main by then.
+                return err("A command is waiting for your approval; answer it before changing folders.", 409)
             try:
                 fields.update(folders.patch(sess.repo, sess.folders, data))
             except ValueError as exc:
@@ -415,7 +418,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             "proposals": [_proposal_json(p, root) for p in store.list_proposals(sid)],
             "usage": agent.spend.view(sid),
             "context": agent.context_usage(sid),
-            "receipt": store.latest_receipt(sid),
+            "receipt": _receipt_now(sess),
             "review_batch": _review_batch(store, sid),
         })
 
@@ -1088,6 +1091,17 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         return Response(path.read_bytes(), media_type=media, headers={
             "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
             "X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"})
+
+    def _receipt_now(sess) -> dict | None:
+        """The latest verification, marked stale when the pending changes or the main folder it tested have changed
+        since (e.g. Make main folder rebased their paths): the review then offers Verify again."""
+        receipt = store.latest_receipt(sess.id)
+        if receipt is None:
+            return None
+        main = str(Path(sess.repo).expanduser().resolve()) if sess.repo else ""
+        stale = receipt["fingerprint"] != verification.current_fingerprint(store, sess.id) \
+            or receipt.get("root", main) != main
+        return {**receipt, "stale": stale}
 
     def git_view(request: Request) -> Response:  # blocking I/O: runs in a worker thread
         ctx = ctx_for(request.path_params["sid"])
