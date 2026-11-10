@@ -25,14 +25,15 @@
 │act│ sidebar          │ editor tabs (files, traces, diffs)            │ chat                  │
 │bar│ Sessions         │                                               │ mode · tier           │
 │   │ Explorer         │                                               │ transcript            │
+│   │ Progress         │                                               │                       │
 │   │ Search           ├───────────────────────────────────────────────┤ pinned plan line      │
 │   │ Traces           │ bottom panel:                                 │ message box (@ and /) │
 │   │ Changes · Memory │ Activity · Output (run) · Terminal            │                       │
 └ status bar: provider · git branch · test command · GitHub user · context meter · tokens ────┘
 ```
 
-- **Activity bar (far left):** switches the sidebar between Sessions, Explorer, Search, Traces, Changes and
-  Memory. Click the active icon to collapse the sidebar.
+- **Activity bar (far left):** switches the sidebar between Sessions, Explorer, Progress, Search, Traces, Changes and
+  Memory. Click the active icon to collapse the sidebar. Progress's icon counts the plan or spec run under way ("2/5").
 - **Editor:** opens files (with syntax highlighting), trace timelines and diffs as tabs.
 - **Chat (right):** the conversation, with every tool call shown as a card you can expand. Its title switches
   sessions.
@@ -208,19 +209,22 @@ tool's name, its arguments and its output. Reads in a row fold into one line tha
 searched twice"), which opens to the steps; an error never folds away. A change codepilot proposes is one row, with the
 file, its +/− counts, **Apply** and **Reject**. A reopened session shows the same rows as it did live.
 
-**The plan.** For multi-step work codepilot keeps a checklist. It shows as a card in the chat where the plan started,
-listing its steps: ○ to do, a spinner for the step in progress (only while codepilot works), ✓ done. The work codepilot
-does goes under the step it was doing then; click a step to see it ("Read 3 files", "Ran the tests", the changes it
-proposed). Work done after the plan was made but before any step started is under **Before the plan**. codepilot's
-replies stay in the chat.
+**The plan.** For multi-step work codepilot keeps a checklist. It shows in the **Progress** view of the sidebar, so it
+doesn't scroll away while you keep talking: when a plan starts, the sidebar switches to Progress (once; if you go back to
+the Explorer, it stays there). The card lists its steps: ○ to do, a spinner for the step in progress (only while
+codepilot works), ✓ done. The work codepilot does goes under the step it was doing then; click a step to see it ("Read 3
+files", "Ran the tests", the changes it proposed, with Apply and Reject). Work done after the plan was made but before
+any step started is under **Before the plan**. codepilot's replies stay in the chat, and where the plan started the
+chat has one line ("Plan · 1 of 2 done", later how it ended) with **View progress**. Progress lists the session's
+plans and spec runs, newest first.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/plan-card-dark.webp">
-  <img alt="A plan card in the chat: 1 of 2 steps done, with a search filed under the finished step and a read under the step in progress" src="assets/plan-card-light.webp" width="440">
+  <img alt="A plan in the Progress view: 1 of 2 steps done, with a search filed under the finished step and a read and a proposed change under the step in progress" src="assets/plan-card-light.webp" width="400">
 </picture>
 
 While the plan is live, one line is pinned above the message box with its progress ("Plan · 2 of 5 done"); click it to
-go to the card, opened at the step in progress. It says what's really happening:
+open Progress at the card, opened at the step in progress. It says what's really happening:
 - while codepilot works, it says **working…**;
 - while a command waits for you, it says **Waiting for your approval**;
 - if a turn ends with steps left, it says **Paused at step 3 of 5**, with **Continue** (asks codepilot to carry on from
@@ -439,7 +443,7 @@ The full guide, with examples, is in [steering.md](steering.md).
 For bigger changes, open the **Specs** view (the list icon) → **New spec**, or switch to **Spec** mode and
 describe what you want. codepilot writes **requirements** (EARS acceptance criteria), then a **design**,
 then **tasks**, and you approve each in the **Spec** tab before the next. Then **Run** tasks one by one or
-**Run all remaining**: the run is a card in the chat, one row per task with how it ended (done, paused and why, or
+**Run all remaining**: the run is a card in Progress (with a line in the chat), one row per task with how it ended (done, paused and why, or
 failed), its test result and the work its turn did. **Check spec vs code** and **Verify with evals** keep the spec and the code in
 step. For a change that needs a plan but not three reviews, **Quick spec** (or `/spec quick ...`) writes all three
 documents at once for one approval. Specs live in `.codepilot/specs/` in Kiro's format; other tools' spec folders aren't

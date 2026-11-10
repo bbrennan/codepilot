@@ -39,6 +39,7 @@
   <nav class="activitybar" id="activitybar">
     <button data-view="sessions" title="Sessions" data-icon="history"></button>
     <button data-view="explorer" title="Explorer" data-icon="files"></button>
+    <button data-view="progress" title="Progress: the plan or spec run under way" data-icon="progress"><span class="badge" id="progressBadge" hidden></span></button>
     <button data-view="search" title="Search" data-icon="search"></button>
     <button data-view="traces" title="Traces" data-icon="pulse"></button>
     <button data-view="changes" title="Changes" data-icon="branch"><span class="badge" id="changesBadge" hidden></span></button>
@@ -65,6 +66,10 @@
         <button class="icon-btn sm" id="collapseTreeBtn" title="Collapse all" data-icon="collapse"></button>
       </div></div>
       <div class="view-body tree" id="tree"></div>
+    </section>
+    <section class="view" data-view="progress">
+      <div class="view-head"><span>Progress</span></div>
+      <div class="view-body" id="progressList"><div class="empty-state progress-empty">Nothing under way. When codepilot makes a plan, or you run a spec's tasks, its steps show here, with the work done under each.</div></div>
     </section>
     <section class="view" data-view="search">
       <div class="view-head"><span>Search</span></div>
@@ -261,6 +266,7 @@
 <script src="/static/checkpoints.js"></script>
 <script src="/static/verify.js"></script>
 <script src="/static/taskcard.js"></script>
+<script src="/static/progress.js"></script>
 <script src="/static/plan.js"></script>
 <script src="/static/specrun.js"></script>
 <script src="/static/policy.js"></script>

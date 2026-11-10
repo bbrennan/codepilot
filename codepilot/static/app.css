@@ -819,3 +819,17 @@ details.card.prop:has(.status.outdated), details.card.prop:has(.status.supersede
 #tree .row.dim .name, #tree .row.dim .ficon { opacity: .55; }
 
 #tree.drop-target, #tree .row.drop-target { outline: 1px dashed var(--accent); outline-offset: -2px; background: var(--accent-soft); }
+
+/* ---------- progress: plans and spec runs in the sidebar, a line in the chat ---------- */
+.progress-mark { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; padding: 5px 6px 5px 10px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg-2); color: var(--fg-2); cursor: pointer; min-width: 0; }
+.progress-mark:hover { border-color: var(--line-2); color: var(--fg); }
+.progress-mark > svg { width: 14px; height: 14px; flex: none; color: var(--muted); }
+.progress-mark.live > svg { color: var(--accent); }
+.progress-mark .pm-t { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.progress-mark .btn { flex: none; }
+#progressList { padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+#progressList > .plan-card { margin: 0; }
+#progressList .progress-empty { padding: 12px 6px; }
+/* The sidebar is narrow: a change's name keeps its line, and its stats and buttons go under it. */
+#progressList details.card.prop > summary { flex-wrap: wrap; row-gap: 4px; }
+#progressList details.card.prop > summary .path { flex: 1 1 auto; min-width: 6ch; }

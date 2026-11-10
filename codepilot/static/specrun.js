@@ -1,5 +1,5 @@
 "use strict";
-// Spec runs in the chat. "Run all remaining" (or one task's Run) shows its tasks as a task card (taskcard.js): each
+// Spec runs in Progress (progress.js), with a line in the chat. "Run all remaining" (or one task's Run) shows its tasks as a task card (taskcard.js): each
 // task holds the work its turn did, and ends done, paused (saying why) or failed, with its test result. The Spec tab
 // stays the place for the documents; the card links to it rather than repeating them.
 //
@@ -17,13 +17,12 @@ function specRunCard(ev) {
   link.title = "Open this spec's documents and tasks in the Spec tab";
   link.addEventListener("click", (e) => e.preventDefault()); // app.js opens the spec; the card stays open or folded
   card.querySelector(":scope > summary").append(link);
-  add("<div></div>").replaceWith(card);
-  return card;
+  return placeTaskCard(card); // progress.js
 }
 
 // A state of a run's card, live (recordSpecRun) or replayed on reload.
 function onSpecRun(ev) {
-  const card = [...$$("#transcript .spec-card")].find((c) => c.dataset.run === ev.run) || specRunCard(ev);
+  const card = [...$$("#progressList .spec-card")].find((c) => c.dataset.run === ev.run) || specRunCard(ev);
   (card._states ||= []).push({ ev, by: lastUserMsg() }); // what a rewind past that message goes back to
   drawSpecRun(card, ev);
   return card;
@@ -89,7 +88,7 @@ async function runSpecItem(spec, run, item) {
 // `receipt` is the verification before its task's turn, when known.
 function specRunGoing(receipt = undefined) {
   if (state.specRun?.card?.isConnected) return state.specRun;
-  const card = [...$$("#transcript .spec-card.live")].at(-1);
+  const card = newestCard("#progressList .spec-card.live");
   return card?._run ? (state.specRun = { card, all: false, stopped: false, receipt: receipt !== undefined ? receipt : card._run.receipt }) : null;
 }
 
@@ -174,7 +173,7 @@ function stopSpecRun() { if (state.specRun) state.specRun.stopped = true; }
 
 // After Edit/Retry: each card goes back to what it said before the rewound messages (the server forgot the rest).
 function specRunsRewound() {
-  for (const card of $$("#transcript .spec-card")) {
+  for (const card of $$("#progressList .spec-card")) {
     const states = (card._states || []).filter((s) => !s.by || s.by.isConnected);
     if (states.length === (card._states || []).length) continue;
     card._states = states;

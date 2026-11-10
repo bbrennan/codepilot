@@ -1,25 +1,25 @@
 "use strict";
-// The plan checklist (update_plan). The plan is a card in the chat where it started (taskcard.js), with the work done
+// The plan checklist (update_plan). The plan is a card in Progress, with a line in the chat where it started (taskcard.js,
+// progress.js), and the work done
 // under each step; the update_plan steps themselves don't show, since the card says what they did. When a plan is
 // completed, replaced, cleared or dismissed, its card says so and folds away, so a plan never just vanishes. The server
 // classifies each update (new / update / complete / clear / restore), live and on reload alike.
 //
 // The live plan is also pinned above the message box as one line, which says what's really happening, from what's
 // running rather than from the model's last checklist: working, waiting for an approval, or paused (with Continue and
-// Dismiss) instead of looking busy forever. A click takes you to the card, opened at the step in progress.
+// Dismiss) instead of looking busy forever. A click opens Progress at the card, at the step in progress.
 
 const planCount = (p) => `${p[0]} of ${p[1]} done`;
 
 function resetPlan() { state.plan = null; state.planCard = null; resetTaskCards(); renderPinnedPlan(); }
 
 // The update_plan step behind this event (one that didn't fail): the card takes its place, or it just goes.
-const planRow = () => [...$$("#transcript details.tool[data-plan]")].filter((r) => !r.querySelector(":scope > summary .st.err")).at(-1);
+const planRow = () => [...$$(`${CHAT_AND_PROGRESS} details.tool[data-plan]`)].filter((r) => !r.querySelector(":scope > summary .st.err")).at(-1);
 
 function placePlanCard(row) {
   const card = newTaskCard("Plan");
-  if (row?.dataset.filed) { card.dataset.filed = "1"; card._turn = row._turn; } // under a spec task: it goes with that turn
-  (row || add("<div></div>")).replaceWith(card);
-  return card;
+  if (row?.dataset.filed) { card.dataset.filed = "1"; card._turn = row._turn; row.replaceWith(card); return card; } // under a spec task: it goes with that turn
+  return placeTaskCard(card, row); // progress.js
 }
 
 const openCard = () => state.planCard?.isConnected && !state.planCard.classList.contains("complete") ? state.planCard : null;
@@ -36,7 +36,7 @@ function onPlanEvent(ev) {
   const live = openCard();
   if (!ev.items.length) state.planCard = null;
   else if (ev.kind === "restore") {
-    state.planCard = [...$$("#transcript .plan-card:not(.spec-card)")].at(-1) || placePlanCard(null);
+    state.planCard = newestCard("#progressList .plan-card:not(.spec-card)") || placePlanCard(null);
     reviveTaskCard(state.planCard); // live again only if the server says so
   } else if (ev.kind === "new" || !live) state.planCard = placePlanCard(row); // a new plan starts where it was made
   if (ev.kind === "restore") settleRewound();
@@ -78,18 +78,11 @@ async function dismissPlan() {
   catch (err) { toast(err.message, true); }
 }
 
-// To the plan's card, opened at the step in progress (or the next one to do).
-function showPlanCard() {
-  const card = state.planCard;
-  if (!card?.isConnected) return;
-  card.open = true;
-  const item = card.querySelector(":scope > .plan-list > .pi.doing") || card.querySelector(":scope > .plan-list > .pi.todo");
-  if (item) item.open = true;
-  (item || card).scrollIntoView({ block: "center", behavior: "smooth" });
-}
+// To the plan's card in Progress, opened at the step in progress (or the next one to do).
+function showPlanCard() { showProgress(state.planCard); }
 
 function renderPinnedPlan() {
-  for (const card of $$("#transcript .plan-card.live")) refreshTaskCard(card); // a step in progress spins only while a turn runs
+  for (const card of $$("#progressList .plan-card.live")) refreshTaskCard(card); // a step in progress spins only while a turn runs
   const el = $("#plan");
   const p = state.plan;
   if (!p) { el.hidden = true; el.innerHTML = ""; return; }
@@ -101,7 +94,7 @@ function renderPinnedPlan() {
   el.hidden = false;
   el.classList.toggle("complete", p.complete);
   // One line: the header (a click goes to the card) and, when paused, its buttons beside it.
-  el.innerHTML = `<div class="plan-line"><div class="plan-head" role="button" tabindex="0" title="Show the plan in the chat">${icon("list")}<b>${p.complete ? "✓ Plan complete" : "Plan"}</b>${said}<span class="muted">${planCount(p.progress)}</span><span class="spacer"></span><span class="pbar"><i style="width:${pct}%"></i></span></div>
+  el.innerHTML = `<div class="plan-line"><div class="plan-head" role="button" tabindex="0" title="Show the plan in Progress">${icon("list")}<b>${p.complete ? "✓ Plan complete" : "Plan"}</b>${said}<span class="muted">${planCount(p.progress)}</span><span class="spacer"></span><span class="pbar"><i style="width:${pct}%"></i></span></div>
     ${status === "paused" && next >= 0 ? `<div class="plan-acts"><button class="btn sm" id="planContinue" title="Ask codepilot to carry on from step ${next + 1}">Continue</button><button class="btn sm ghost" id="planDismiss" title="Put this plan away; codepilot is told">Dismiss</button></div>` : ""}</div>`;
   const head = $(".plan-head", el);
   head.onclick = showPlanCard;

@@ -119,11 +119,11 @@ reminder is a row in Activity, not in the chat.
   changes to review before it can finish) stays in progress and carries on once you've answered. The run
   pauses when a task ends with its changes still waiting for review, or without being marked done. Press
   **Run next task** to continue.
-- **The run is a card in the chat**, one row per task: in progress, ✓ done, paused (saying why) or failed, with
+- **The run is a card in the Progress view** (the sidebar switches to it when the run starts), one row per task: in progress, ✓ done, paused (saying why) or failed, with
   its test result (the verification made in its turn, else its last test run). Click a task to see the work its
-  turn did; a plan made during a task goes under it. **Open spec** goes to the Spec tab. A reload shows the same
-  card, and Edit or Retry on a task's message takes back what that turn did to it. **Run** on one task makes a
-  card too.
+  turn did; a plan made during a task goes under it. **Open spec** goes to the Spec tab. The chat has one line where the run started, with
+  **View progress**. A reload shows the same card, and Edit or Retry on a task's message takes back what that turn did
+  to it. **Run** on one task makes a card too.
 
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/spec-run-dark.webp">
