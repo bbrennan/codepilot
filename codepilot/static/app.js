@@ -237,7 +237,7 @@ $("#sessionList").addEventListener("click", async (e) => {
     e.stopPropagation();
     if (!confirm("Delete this session and its history?")) return;
     await api(`/api/sessions/${del.dataset.del}`, { method: "DELETE" });
-    if (del.dataset.del === state.sid) { state.sid = null; store("cp-session", ""); renderChatEmpty(); }
+    if (del.dataset.del === state.sid) { state.sid = null; store("cp-session", ""); renderChatEmpty(); resetPlan(); } // (its Progress too)
     loadSessions(); return;
   }
   const row = e.target.closest(".session"); if (row) openSession(row.dataset.id);

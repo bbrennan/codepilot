@@ -110,3 +110,51 @@ def test_each_session_shows_its_own_progress(page, server, session):
     page.click("#chatTitleBtn")
     page.locator(f"#sessPop .sess-opt[data-id='{session.id}']").click()
     page.locator("#progressList > .plan-card").wait_for()
+
+
+# -- from review ------------------------------------------------------------------------------------------------------
+
+
+def test_a_long_card_scrolls_rather_than_clipping(page, server, session):
+    page.set_viewport_size({"width": 1200, "height": 360})  # less room than the card's open steps need
+    open_app(page)
+    send(page, "plan and work")
+    send(page, "fix it")
+    page.evaluate("() => document.querySelectorAll('#progressList details').forEach((d) => { d.open = true; })")
+    card = page.locator("#progressList > .plan-card")
+    assert card.evaluate("(c) => c.getBoundingClientRect().height >= c.scrollHeight - 1"), "the card is clipped"
+    assert page.locator("#progressList").evaluate("(l) => l.scrollHeight > l.clientHeight")  # the view scrolls
+
+
+def test_the_icon_keeps_its_name_while_it_counts(page, server, session):
+    open_app(page)
+    button = page.locator("#activitybar [data-view=progress]")
+    send(page, "plan start")
+    assert page.locator("#progressBadge").text_content() == "0/2"
+    label = button.get_attribute("aria-label")
+    assert label.startswith("Progress") and "0 of 2" in label  # not just "0/2"
+
+
+def test_a_plan_left_live_inside_a_finished_run_keeps_the_count(page, server, session):
+    from test_spec_run_card_ui import open_spec, spec
+
+    spec(server, "Plan first", "Read first")
+    open_spec(page, server, session)
+    page.click("#spAll")
+    page.locator("#progressList .spec-card.complete").wait_for()
+    wait_idle(page)
+    assert page.locator("#progressList .spec-card .plan-card.live").count() == 1  # its plan wasn't finished
+    assert page.locator("#progressBadge").text_content() == "0/1"
+
+
+def test_deleting_the_open_session_clears_its_progress(page, server, session):
+    open_app(page)
+    send(page, "plan start")
+    page.click("[data-view=sessions]")
+    page.once("dialog", lambda d: d.accept())
+    row = page.locator(f"#sessionList .session[data-id='{session.id}']")
+    row.hover()
+    row.locator("[data-del]").click()
+    page.wait_for_function("() => !document.querySelector('#sessionList .session')")
+    assert page.locator("#progressList .plan-card").count() == 0
+    assert page.locator("#progressBadge").is_hidden()

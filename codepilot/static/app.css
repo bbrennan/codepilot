@@ -828,7 +828,7 @@ details.card.prop:has(.status.outdated), details.card.prop:has(.status.supersede
 .progress-mark .pm-t { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .progress-mark .btn { flex: none; }
 #progressList { padding: 8px; display: flex; flex-direction: column; gap: 8px; }
-#progressList > .plan-card { margin: 0; }
+#progressList > .plan-card { margin: 0; flex: none; } /* (cards hide overflow: shrunk, they'd clip; the view scrolls) */
 #progressList .progress-empty { padding: 12px 6px; }
 /* The sidebar is narrow: a change's name keeps its line, and its stats and buttons go under it. */
 #progressList details.card.prop > summary { flex-wrap: wrap; row-gap: 4px; }

@@ -32,10 +32,14 @@ function refreshProgress() {
     m.querySelector(".pm-t").textContent = card ? `${card.querySelector(".ttl").textContent} ${card.querySelector(".cnt").textContent}`.trim() : "";
     m.classList.toggle("live", !!card?.classList.contains("live"));
   }
-  const live = newestCard("#progressList > .plan-card.live"), badge = $("#progressBadge");
+  // The run (or plan) under way; else a plan still live inside a run that ended.
+  const live = newestCard("#progressList > .plan-card.live") || newestCard("#progressList .plan-card.live"), badge = $("#progressBadge");
   const items = live ? [...live.querySelectorAll(":scope > .plan-list > .pi:not(.before):not(.gone)")] : [];
+  const done = items.filter((i) => i.classList.contains("done")).length;
   badge.hidden = !items.length;
-  badge.textContent = items.length ? `${items.filter((i) => i.classList.contains("done")).length}/${items.length}` : "";
+  badge.textContent = items.length ? `${done}/${items.length}` : "";
+  // (the badge's text would otherwise become the button's name)
+  $("#activitybar [data-view=progress]").setAttribute("aria-label", items.length ? `Progress, ${done} of ${items.length} done` : "Progress");
   $("#progressList > .progress-empty").hidden = !!$("#progressList > .plan-card");
 }
 
