@@ -61,12 +61,14 @@ def test_app_bundle(cfg, tmp_path):
     assert service.install_app(cfg, env, tmp_path) == 0
     app = tmp_path / "Codepilot.app" / "Contents"
     plist = plistlib.loads((app / "Info.plist").read_bytes())
-    assert plist["CFBundleExecutable"] == "Codepilot" and plist["CFBundleIconFile"] == "codepilot"
-    launcher = (app / "MacOS" / "Codepilot").read_text()
-    assert f'"{sys.executable}" -m codepilot --env-file "{env}" start' in launcher
-    assert os.access(app / "MacOS" / "Codepilot", os.X_OK) and (app / "Resources" / "codepilot.icns").stat().st_size
+    assert plist["CFBundleExecutable"] == "applet" and plist["CFBundleIconFile"] == "codepilot"
+    assert plist["OSAAppletStayOpen"] and not plist.get("LSUIElement")  # a Dock icon, so a minimized window can be opened
+    assert "NSCameraUsageDescription" not in plist
+    script = (app / "Resources" / "Scripts" / "main.applescript").read_text()
+    assert "on reopen" in script and sys.executable in script and str(env) in script and "start" in script
+    assert os.access(app / "MacOS" / "applet", os.X_OK) and (app / "Resources" / "codepilot.icns").stat().st_size
     assert service.install_app(cfg, None, tmp_path) == 0  # re-running replaces it cleanly
-    assert "--env-file" not in (app / "MacOS" / "Codepilot").read_text()
+    assert "--env-file" not in (app / "Resources" / "Scripts" / "main.applescript").read_text()
 
 
 def test_shell_environment_recovers_login_path(monkeypatch):
@@ -178,7 +180,10 @@ def test_codepilot_app_profile_0_keeps_your_everyday_profile(cfg, monkeypatch):
 
 
 def test_start_opens_the_window_in_the_app_profile(cfg, monkeypatch):
+    from codepilot import window
+
     seen = []
+    monkeypatch.setattr(window, "ensure_dock", lambda *args, **kwargs: None)  # don't install or open a real Dock app
     monkeypatch.delenv("CODEPILOT_APP_PROFILE", raising=False)
     monkeypatch.setattr(service, "running", lambda cfg: None)
     monkeypatch.setattr(service, "is_up", lambda url: True)  # already serving: start just opens the window

@@ -2,15 +2,14 @@
 
 `codepilot start` launches the server as a detached process (log: ~/.codepilot/server.log) and opens it,
 in a chromeless app window when Chrome, Edge, Brave or Chromium is installed. `codepilot stop` ends it.
-`codepilot app` installs a macOS launcher (~/Applications/Codepilot.app) that does the same on double-click,
-so codepilot can live in the Dock.
+`codepilot app` installs a macOS launcher (~/Applications/Codepilot.app) that stays in the Dock: clicking it
+opens the window again, including after it was minimized or left on a display that was unplugged.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import plistlib
 import shutil
 import signal
 import subprocess
@@ -20,6 +19,7 @@ import urllib.request
 import webbrowser
 from pathlib import Path
 
+from . import window
 from .config import Config
 
 STATIC = Path(__file__).parent / "static"
@@ -69,29 +69,57 @@ def running(cfg: Config) -> dict | None:
 
 def app_profile(cfg: Config) -> Path | None:
     """The browser profile the app window uses: its own (no extensions in the page, and a window position Chrome
-    remembers per display, apart from your everyday windows), unless CODEPILOT_APP_PROFILE=0 keeps your usual one."""
+    remembers per display, apart from your everyday windows), unless CODEPILOT_APP_PROFILE=0 keeps your usual one.
+    A frame saved on a display that is no longer plugged in is moved back; see window.py."""
     return None if os.environ.get("CODEPILOT_APP_PROFILE", "1").strip() == "0" else cfg.home / "chrome"
 
 
-def open_window(url: str, app_window: bool = True, profile: Path | None = None) -> None:
-    """Open codepilot in its own chromeless window if a Chromium browser is available, else the default browser."""
+def spawn_window(url: str, app_window: bool = True, profile: Path | None = None, extra: list[str] | None = None) -> bool:
+    """Open the app window, with `extra` Chrome arguments (a frame on the current display). False if no Chromium
+    browser is installed, in which case the caller opens a normal tab."""
     args = [f"--app={url}"]
     if profile is not None:
         args += [f"--user-data-dir={profile}", "--no-first-run", "--no-default-browser-check"]
+    args += list(extra or [])
     if app_window and sys.platform == "darwin":
         for name in ([os.environ["CODEPILOT_APP_BROWSER"]] if os.environ.get("CODEPILOT_APP_BROWSER") else []) \
                 + APP_BROWSERS:
             if subprocess.run(["open", "-Ra", name], capture_output=True).returncode == 0:
                 subprocess.Popen(["open", "-na", name, "--args", *args],
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                return
+                return True
     elif app_window:
         for exe in ("google-chrome", "microsoft-edge", "brave-browser", "chromium", "chromium-browser"):
             if shutil.which(exe):
                 subprocess.Popen([exe, *args], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                  start_new_session=True)
-                return
+                return True
+    return False
+
+
+def open_window(url: str, app_window: bool = True, profile: Path | None = None) -> None:
+    """Open codepilot in its own chromeless window if a Chromium browser is available, else the default browser.
+
+    On macOS, a window left minimized or on a display that was unplugged is opened on a display that is
+    plugged in. The browser for that profile is quit first, because Chrome would otherwise put the window
+    back where it saved it."""
+    extra: list[str] = []
+    if app_window and profile is not None and sys.platform == "darwin":
+        extra = window.recover(profile, asked=True) or []
+    if spawn_window(url, app_window, profile, extra):
+        return
     webbrowser.open(url)
+
+
+def _present(cfg: Config, env_path: Path | None, url: str, app_window: bool, open_ui: bool) -> None:
+    if not open_ui:
+        return
+    open_window(url, app_window, app_profile(cfg))
+    if app_window and sys.platform == "darwin":
+        try:
+            window.ensure_dock(cfg.home, sys.executable, env_path)
+        except (OSError, subprocess.CalledProcessError):
+            pass  # the window is already open; a missing Dock icon is the old behaviour
 
 
 def login_shell() -> str:
@@ -139,8 +167,7 @@ def start(cfg: Config, env_path: Path | None, port: int | None = None, open_ui: 
         if not info and server_stale(url):
             print("  Note: that server runs older code than this checkout (it wasn't started with `codepilot start`).\n"
                   "  Stop it where it runs (Ctrl+C), then run `codepilot start` again.")
-        if open_ui:
-            open_window(info["url"] if info else url, app_window, app_profile(cfg))
+        _present(cfg, env_path, info["url"] if info else url, app_window, open_ui)
         return 0
     cfg.home.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ)
@@ -160,8 +187,7 @@ def start(cfg: Config, env_path: Path | None, port: int | None = None, open_ui: 
         if is_up(url):
             print(f"codepilot is running in the background at {url}")
             print(f"  log: {log_file}   stop: codepilot stop")
-            if open_ui:
-                open_window(url, app_window, app_profile(cfg))
+            _present(cfg, env_path, url, app_window, open_ui)
             return 0
         if proc.poll() is not None:
             break
@@ -253,41 +279,25 @@ def logs(cfg: Config, lines: int = 60, follow: bool = False) -> int:
     return 0
 
 
-LAUNCHER = """#!/bin/bash
-# Codepilot launcher, written by `codepilot app`. Starts the server in the background if needed, then opens it.
-LOG="$HOME/.codepilot/launcher.log"
-mkdir -p "$HOME/.codepilot"
-{python} -m codepilot {env_args}start >>"$LOG" 2>&1 ||
-  osascript -e 'display alert "Codepilot failed to start" message "See ~/.codepilot/server.log"'
-"""
-
-
 def install_app(cfg: Config, env_path: Path | None, dest: Path | None = None) -> int:
-    """Write ~/Applications/Codepilot.app, a double-clickable launcher for `codepilot start`."""
+    """Write ~/Applications/Codepilot.app, a Dock launcher for `codepilot start`.
+
+    It stays running, unlike a shell script that exits: clicking the icon opens the window again after it was
+    minimized or left on a display that was unplugged."""
     if sys.platform != "darwin":
         print("`codepilot app` makes a macOS app. Elsewhere, run `codepilot start` (for example from a desktop "
               "shortcut or your login items).")
         return 2
     app = (dest or Path.home() / "Applications") / "Codepilot.app"
-    contents = app / "Contents"
-    if app.exists():
-        shutil.rmtree(app)
-    (contents / "MacOS").mkdir(parents=True)
-    (contents / "Resources").mkdir()
     env_args = f'--env-file "{env_path}" ' if env_path else ""
-    script = contents / "MacOS" / "Codepilot"
-    script.write_text(LAUNCHER.format(python=f'"{sys.executable}"', env_args=env_args))
-    script.chmod(0o755)
-    shutil.copy(STATIC / "codepilot.icns", contents / "Resources" / "codepilot.icns")
-    with open(contents / "Info.plist", "wb") as fh:
-        plistlib.dump({
-            "CFBundleName": "Codepilot", "CFBundleDisplayName": "Codepilot", "CFBundleIdentifier": "dev.codepilot.app",
-            "CFBundleExecutable": "Codepilot", "CFBundleIconFile": "codepilot", "CFBundlePackageType": "APPL",
-            "CFBundleShortVersionString": "1.0", "LSUIElement": True,  # no lingering Dock icon after launching
-        }, fh)
-    subprocess.run(["touch", str(app)])  # nudge Finder to pick up the icon
+    try:
+        window.write_dock_app(app, sys.executable, env_path, cfg.home / "launcher.log", STATIC / "codepilot.icns")
+    except (OSError, subprocess.CalledProcessError) as exc:
+        print(f"couldn't install {app}: {exc}", file=sys.stderr)
+        return 1
     print(f"Installed {app}")
-    print("  Open it from Finder, Spotlight or Launchpad, or drag it to the Dock.")
+    print("  Open it from Finder, Spotlight or Launchpad, or drag it to the Dock. It stays there;")
+    print("  click it to bring the window back.")
     print(f"  It runs: {sys.executable} -m codepilot {env_args}start")
     print("  Re-run `codepilot app` if you move this checkout or its virtualenv.")
     return 0
