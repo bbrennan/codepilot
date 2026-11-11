@@ -350,6 +350,11 @@ extensions don't run in the page, and the browser remembers the window's size an
 displays. The first time, it asks again for what you allowed before: clipboard access (for Ctrl+V on a Mac) and
 notifications. `CODEPILOT_APP_PROFILE=0` uses your usual profile instead.
 
+On a Mac the window is a second instance of that browser, so it has no Dock icon of its own. **Codepilot** stays in
+the Dock instead (after `codepilot start` or `codepilot app`): click it to open the window again, including when you
+had minimized it. Unplugging a display moves the window onto a display that's still plugged in, within a few seconds;
+the page reloads and the session is still there. `CODEPILOT_WINDOW_RECOVER=0` turns that off.
+
 | Command | What it does |
 |---|---|
 | `codepilot start` | Start in the background (if needed) and open the UI |

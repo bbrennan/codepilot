@@ -123,6 +123,7 @@ tiers and the default repo, for compatibility with an older internal tool.
 | `CODEPILOT_VERBOSE` | unset | `1` logs every HTTP request and credential lookup made by the AWS/Anthropic/OpenAI libraries |
 | `CODEPILOT_APP_BROWSER` | auto | Browser for `codepilot start`'s app window, e.g. `Google Chrome`, `Microsoft Edge`, `Brave Browser` |
 | `CODEPILOT_APP_PROFILE` | `1` | The app window's browser profile: its own, in `~/.codepilot/chrome` (no extensions in the page, its own window position). `0` uses your everyday browser profile |
+| `CODEPILOT_WINDOW_RECOVER` | `1` | On macOS, move the app window back onto a display that's plugged in when it was left on one that isn't, and open it again from the Dock after it's minimized. `0` leaves the window wherever the browser put it |
 
 ## Files codepilot reads and writes
 
@@ -132,7 +133,8 @@ tiers and the default repo, for compatibility with an older internal tool.
 | `~/.codepilot/codepilot.db` | Sessions, messages, proposals, token usage (SQLite) |
 | `~/.codepilot/models.json` | Which models your account can use (cached 12h; `codepilot models --refresh`) |
 | `~/.codepilot/server.pid`, `server.log`, `launcher.log` | The background server started by `codepilot start` or Codepilot.app |
-| `~/Applications/Codepilot.app` | The macOS launcher written by `codepilot app` |
+| `~/Applications/Codepilot.app` | The macOS launcher written by `codepilot app`. It stays in the Dock; click it to open the window again |
+| `~/.codepilot/Codepilot.app` | The same launcher, written by `codepilot start` when `codepilot app` hasn't been run |
 | `~/.codepilot/notes/<folder>-<hash>.md` | Per-workspace notes |
 | `~/.codepilot/scratch/<session>/` | The assistant's throwaway repro scripts |
 | `~/.codepilot/prices.toml` | Your per-token prices for the cost meter (optional) |
