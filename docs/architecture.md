@@ -59,6 +59,7 @@ store.py (SQLite in ~/.codepilot): sessions, messages, proposals, usage, notes
 | `server.py` | HTTP API, NDJSON streaming, localhost and CSRF guards, static files, terminal endpoints. Blocking filesystem and git work runs in worker threads so it can't stall streams or terminals |
 | `terminal.py` | Server-side terminals: PTY shells with scrollback that outlive the page, bridged to xterm.js over WebSockets |
 | `service.py` | `codepilot start/stop/status/logs` (background server) and the macOS launcher (`codepilot app`) |
+| `window.py` | macOS app window: bring it back onto a display that's plugged in, and keep a Dock icon that opens it again |
 | `bench.py` | Benchmark runner, grading, reports, comparison, task validation |
 | `cli.py` | `serve`, `doctor`, `chat`, `bench` |
 

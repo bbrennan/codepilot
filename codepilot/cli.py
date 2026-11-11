@@ -135,7 +135,22 @@ def serve(cfg: Config, args, env_path: Path | None) -> int:
     _note_version_in_pid_file(cfg)
     if not args.no_browser:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
-    uvicorn.run(create_app(cfg), host=host, port=port, log_level="warning")
+    # The app window is a second Chrome instance. It has no Dock icon, and Chrome puts it back on the display
+    # where it last was, so unplugging that display leaves it where it can't be seen. Watch from here, the
+    # process that stays running.
+    stop_watch = None
+    if sys.platform == "darwin":
+        from . import service, window
+
+        profile = service.app_profile(cfg)
+        if profile is not None:
+            stop_watch = window.watch(profile, lambda extra, url=url, profile=profile:
+                                      service.spawn_window(url, True, profile, extra))
+    try:
+        uvicorn.run(create_app(cfg), host=host, port=port, log_level="warning")
+    finally:
+        if stop_watch:
+            stop_watch()
     return 0
 
 
