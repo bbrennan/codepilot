@@ -36,6 +36,7 @@ store.py (SQLite in ~/.codepilot): sessions, messages, proposals, usage, notes
 | `modes.py` | Built-in and custom modes |
 | `skills.py` | SKILL.md discovery and slash commands |
 | `specs.py` | Specs (Kiro format): phases, approvals, task parsing |
+| `task_tree.py` | A spec's tasks as a tree: sub-tasks are the work, and a heading's checkbox follows theirs |
 | `spec_profiles.py` | How much review a spec gets (full or quick): what may be written and approved when, and the instructions |
 | `spec_reminder.py` | The task reminder during long implementation turns |
 | `spec_runs.py` | A spec run's card ("Run all remaining"), kept with the session so a reload draws it where it was |

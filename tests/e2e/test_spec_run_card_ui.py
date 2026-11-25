@@ -384,3 +384,60 @@ def test_after_a_reload_a_change_applied_before_it_still_counts(page, server, se
     page.locator("#transcript [data-reject]").first.click()  # and the other rejected: one was applied
     page.locator(".wait-row", has_text="Continuing after your review").wait_for()
     wait_idle(page)
+
+
+# Sub-tasks (spec subtask-tracking): a task with sub-tasks is a heading; each sub-task is run, and ticked, on its own.
+NESTED = "- [ ] 1. Export\n  - [ ] 1.1 Writer\n  - [ ] 1.2 Streaming\n- [ ] 2. Button\n"
+
+
+def nested_spec(server):
+    spec(server)
+    (server.repo / ".codepilot/specs/demo/tasks.md").write_text(NESTED)
+
+
+def asked(server):
+    """The tasks codepilot was asked to implement, as typed."""
+    typed = [" ".join(b.get("text", "") for b in c["messages"][-1]["content"]).split("<turn_context>")[0].strip()
+             for c in server.llm.calls if "messages" in c]
+    return [t for t in dict.fromkeys(typed) if t.startswith("Implement task ")]
+
+
+def test_run_all_runs_each_sub_task_once_and_the_heading_ticks_itself(page, server, session):
+    nested_spec(server)
+    open_spec(page, server, session)
+    page.click("#spAll")
+    page.locator("#progressList .spec-card.complete").wait_for()
+    wait_idle(page)
+    [card] = cards(page)
+    assert [i[:2] for i in card["items"]] == [["1.1. Writer", "done"], ["1.2. Streaming", "done"],
+                                              ["2. Button", "done"]]
+    assert asked(server) == ["Implement task 1.1 of spec demo: Writer (a sub-task of 1. Export)",
+                             "Implement task 1.2 of spec demo: Streaming (a sub-task of 1. Export)",
+                             "Implement task 2 of spec demo: Button"]
+    assert (server.repo / ".codepilot/specs/demo/tasks.md").read_text().count("- [x]") == 4
+    page.locator(".sp-bar", has_text="3 of 3 tasks done").wait_for()
+
+
+def test_run_next_runs_the_first_open_sub_task(page, server, session):
+    nested_spec(server)
+    open_spec(page, server, session)
+    page.click("#spNext")
+    page.locator("#progressList .spec-card.complete").wait_for()
+    wait_idle(page)
+    assert [i[0] for i in cards(page)[0]["items"]] == ["1.1. Writer"]
+    page.locator(".sp-bar", has_text="1 of 3 tasks done").wait_for()
+    assert "- [-] 1. Export" in (server.repo / ".codepilot/specs/demo/tasks.md").read_text()
+
+
+def test_run_on_a_heading_runs_its_open_sub_tasks(page, server, session):
+    nested_spec(server)
+    tasks = server.repo / ".codepilot/specs/demo/tasks.md"
+    tasks.write_text(NESTED + "  - [ ] 2.1 Style\n")
+    open_spec(page, server, session)
+    page.locator(".sp-task", has_text="Export").locator("[data-sp-run]").click()
+    page.locator("#progressList .spec-card.complete").wait_for()
+    wait_idle(page)
+    assert [i[:2] for i in cards(page)[0]["items"]] == [["1.1. Writer", "done"], ["1.2. Streaming", "done"]]
+    assert asked(server) == ["Implement task 1.1 of spec demo: Writer (a sub-task of 1. Export)",
+                             "Implement task 1.2 of spec demo: Streaming (a sub-task of 1. Export)"]
+    assert "- [x] 1. Export" in tasks.read_text() and "- [ ] 2.1 Style" in tasks.read_text()  # not the next heading's

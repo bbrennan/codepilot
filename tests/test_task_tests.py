@@ -203,3 +203,78 @@ def test_report_and_log_files_given_to_pytest_stay(tmp_path):
         (tmp_path / name).touch()
     argv = task_tests.selector("pytest --junit-xml report.xml --log-file run.log tests", tmp_path)
     assert argv == ["pytest", "--junit-xml", "report.xml", "--log-file", "run.log"]
+
+
+# Sub-tasks (spec subtask-tracking): a task with sub-tasks is a heading; they're the work, each done with its tests.
+NESTED = "# Tasks\n\n- [ ] 1. Export\n  - [ ] 1.1 Writer\n  - [ ] 1.2 Streaming\n- [ ] 2. Button\n"
+
+
+@pytest.fixture
+def nested(setup):
+    cfg, store, repo, sess = setup
+    specs.get(repo, "csv-export").doc("tasks").write_text(NESTED)
+    return setup
+
+
+def mark(setup, task, status="done", **args):
+    cfg, store, repo, sess = setup
+    tool = next(t for t in build_tools(cfg) if t.name == "update_task")
+    ctx = ToolContext(root=repo.resolve(), cfg=cfg, store=store, session_id=sess.id)
+    extra = {"untested": "scripted"} if status == "done" and not args else args
+    out, err = execute(tool, ctx, {"task": task, "status": status, **extra})
+    return out, err, specs.get(repo, "csv-export").doc("tasks").read_text()
+
+
+def test_a_heading_with_open_sub_tasks_isnt_marked_done(nested):
+    out, err, text = mark(nested, "1")
+    assert err and "1.1 (Writer)" in out and "1.2 (Streaming)" in out and text.count("- [ ]") == 4
+
+
+def test_marking_a_sub_task_says_where_its_heading_stands(nested):
+    out, err, text = mark(nested, "1.1", "in_progress")
+    assert not err and "Task 1 (Export) is in progress; still open under it: 1.1 (Writer), 1.2 (Streaming)." in out
+    out, err, text = mark(nested, "1.1")
+    assert not err and "still open under it: 1.2 (Streaming)." in out and "- [-] 1. Export" in text
+    out, err, text = mark(nested, "1.2")
+    assert not err and "Task 1 (Export) is done too" in out and "- [x] 1. Export" in text and "- [ ] 2. Button" in text
+
+
+@pytest.mark.parametrize("given", ["Task 1.2", "1.2.", "1.2 Streaming", "task 1.2:"])
+def test_a_task_is_found_however_its_number_is_written(nested, given):
+    out, err, text = mark(nested, given)
+    assert not err and "Task 1.2 (Streaming) is now done" in out and "- [x] 1.2 Streaming" in text
+
+
+def test_an_unknown_task_lists_the_tasks_with_their_titles(nested):
+    out, err, _ = mark(nested, "1.3")
+    assert err and "no task 1.3" in out and "1.1 (Writer)" in out and "2 (Button)" in out
+
+
+def test_two_tasks_with_one_number_are_refused_not_guessed(setup):
+    cfg, store, repo, sess = setup
+    specs.get(repo, "csv-export").doc("tasks").write_text("- [ ] 1. Writer\n- [ ] 1. Streaming\n")
+    out, err, text = mark(setup, "1")
+    assert err and "Writer" in out and "Streaming" in out and "- [x]" not in text
+
+
+def test_rewriting_the_task_list_keeps_its_checkboxes(nested):
+    cfg, store, repo, sess = nested
+    mark(nested, "1.1")
+    tool = next(t for t in build_tools(cfg) if t.name == "write_spec")
+    ctx = ToolContext(root=repo.resolve(), cfg=cfg, store=store, session_id=sess.id)
+    rewrite = ("# Tasks\n\n- [x] 1. Export\n  - [ ] 1.1 Writer, renamed\n  - [x] 1.2 Streaming\n"
+               "  - [ ] 1.3 Compression\n- [ ] 2. Button\n")
+    out, err = execute(tool, ctx, {"doc": "tasks", "content": rewrite})
+    text = specs.get(repo, "csv-export").doc("tasks").read_text()
+    assert not err and "- [-] 1. Export" in text and "- [x] 1.1 Writer, renamed\n    - _Tests: none (scripted)_" in text
+    assert "- [ ] 1.2 Streaming" in text and "- [ ] 1.3 Compression" in text
+    assert "update_task" in out and "1.2" in out  # told its tick of 1.2 didn't take
+
+
+def test_a_heading_is_never_marked_directly(nested):
+    out, err, text = mark(nested, "1", "in_progress")  # e.g. the user typed "implement task 1"
+    assert err and "heading" in out and "1.1 (Writer)" in out and "- [ ] 1. Export" in text
+    mark(nested, "1.1")
+    mark(nested, "1.2")
+    out, err, text = mark(nested, "1")  # already ticked by its sub-tasks: nothing to do, and nothing written
+    assert not err and "already done" in out and "_Tests" not in text.split("1.1")[0]

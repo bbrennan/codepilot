@@ -81,3 +81,8 @@ def test_asking_for_a_quick_spec(text, expected):
 
 def test_a_hand_edited_kind_doesnt_break_a_quick_spec():
     assert "doc='tasks'" in profiles.instructions("quick", "chore", "requirements")
+
+
+def test_the_implement_instructions_say_how_sub_tasks_are_marked():
+    text = profiles.instructions("full", "feature", "implement")
+    assert "sub-task" in text and "heading" in text and "ticks itself" in text
