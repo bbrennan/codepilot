@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import difflib
+import errno
 import fnmatch
 import json
 import os
@@ -32,6 +33,18 @@ class ToolError(Exception):
     """A tool failed in a way the model should see and can recover from."""
 
 
+def _exists(path: Path) -> bool:
+    """Path.exists() as Python 3.12 has it: a name the filesystem rejects (too long, say) raises, and the server answers
+    it with a 400 (http_input.py). From 3.14, Path.exists() answers False for every OSError instead."""
+    try:
+        path.stat()
+    except OSError as exc:
+        if exc.errno in (errno.ENOENT, errno.ENOTDIR, errno.EBADF, errno.ELOOP):
+            return False
+        raise
+    return True
+
+
 @dataclass
 class ToolContext:
     root: Path | None  # None until the user names a workspace
@@ -54,7 +67,7 @@ class ToolContext:
         path = (path if path.is_absolute() else self.root / path).resolve()
         if not folders.inside(path, [self.root, *self.folders]):
             raise ToolError(f"{rel!r} is outside the session's folders")
-        if must_exist and not path.exists():
+        if must_exist and not _exists(path):
             raise ToolError(f"{rel!r} does not exist")
         return path
 
