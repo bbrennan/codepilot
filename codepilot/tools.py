@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import difflib
+import errno
 import fnmatch
 import json
 import os
@@ -17,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from . import (checks, deps_guard, folders, github, gitcmd, images, plans, procenv, skills, spec_profiles, specs,
-               steering, task_tests, textfile, traces, webtools)
+               steering, task_tests, task_tree, textfile, traces, webtools)
 from .config import Config
 from .store import Store
 
@@ -30,6 +31,18 @@ TRACE_SUFFIXES = {".json", ".jsonl", ".ndjson", ".log", ".txt"}
 
 class ToolError(Exception):
     """A tool failed in a way the model should see and can recover from."""
+
+
+def _exists(path: Path) -> bool:
+    """Path.exists() as Python 3.12 has it: a name the filesystem rejects (too long, say) raises, and the server answers
+    it with a 400 (http_input.py). From 3.14, Path.exists() answers False for every OSError instead."""
+    try:
+        path.stat()
+    except OSError as exc:
+        if exc.errno in (errno.ENOENT, errno.ENOTDIR, errno.EBADF, errno.ELOOP):
+            return False
+        raise
+    return True
 
 
 @dataclass
@@ -54,7 +67,7 @@ class ToolContext:
         path = (path if path.is_absolute() else self.root / path).resolve()
         if not folders.inside(path, [self.root, *self.folders]):
             raise ToolError(f"{rel!r} is outside the session's folders")
-        if must_exist and not path.exists():
+        if must_exist and not _exists(path):
             raise ToolError(f"{rel!r} does not exist")
         return path
 
@@ -606,10 +619,17 @@ def write_spec(ctx: ToolContext, doc: str, content: str) -> str:
     if not spec_profiles.may_write(spec.profile, phase, doc):
         raise ToolError(f"The spec is in the {phase} phase; the user approves it before you write {doc}.")
     path = spec.doc(doc)
-    path.write_text(content.rstrip() + "\n")
+    content, put_back = content.rstrip() + "\n", []
+    if doc == "tasks" and phase == "implement" and path.is_file():  # the progress so far stays (update_task moves it)
+        content, put_back = specs.keep_progress(path.read_text(errors="replace"), content)
+    path.write_text(content)
     rel = ctx.rel(path)
     ctx.events.append({"type": "spec", "name": spec.name, "doc": doc, "path": rel})
-    return f"Wrote {rel}. Ask the user to review it in the Spec tab." if phase != "implement" else f"Updated {rel}."
+    if phase != "implement":
+        return f"Wrote {rel}. Ask the user to review it in the Spec tab."
+    kept = (f" Kept the checkboxes of {', '.join(put_back)} as they were: a task's checkbox changes with update_task, "
+            "which runs its tests.") if put_back else ""
+    return f"Updated {rel}.{kept}"
 
 
 def update_task(ctx: ToolContext, task: str, status: str, tests: list | None = None, untested: str = "") -> str:
@@ -618,8 +638,12 @@ def update_task(ctx: ToolContext, task: str, status: str, tests: list | None = N
         raise ToolError("Tasks are tracked once the task list is approved.")
     if status not in ("todo", "in_progress", "done"):
         raise ToolError("status must be todo, in_progress or done")
-    if not any(t.id == str(task).rstrip(".") for t in spec.tasks):
-        raise ToolError(f"no task {task} in tasks.md; tasks are {', '.join(t.id for t in spec.tasks)}")
+    task = task_tree.normalise(task)  # "Task 1.1", "1.1." and "1.1 Title" are 1.1
+    refused = task_tree.refusal(spec.tasks, task, status)  # unknown, ambiguous, or a heading with open sub-tasks
+    if refused:
+        raise ToolError(refused)
+    if already := task_tree.settled(spec.tasks, task, status):
+        return already
     done = None
     if status == "done":  # only when its tests pass (task_tests.py)
         pending = [p.id for p in ctx.store.list_proposals(ctx.session_id) if p.status == "pending"]
@@ -633,7 +657,8 @@ def update_task(ctx: ToolContext, task: str, status: str, tests: list | None = N
         specs.set_task_tests(spec.doc("tasks"), t.id, done.line)
     ctx.events.append({"type": "spec", "name": spec.name, "task": t.id, "status": status,
                        **(done.event if done else {})})
-    return f"Task {t.id} ({t.title}) is now {status}" + (f": {done.said}" if done else ".")
+    now = specs.parse_tasks(spec.doc("tasks").read_text(errors="replace"))
+    return f"Task {t.id} ({t.title}) is now {status}" + (f": {done.said}" if done else ".") + task_tree.note(now, t.id)
 
 
 class WithImages(str):
@@ -885,7 +910,8 @@ def build_tools(cfg: Config) -> list[Tool]:
              _obj({"doc": {"type": "string", "enum": ["requirements", "design", "tasks"]}, "content": s},
                   ["doc", "content"]), write_spec, read_only=False),
         Tool("update_task", "Mark a task of the active spec todo, in_progress or done (implementation phase), by its "
-             "number, e.g. '2.1'. For done, name in `tests` the tests that cover the task's acceptance criteria (test "
+             "number, e.g. '2.1' (a sub-task; its heading, 2, ticks itself when its sub-tasks are done). For done, "
+             "name in `tests` the tests that cover the task's acceptance criteria (test "
              "files or ids the test command takes): codepilot runs them, and the task is done only if they pass. A "
              "task with nothing to test (documentation, say) gives the reason in `untested` instead.",
              _obj({"task": s, "status": {"type": "string", "enum": ["todo", "in_progress", "done"]},

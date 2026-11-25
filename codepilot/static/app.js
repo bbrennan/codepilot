@@ -2197,8 +2197,8 @@ async function renderSpecTab(tab) {
   const head = `<div class="ed-bar sp-head"><span class="crumbs"><b>${esc(spec.name)}</b> <span class="muted">${spec.kind === "bugfix" ? "bugfix spec" : "spec"}</span></span><div class="sp-steps">${steps}</div><span class="spacer"></span>${spec.name === state.specs.active ? `<span class="incl">active</span>` : ""}</div>`;
   let body = "";
   if (view === "implement") {
-    const pending = spec.tasks.filter((t) => t.status !== "done");
-    const pct = spec.tasks.length ? Math.round((spec.progress[0] / spec.tasks.length) * 100) : 0;
+    const pending = openLeaves(spec); // specrun.js: sub-tasks are the work, their heading isn't
+    const pct = spec.progress[1] ? Math.round((spec.progress[0] / spec.progress[1]) * 100) : 0;
     body = `<div class="sp-impl"><div class="sp-bar"><div class="sp-progress"><i style="width:${pct}%"></i></div><span class="muted">${spec.progress[0]} of ${spec.progress[1]} tasks done</span><span class="spacer"></span>
       ${pending.length ? `<button class="btn sm primary" id="spNext">${icon("play")}Run next task</button><button class="btn sm" id="spAll" title="Runs tasks one after another, pausing when something needs your review">${icon("play")}Run all remaining</button>` : `<span class="status applied">complete</span>`}
       <button class="btn sm" id="spDrift" title="Compare the spec with the code and report differences">${icon("diff")}Check spec vs code</button>${state.specs.eval_cmd ? `<button class="btn sm" id="spEvals" title="Run the eval command and map results to acceptance criteria">${icon("beaker")}Verify with evals</button>` : ""}
@@ -2230,7 +2230,7 @@ async function renderSpecTab(tab) {
   const ask = () => { const t = $("#spAsk").value.trim(); if (t) specSay(spec, `About the ${phaseLabel(spec, view).toLowerCase()} of spec ${spec.name}: ${t}`); };
   on("#spAskBtn", ask);
   $("#spAsk") && ($("#spAsk").onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(); } });
-  on("#spNext", () => startSpecRun(spec, spec.tasks.find((t) => t.status !== "done"))); // specrun.js: a card in the chat
+  on("#spNext", () => { const [next] = openLeaves(spec); if (next) startSpecRun(spec, next); }); // specrun.js: a card in Progress
   on("#spAll", () => estimateRunAll(spec, () => startSpecRun(spec)));
   on("#spDrift", () => specSay(spec, `Check spec ${spec.name} against the current code. List: acceptance criteria that aren't implemented or only partly; behaviour in the code the spec doesn't describe; tasks marked done whose code doesn't match the design. If the code is right and the spec is stale, update the spec with write_spec. Don't change code without asking.`));
   on("#spEvals", () => specSay(spec, `Verify spec ${spec.name} with the evals: run the eval command (${state.specs.eval_cmd}), then map the results to the acceptance criteria in the requirements: for each criterion, which scenarios, test cases or traces exercise it and whether they pass. List criteria with no coverage and suggest new scenarios for them.`));

@@ -53,14 +53,23 @@ async function recordSpecRun(run, sid = state.sid) {
   return card;
 }
 
-// Run one task (task given) or all that remain.
+// A task with sub-tasks is a heading: its sub-tasks are the work, each run and ticked on its own, and the heading ticks
+// itself when they're done (task_tree.py). The open ones: all of them, or those under `heading` (or it, if it has none).
+function openLeaves(spec, heading = null) {
+  const byId = new Map(spec.tasks.map((t) => [t.id, t])), parents = new Set(spec.tasks.map((t) => t.parent).filter(Boolean));
+  const under = (t) => { for (let p = t.parent, n = 0; p && n < 50; p = byId.get(p)?.parent, n++) if (p === heading) return true; return false; };
+  return spec.tasks.filter((t) => !parents.has(t.id) && t.status !== "done" && (heading == null || t.id === heading || under(t)));
+}
+
+// Run one task (task given: a heading runs its open sub-tasks) or all that remain.
 async function startSpecRun(spec, task = null) {
   if (state.streams.has(state.sid)) return toast("Wait for codepilot to finish (or press Stop) first.", true);
   if (state.specRun && state.specRun.card?.isConnected !== false) return toast("A spec run is already going: it carries on once you've answered what it's waiting for.", true);
-  const tasks = task ? [task] : spec.tasks.filter((t) => t.status !== "done");
+  const tasks = openLeaves(spec, task?.id ?? null);
   if (!tasks.length) return toast("All tasks are done.");
   const run = { run: Date.now().toString(36), spec: spec.name, items: tasks.map((t) => ({ id: t.id, text: `${t.id}. ${t.title}`, status: "todo" })) };
-  state.specRun = { all: !task, stopped: false }; // (set now: a second click while this starts runs nothing)
+  // It goes on through its tasks: all that remain, or a heading's sub-tasks. (Set now: a second click runs nothing.)
+  state.specRun = { all: tasks.length > 1, stopped: false };
   await runSpecItem(spec, run, run.items[0]);
 }
 
@@ -80,8 +89,8 @@ async function runSpecItem(spec, run, item) {
     item.status = "todo"; run.ended = "stopped";
     return recordSpecRun(run, sid);
   }
-  const task = spec.tasks.find((t) => t.id === item.id);
-  setInput(`Implement task ${item.id} of spec ${spec.name}: ${task?.title ?? item.text}`); send();
+  const task = spec.tasks.find((t) => t.id === item.id), parent = task?.parent && spec.tasks.find((t) => t.id === task.parent);
+  setInput(`Implement task ${item.id} of spec ${spec.name}: ${task?.title ?? item.text}${parent ? ` (a sub-task of ${parent.id}. ${parent.title})` : ""}`); send();
 }
 
 // The run whose card is live: this one, or one left live by a reload or a Retry (it ends with the turn, not going on).

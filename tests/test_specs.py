@@ -39,15 +39,55 @@ def test_parse_tasks():
     assert [(t.id, t.title) for t in unnumbered] == [("1", "first"), ("1.1", "nested"), ("2", "second")]
 
 
+@pytest.mark.parametrize("line", ["1.1 Write it", "1.1. Write it", "1.1: Write it", "1.1) Write it", "**1.1** Write it",
+                                  "**1.1.** Write it", "Task 1.1: Write it", "task 1.1 - Write it"])
+def test_a_sub_task_is_read_by_its_number_however_it_is_written(line):
+    tasks = specs.parse_tasks(f"- [ ] 1. Parent\n  - [ ] {line}\n")
+    assert [(t.id, t.title, t.parent) for t in tasks] == [("1", "Parent", ""), ("1.1", "Write it", "1")]
+
+
+def test_unnumbered_sub_tasks_are_numbered_under_their_parent():
+    tasks = specs.parse_tasks("- [ ] 3. Parent\n  - [ ] first\n  - [ ] second\n- [ ] next\n")
+    assert [(t.id, t.parent) for t in tasks] == [("3", ""), ("3.1", "3"), ("3.2", "3"), ("4", "")]
+
+
+def test_a_sub_task_written_flush_left_is_still_under_its_parent():
+    tasks = specs.parse_tasks("- [ ] 1. Parent\n- [ ] 1.1 Child\n- [ ] 2. Next\n")
+    assert [(t.id, t.parent) for t in tasks] == [("1", ""), ("1.1", "1"), ("2", "")]
+
+
 def test_set_task_status_edits_only_that_checkbox(tmp_path):
     path = write(tmp_path / "tasks.md", TASKS)
     specs.set_task_status(path, "2.2", "done")
     specs.set_task_status(path, "1.", "in_progress")
     text = path.read_text()
     assert "- [x] 2.2 Document it" in text and "- [-] 1. Add the CSV writer" in text
-    assert text.count("- [x]") == 2 and "_Requirements: 1.1, 1.2_" in text
+    assert "- [-] 2. Wire it into the CLI" in text  # ticked by hand over 2.1 in progress: now it says so
+    assert text.count("- [x]") == 1 and "_Requirements: 1.1, 1.2_" in text
     with pytest.raises(KeyError):
         specs.set_task_status(path, "9", "done")
+
+
+def test_a_heading_ticks_itself_when_its_last_sub_task_is_done(tmp_path):
+    path = write(tmp_path / "tasks.md", "- [ ] 1. Export\n  - [ ] 1.1 Writer\n    - _Requirements: 1.1_\n"
+                                        "  - [ ] 1.2 Streaming\n    - [ ] 1.2.1 Chunks\n- [ ] 2. Button\n")
+    specs.set_task_status(path, "1.1", "in_progress")
+    assert "- [-] 1. Export" in path.read_text()  # started
+    specs.set_task_status(path, "1.1", "done")
+    specs.set_task_status(path, "1.2.1", "done")
+    text = path.read_text()
+    assert "- [x] 1. Export" in text and "- [x] 1.2 Streaming" in text and "- [ ] 2. Button" in text
+    specs.set_task_status(path, "1.2.1", "todo")  # reopened: the headings above it reopen too
+    text = path.read_text()
+    assert "- [-] 1. Export" in text and "- [ ] 1.2 Streaming" in text and "_Requirements: 1.1_" in text
+
+
+def test_progress_counts_the_work_not_the_headings(repo):
+    spec = specs.create(repo, "csv-export")
+    write(spec.doc("tasks"), "- [ ] 1. Export\n  - [x] 1.1 Writer\n  - [ ] 1.2 Streaming\n- [x] 2. Button\n")
+    info = specs.get(repo, "csv-export").info(repo)
+    assert info["progress"] == [2, 3] and not info["complete"]
+    assert [t["parent"] for t in info["tasks"]] == ["", "1", "1", ""]
 
 
 def test_only_codepilot_specs_are_listed(repo):
