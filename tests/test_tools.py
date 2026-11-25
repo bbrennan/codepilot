@@ -379,3 +379,16 @@ def test_a_change_to_a_file_that_isnt_utf8_is_refused_with_a_reason(ctx):
     # must confirm the encoding before converting, not assume one.
     hint = str(refused.value)
     assert "confirm" in hint.lower() and "-f latin1" not in hint
+
+
+def test_a_name_the_filesystem_rejects_is_an_error_not_a_missing_file(ctx):
+    # Python 3.14's Path.exists() answers False for every OSError; 3.12 raised for a name too long. The server turns
+    # that error into a 400 (http_input.py), so it must not depend on the Python version.
+    import errno
+    with pytest.raises(OSError) as raised:
+        ctx.resolve("a" * 5000)
+    assert raised.value.errno == errno.ENAMETOOLONG
+    with pytest.raises(ToolError, match="does not exist"):
+        ctx.resolve("missing.txt")
+    with pytest.raises(ToolError, match="does not exist"):
+        ctx.resolve("agent/core.py/below-a-file")
