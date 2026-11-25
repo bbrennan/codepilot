@@ -53,6 +53,8 @@ PHASE_INSTRUCTIONS = {
         "tests=[...]) naming the tests that cover its criteria: codepilot runs them and marks it done only if they "
         "pass (a task with nothing to test gives untested='why' instead). Then stop: report what changed and how "
         "you verified it. Don't start the next task; the user does that. "
+        "A task with sub-tasks (1.1, 1.2) is a heading for them: you get one sub-task at a time, so mark that "
+        "sub-task, never the heading, which ticks itself when its last sub-task is done. "
         "If the design turns out wrong, say so and propose a change to the spec with write_spec instead of "
         "drifting from it."),
 }

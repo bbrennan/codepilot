@@ -1,0 +1,26 @@
+# Tasks
+
+- [x] 1. Sub-tasks in tasks.md
+  - [x] 1.1 Read every common way of numbering a sub-task
+    - Test first: `1.1:`, `1.1)`, `**1.1**`, `Task 1.1:`; unnumbered sub-tasks under a numbered parent.
+    - _Requirements: 2.1, 2.2_
+    - _Tests: tests/test_specs.py (sub-task numbers, unnumbered sub-tasks, flush left)_
+  - [x] 1.2 The task tree and the roll-up on disk
+    - Test first: `task_tree.py`; `set_task_status` ticks and un-ticks parents, two levels deep; progress counts leaves.
+    - _Requirements: 1.1, 1.2, 3.4_
+    - _Tests: tests/test_task_tree.py, tests/test_specs.py (heading ticks itself, progress counts the work)_
+  - [x] 1.3 update_task refuses a parent's done and a duplicate number, and says where the parent stands
+    - _Requirements: 1.3, 1.4, 2.3, 2.4_
+    - _Tests: tests/test_task_tests.py (heading refused, note, numbers however written, unknown, duplicates)_
+  - [x] 1.4 write_spec keeps checkboxes during implementation
+    - _Requirements: 2.5_
+    - _Tests: tests/test_task_tests.py::test_rewriting_the_task_list_keeps_its_checkboxes_
+- [x] 2. Running sub-tasks
+  - [x] 2.1 Run next, Run all and Run on a parent run the open sub-tasks, naming the parent
+    - Test first (Playwright): a spec with sub-tasks; the card's rows and the messages sent.
+    - _Requirements: 3.1, 3.2, 3.3_
+    - _Tests: tests/e2e/test_spec_run_card_ui.py (run all, run next, run on a heading)_
+  - [x] 2.2 Instructions and docs
+    - `spec_profiles.py` implement text; `docs/specs.md`.
+    - _Requirements: 1.1, 1.3_
+    - _Tests: tests/test_spec_profiles.py::test_the_implement_instructions_say_how_sub_tasks_are_marked_

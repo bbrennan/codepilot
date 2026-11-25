@@ -104,6 +104,14 @@ Design and tasks follow as usual. In Spec mode, a message that describes a bug (
   spec.json         codepilot's bookkeeping: kind, profile and the last approved phase
 ```
 
+**Sub-tasks.** A task can have sub-tasks: `  - [ ] 1.1 Title` under `- [ ] 1. Title`. Numbers written `1.1.`, `1.1:`,
+`1.1)`, `**1.1**` or `Task 1.1:` are read the same way, and an unnumbered sub-task is numbered under its task. A task
+with sub-tasks is a heading for them. The sub-tasks are the work: each is run, tested and ticked on its own, and the
+heading ticks itself when the last one is done (`[-]` once any has started). codepilot won't mark a heading done while
+work under it is open, and the progress count counts sub-tasks, not headings. If codepilot rewrites `tasks.md` during
+implementation (to add a task, say), each task that keeps its number keeps its checkbox and its `_Tests_` line:
+checkboxes only change when a task is marked, which runs its tests.
+
 They're plain Markdown: commit them, review them in pull requests, edit them anywhere. Because the format is
 Kiro's, a spec can be copied between `.codepilot/specs/` and `.kiro/specs/` by hand.
 
@@ -113,9 +121,10 @@ During a long task, codepilot is reminded what it's working on: every 6th step o
 text of its acceptance criteria are added to the latest tool result, so it doesn't drift into neighbouring work. Each
 reminder is a row in Activity, not in the chat.
 
-- **Run** (or **Run next task**) sends "Implement task 2.1 of spec csv-export: …". The message carries the
-  requirements, design and task list, so codepilot has them even in a long session.
-- **Run all remaining** runs tasks one after another. A task that's waiting for you (a command to approve, or
+- **Run** (or **Run next task**) sends "Implement task 2.1 of spec csv-export: … (a sub-task of 2. …)". The message
+  carries the requirements, design and task list, so codepilot has them even in a long session. **Run next task** runs
+  the first open sub-task (or task without any), and **Run** on a task with sub-tasks runs its open ones in turn.
+- **Run all remaining** runs tasks one after another, each open sub-task once and never its heading on its own. A task that's waiting for you (a command to approve, or
   changes to review before it can finish) stays in progress and carries on once you've answered. The run
   pauses when a task ends with its changes still waiting for review, or without being marked done. Press
   **Run next task** to continue.
