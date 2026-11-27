@@ -36,8 +36,8 @@ const costOfCall = (ev) => costOr(ev.cost, ev.priced);
 // Under Memory → Token usage.
 function costFooter(u) {
   if (!u?.prices) return "";
-  if (u.prices.error) return `<div class="hint">Prices can't be read: ${esc(u.prices.error)}</div>`;
-  if (!u.prices.loaded) return `<div class="hint">Add prices to see dollars: copy <span class="mono">bench/prices.example.toml</span> to <span class="mono">${esc(tilde(u.prices.path))}</span>.</div>`;
+  if (u.prices.error) return `<div class="hint wrap-any">Prices can't be read: ${esc(u.prices.error)}</div>`;
+  if (!u.prices.loaded) return `<div class="hint wrap-any">Add prices to see dollars: copy <span class="mono">bench/prices.example.toml</span> to <span class="mono">${esc(tilde(u.prices.path))}</span>.</div>`;
   const limit = u.budget?.limit, missing = u.today.unpriced;
   return `<div class="mono" style="font-size:var(--fs-sm);margin-top:4px">Today ${partialUsd(u.today.total, missing)}${limit ? ` of ${fmtUsd(limit)}` : ""} (all sessions)</div>`
     + (missing.length ? `<div class="hint">Not counted: no price for ${esc(missing.map(shortModel).join(", "))} in <span class="mono">${esc(tilde(u.prices.path))}</span>.</div>` : "");

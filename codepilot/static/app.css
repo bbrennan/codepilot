@@ -203,6 +203,7 @@ input[type="checkbox"][role="switch"]:focus-visible { outline: 2px solid var(--a
 .tree .ficon.dir { color: var(--syn-type); }
 .tree .ficon.file { color: var(--faint); }
 .tree .row[draggable="true"] { cursor: grab; }
+.wrap-any { overflow-wrap: anywhere; min-width: 0; } /* a long path or message wraps rather than running under the edge */
 .empty-state { padding: 18px 16px; color: var(--muted); font-size: var(--fs-ui); line-height: 1.55; }
 .empty-state .btn { margin-top: 10px; }
 
@@ -211,7 +212,7 @@ input[type="checkbox"][role="switch"]:focus-visible { outline: 2px solid var(--a
 .grep-file > .row { padding-left: 4px; font-weight: 550; color: var(--fg); }
 .grep-hit { padding: 2px 6px 2px 22px; font-family: var(--mono); font-size: var(--fs-ui); color: var(--fg-2); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-radius: var(--r-sm); }
 .grep-hit:hover { background: var(--bg-3); }
-.grep-hit b { color: var(--faint); font-weight: 400; margin-right: 6px; }
+.grep-hit b { color: var(--faint); font-weight: 400; margin-right: 6px; display: inline-block; text-align: right; min-width: var(--ln-w, 0); } /* one column per file */
 .grep-hit mark { background: var(--hl-line); color: inherit; border-radius: var(--r-sm); }
 
 /* ---------- editor ---------- */

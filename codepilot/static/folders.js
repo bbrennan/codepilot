@@ -23,8 +23,8 @@ async function setFolders(body) {
   } catch (err) { toast(err.message, true); }
   finally { state.changingFolders = false; $$("#editor textarea").forEach((t) => { t.readOnly = false; }); }
 }
-const browseNear = () => browseFolder(dirOf(state.workspace) || state.workspace || state.cfg.default_repo || "");
-async function addFolder() { const path = await browseNear(); if (path) await setFolders({ folders: [...addedFolders(), path] }); }
+const browseNear = (how) => browseFolder(dirOf(state.workspace) || state.workspace || state.cfg.default_repo || "", how);
+async function addFolder() { const path = await browseNear({ title: "Add folder", action: "Add" }); if (path) await setFolders({ folders: [...addedFolders(), path] }); }
 async function openFolderInNewSession() { const path = await browseNear(); if (path) await newSession(path); }
 const removeFolder = (path) => setFolders({ folders: addedFolders().filter((p) => p !== path) });
 // Another main folder closes the open files (their paths are the main folder's): not while one has unsaved edits.

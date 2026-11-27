@@ -101,7 +101,7 @@ def test_ctrl_v_says_how_to_fix_a_blocked_clipboard(page, server, session):
     page.context.clear_permissions()  # like a browser where clipboard access was blocked
     page.click("#input")
     page.keyboard.press("Control+v")
-    msg = page.locator(".toast", has_text="Ctrl+V couldn't read the clipboard")
+    msg = page.locator(".toast", has_text="⌃V couldn't read the clipboard")  # Control-V, as macOS writes it
     msg.wait_for()
     assert "⌘V always works" in msg.text_content() and "chrome://settings/content/clipboard" in msg.text_content()
     assert any("Ctrl+V paste" in e for e in page.evaluate("() => pageErrors"))  # so a problem report shows it
