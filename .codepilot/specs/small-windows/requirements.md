@@ -23,6 +23,9 @@ SHALL show icons without labels, each with a tooltip, and the path SHALL be what
 folder's path SHALL be what gives way.
 1.3 The bottom panel's tabs SHALL keep each count beside its label at every panel width from 280px.
 1.4 The title bar SHALL keep every button on screen down to a 480px window, and the page SHALL NOT scroll sideways.
+1.5 The Review tab SHALL stay usable in a narrow editor: below a set editor width the change list SHALL sit above the
+diff, not beside it, short enough that the diff has the larger share; Apply, Reject and Open file SHALL stay inside the
+header, and j/k SHALL still move through the list.
 
 ## 2. Room for the editor
 

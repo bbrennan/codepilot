@@ -1,6 +1,8 @@
 """The layout fits the window it's in. Pane sizes are remembered per browser, so sizes chosen on a big external monitor
 come back on a laptop screen; they must shrink to fit there, and return when the window is big again."""
 
+import pytest
+
 from uihelpers import open_app
 
 BIG = {"width": 2560, "height": 1440}
@@ -77,3 +79,135 @@ def test_hiding_the_sidebar_gives_the_chat_its_chosen_width_back(page, server, s
     page.click("#toggleSidebar")
     page.wait_for_function("() => Math.round(document.querySelector('.chat').getBoundingClientRect().width) === 820")
     assert_fits(geometry(page))
+
+
+# Every button in the title bar: on screen, its full size, and the thing under its centre.
+TITLE_BAR = """() => [...document.querySelectorAll('.titlebar > button')].map((b) => {
+  const r = b.getBoundingClientRect(), hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+  return { id: b.id, onScreen: r.left >= 0 && r.right <= innerWidth + 0.5, full: r.width >= 26 && r.height >= 26,
+           hit: !!hit && b.contains(hit), title: b.title };
+})"""
+
+BRAND_WORD_AT = 560  # app.css: under this the title bar shows the logo without its word; the folder's name keeps room
+
+
+@pytest.mark.parametrize("width", [600, BRAND_WORD_AT + 1, BRAND_WORD_AT - 1, 480])
+def test_the_title_bar_fits_a_small_window_and_the_page_never_scrolls_sideways(page, server, session, width):
+    page.set_viewport_size({"width": width, "height": 800})
+    open_app(page)
+    scroll = page.evaluate("[document.documentElement.scrollWidth, document.documentElement.clientWidth]")
+    assert scroll[0] <= scroll[1], f"the page scrolls sideways: {scroll[0]}px of content in {scroll[1]}px"
+    buttons = page.evaluate(TITLE_BAR)
+    off = [b for b in buttons if not (b["onScreen"] and b["full"] and b["hit"] and b["title"])]
+    assert not off, f"title bar buttons cut off, squashed or covered at {width}px: {off}"
+    folder = page.locator("#workspaceBtn").bounding_box()
+    assert folder["width"] >= 100, f"the folder's name has {folder['width']}px"
+    word = page.evaluate("document.querySelector('.brand-name')?.getBoundingClientRect().width ?? 0")
+    assert (word > 0) == (width > BRAND_WORD_AT)
+
+
+# layout.js: the editor keeps 440px while the sidebar and chat can shrink; under 400px even with both at their
+# minimums (180 + 300), the sidebar steps aside. 48 (activity bar) + 8 (resizers) + 180 + 300 + 400 = 936.
+COMFORT, FLOOR_WINDOW = 440, 936
+
+SIDEBAR_STATE = """() => { const ide = document.getElementById('ide'), s = document.querySelector('.sidebar');
+  return { auto: ide.classList.contains('auto-no-sidebar'), shown: s.getBoundingClientRect().width > 0,
+           saved: localStorage.getItem('cp-no-sidebar'), side: s.getBoundingClientRect().width,
+           chat: document.querySelector('.chat').getBoundingClientRect().width,
+           editor: document.querySelector('.center').getBoundingClientRect().width }; }"""
+
+# Watches #ide for a second: any class or size change after the layout has settled is the layout fighting itself.
+SETTLED = """() => new Promise((done) => {
+  const ide = document.getElementById('ide');
+  const chat = () => document.querySelector('.chat').getBoundingClientRect().width;
+  let changes = 0; const before = chat();
+  const watch = new MutationObserver((records) => { changes += records.length; });
+  watch.observe(ide, { attributes: true, attributeFilter: ['class', 'style'] });
+  setTimeout(() => { watch.disconnect(); done({ changes, before, after: chat(), cls: ide.className }); }, 1000);
+})"""
+
+
+def sidebar(page):
+    return page.evaluate(SIDEBAR_STATE)
+
+
+def test_at_a_laptop_size_the_sidebar_and_chat_shrink_before_the_editor_goes_under_440(page, server, session):
+    page.set_viewport_size({"width": 1024, "height": 700})
+    open_app(page)
+    g = geometry(page)
+    assert g["center"]["width"] >= COMFORT - 0.5, f"the editor is {g['center']['width']}px"
+    assert g["side"]["width"] >= 180 and g["chat"]["width"] >= 300
+    assert_fits(g)
+
+
+def test_a_wide_saved_chat_still_leaves_the_editor_440_and_stays_saved(page, server, session):
+    page.set_viewport_size({"width": 1024, "height": 700})
+    page.add_init_script("localStorage.setItem('cp--chat-w', '820px')")
+    open_app(page)
+    assert geometry(page)["center"]["width"] >= COMFORT - 0.5
+    assert page.evaluate("localStorage.getItem('cp--chat-w')") == "820px"
+
+
+@pytest.mark.parametrize("width", [FLOOR_WINDOW, FLOOR_WINDOW - 1, 821, 820])
+def test_the_sidebar_steps_aside_only_where_the_editor_cannot_get_400(page, server, session, width):
+    page.set_viewport_size({"width": width, "height": 700})
+    open_app(page, wait_tree=False)
+    s = sidebar(page)
+    stepped_aside = 821 <= width < FLOOR_WINDOW  # 820 and under is the stacked layout
+    assert s["auto"] == stepped_aside and s["shown"] != stepped_aside, s
+    assert s["saved"] != "1"
+    if width > 820:
+        assert s["editor"] >= 399.5, s
+
+
+def test_at_900_the_sidebar_steps_aside_settles_and_comes_back_at_1440(page, server, session):
+    page.set_viewport_size({"width": 900, "height": 700})
+    page.add_init_script("localStorage.setItem('cp--sidebar-w', '300px'); localStorage.setItem('cp--chat-w', '500px')")
+    open_app(page, wait_tree=False)
+    page.wait_for_function("() => document.getElementById('ide').classList.contains('auto-no-sidebar')")
+    settled = page.evaluate(SETTLED)
+    assert settled["changes"] == 0 and settled["before"] == settled["after"], settled
+    s = sidebar(page)
+    assert not s["shown"] and s["saved"] != "1" and s["editor"] >= COMFORT - 0.5, s
+    page.set_viewport_size({"width": 1440, "height": 900})
+    page.wait_for_function("() => !document.getElementById('ide').classList.contains('auto-no-sidebar')")
+    s = sidebar(page)
+    assert round(s["side"]) == 300 and round(s["chat"]) == 500, s
+    assert page.evaluate("[localStorage.getItem('cp--sidebar-w'), localStorage.getItem('cp--chat-w')]") == \
+        ["300px", "500px"]
+
+
+@pytest.mark.parametrize("how", ["button", "shortcut", "active view's icon", "another view's icon"])
+def test_showing_the_sidebar_yourself_wins_until_the_window_is_resized(page, server, session, how):
+    page.set_viewport_size({"width": 900, "height": 700})
+    open_app(page, wait_tree=False)
+    page.wait_for_function("() => document.getElementById('ide').classList.contains('auto-no-sidebar')")
+    if how == "button":
+        page.click("#toggleSidebar")
+    elif how == "shortcut":
+        page.keyboard.press("ControlOrMeta+b")
+    elif how == "active view's icon":
+        page.click("#activitybar button.on")
+    else:
+        page.click("#activitybar [data-view=search]")
+    page.wait_for_function("() => document.querySelector('.sidebar').getBoundingClientRect().width > 0")
+    page.evaluate("openFile('agent/core.py')")
+    page.locator("#fEdit").wait_for()
+    settled = page.evaluate(SETTLED)
+    assert settled["changes"] == 0, settled
+    s = sidebar(page)
+    assert s["shown"] and not s["auto"] and s["saved"] != "1", s
+    page.set_viewport_size({"width": 905, "height": 700})
+    page.wait_for_function("() => document.getElementById('ide').classList.contains('auto-no-sidebar')")
+    assert not sidebar(page)["shown"]
+
+
+def test_hiding_the_sidebar_yourself_is_saved_and_kept_when_the_window_grows(page, server, session):
+    page.set_viewport_size({"width": 1440, "height": 900})
+    open_app(page, wait_tree=False)
+    page.click("#toggleSidebar")
+    page.set_viewport_size({"width": 900, "height": 700})
+    page.set_viewport_size({"width": 1440, "height": 900})
+    page.wait_for_timeout(200)
+    s = sidebar(page)
+    assert not s["shown"] and s["saved"] == "1", s

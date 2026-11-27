@@ -654,6 +654,42 @@ a.loc:hover { text-decoration: underline; }
   .resizer { display: none; }
   .workspace-btn { max-width: 40vw; }
 }
+/* Toolbars in a narrow pane keep every control: buttons show icons instead of words (their titles are the tooltips),
+   and the path is what gets shortened. The widths are measured: with words, a markdown file's toolbar needs about 600px
+   and every other editor toolbar under 500px; with icons, the markdown one keeps its Preview/Source words down to about
+   425px; the terminal's toolbar needs about 390px. A wider font (CI's) is allowed for in each. */
+.editor { container: editor / inline-size; }
+.panel { container: panel / inline-size; }
+.ed-bar .seg svg { display: none; }
+@container editor (max-width: 640px) {
+  .ed-bar:has(.seg) .btn > .lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .ed-bar:has(.seg) .btn:has(> .lbl) { padding: 0 7px; }
+  .ed-bar:has(.seg) > .ed-count { display: none; }
+  .ed-bar:has(.seg) .crumbs { min-width: 40px; }
+}
+@container editor (max-width: 520px) {
+  .ed-bar .btn > .lbl, .sp-step > .lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .ed-bar .btn:has(> .lbl) { padding: 0 7px; }
+  .sp-step { padding: 1px 4px; }
+}
+@container editor (max-width: 420px) {
+  .ed-bar { gap: 4px; padding: 0 8px; }
+  .ed-bar > .ed-count { display: none; }
+  .ed-bar .crumbs { min-width: 40px; }
+  .ed-bar .btn:has(> .lbl), .ed-bar .btn.ghost { padding: 0 5px; }
+  .ed-bar .seg button > .lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .ed-bar .seg button { display: inline-grid; place-items: center; padding: 0 6px; }
+  .ed-bar .seg svg { display: block; width: 14px; height: 14px; }
+}
+@container panel (max-width: 420px) {
+  .term-bar .btn > .lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .term-bar .btn:has(> .lbl) { padding: 0 6px; }
+  .term-cwd { display: none; }
+  .term-select { min-width: 0; flex: 0 1 110px; }
+}
+/* The panel's tabs stay one line each, count beside its label; a row too narrow for them scrolls sideways. */
+.panel-tabs { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.panel-tabs > button { white-space: nowrap; flex: none; }
 .btn.sm { height: 24px; padding: 0 8px; font-size: var(--fs-ui); }
 .btn:disabled, .icon-btn:disabled { opacity: .45; pointer-events: none; }
 .menu-btn .caret svg, #termMore svg { transform: rotate(90deg); }
