@@ -807,6 +807,25 @@ def test_go_to_file_and_the_report_are_dialogs_that_give_focus_back(page, server
     wait_focus(page, "#input")
 
 
+def test_a_confirmation_that_cant_be_undone_starts_on_cancel(page, server, session):
+    open_app(page)
+    into_tree(page)
+    page.keyboard.press("End")
+    page.keyboard.press("Delete")
+    page.locator("#dialog").wait_for()
+    assert focus_is(page, "#dialogCancel"), page.evaluate(ACTIVE)
+    page.keyboard.press("Enter")  # cancels
+    page.wait_for_function("() => document.querySelector('#dialog').hidden")
+    assert (server.repo / "Makefile").exists()
+    wait_focus(page, "#tree [data-file='Makefile']")
+    page.keyboard.press("Delete")
+    page.locator("#dialog").wait_for()
+    page.keyboard.press("Tab")  # the confirming button is one Tab away
+    assert focus_is(page, "#dialogOk")
+    page.keyboard.press("Enter")
+    page.wait_for_function("() => !document.querySelector(\"#tree [data-file='Makefile']\")")
+
+
 def test_enter_in_a_prompt_opened_by_a_button_does_not_open_it_again(page, server, session):
     """Focus goes back to New Folder after the key that closed the prompt, not during it: during it, the same Enter
     went on to click the button and opened a second prompt."""

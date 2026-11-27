@@ -2675,7 +2675,8 @@ function confirmDialog(title, hint, okLabel = "OK") {
   return new Promise((resolve) => {
     $("#dialogTitle").textContent = title; $("#dialogHint").textContent = hint || "";
     $("#dialogInput").hidden = true; $("#dialogOk").textContent = okLabel; $("#dialogOk").classList.toggle("danger", /delete|discard|overwrite/i.test(okLabel));
-    $("#dialog").hidden = false; $("#dialogOk").focus();
+    // Something that can't be undone starts on Cancel: Enter then cancels, and confirming takes a Tab or a click.
+    $("#dialog").hidden = false; $($("#dialogOk").classList.contains("danger") ? "#dialogCancel" : "#dialogOk").focus();
     const done = (v) => {
       $("#dialog").hidden = true; $("#dialogInput").hidden = false; $("#dialogOk").textContent = "OK"; $("#dialogOk").classList.remove("danger");
       $("#dialogOk").onclick = $("#dialogCancel").onclick = $("#dialog").onkeydown = null; resolve(v);
