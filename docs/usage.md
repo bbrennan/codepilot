@@ -214,7 +214,8 @@ changes codepilot applied are covered: what commands, the terminal or other edit
 **Notifications:** if you switch to another tab or app, codepilot shows a desktop notification when it
 finishes or needs your approval (your browser asks permission the first time).
 
-**Stop:** the stop button halts a running turn at the next safe point.
+**Stop:** the stop button (or ⌘., Ctrl+. on Windows and Linux) halts a running turn at the next safe point.
+In a narrow chat, Steer, Queue and Stop move to a line of their own under the switches rather than off the edge.
 
 **What it did, step by step.** Each thing codepilot does is one row in plain words: "Read agent/core.py",
 "Searched for `get_price`", "Ran the tests", "Wrote design.md" (spec steps have the Specs icon). Click a row for the
@@ -583,6 +584,7 @@ issue (a short summary you review before submitting). Details: [troubleshooting]
 | Alt+W | Close editor tab |
 | Enter / Shift+Enter | Send / new line |
 | Enter / ⌘Enter (while it works) | Queue a message to run after / steer the running work |
+| ⌘. (while it works) | Stop the running work |
 | `@` / `/` / `#` | Reference a file / run a command or skill / attach a steering doc |
 | Esc | Close popups |
 

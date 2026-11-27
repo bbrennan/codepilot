@@ -1464,7 +1464,7 @@ function notifyDone(sid) {
 function askNotifyPermission() { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {}); }
 function updateBusy() {
   const busy = state.streams.has(state.sid);
-  input.placeholder = busy ? `Working… Enter queues a message to run after · ${isMac ? "⌘" : "Ctrl+"}Enter steers it now` : state.placeholder || input.placeholder;
+  input.placeholder = busy ? `Working… Enter queues · ${isMac ? "⌘" : "Ctrl+"}Enter steers` : state.placeholder || input.placeholder;
   $("#sendBtn").hidden = busy; $("#stopBtn").hidden = !busy; $("#steerBtn").hidden = $("#queueBtn").hidden = !busy;
   $("#sbBusy").innerHTML = busy ? '<span class="spinner"></span>working…' : "";
   window.renderPinnedPlan?.(); // plan.js: the plan spins only while a turn runs
@@ -1638,6 +1638,7 @@ function insertAtCaret(text, el = input) { el.setRangeText(text, el.selectionSta
 $("#sendBtn").onclick = () => send();
 $("#steerBtn").onclick = () => { if (input.value.trim()) send("now"); else input.focus(); };
 $("#steerBtn").title = `Steer: codepilot reads this at its next step, while it keeps working (${isMac ? "⌘" : "Ctrl+"}Enter)`;
+$("#stopBtn").title = `Stop (${isMac ? "⌘" : "Ctrl+"}.)`;
 $("#queueBtn").onclick = () => { if (input.value.trim()) send("after"); else input.focus(); };
 $("#stopBtn").onclick = async () => {
   if (!state.sid) return;
@@ -2686,6 +2687,7 @@ document.addEventListener("keydown", (e) => {
   else if (mod && e.key.toLowerCase() === "l") { e.preventDefault(); ide.classList.remove("no-chat"); input.focus(); }
   else if (e.altKey && e.code === "KeyW") { e.preventDefault(); if (state.active) closeTab(state.active); }
   else if (mod && e.key === "Enter" && state.approval) { e.preventDefault(); decideApproval(true); }
+  else if (mod && e.key === "." && state.streams.has(state.sid)) { e.preventDefault(); $("#stopBtn").click(); }
   else if (reviewKeys(e)) e.preventDefault();
   else if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); const t = activeFileTab(); if (t?.editing) saveFile(t); }
   else if (treeFocused && state.picked && !e.target.closest("input,textarea") && e.key === "F2") { e.preventDefault(); renamePath(state.picked); }

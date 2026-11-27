@@ -160,3 +160,52 @@ def test_rejecting_everything_waits_for_you(page, server, session):
     page.wait_for_function("() => document.querySelector('#reviewBar').hidden")
     page.wait_for_timeout(500)
     assert len(model_calls(server)) == before
+
+
+# Whether each control is wholly inside the message box and is what a click at its centre lands on. Playwright's
+# is_visible() ignores clipping and click() scrolls first, so neither notices a button pushed past the window's edge.
+REACHABLE = """(ids) => {
+  const box = document.querySelector('#composerBox').getBoundingClientRect();
+  const inWindow = box.left >= -0.5 && box.right <= innerWidth + 0.5 && box.bottom <= innerHeight + 0.5;
+  return Object.fromEntries(ids.map((id) => {
+    const el = document.getElementById(id), r = el.getBoundingClientRect();
+    const inside = r.width > 0 && r.left >= box.left - 0.5 && r.right <= box.right + 0.5
+      && r.top >= box.top - 0.5 && r.bottom <= box.bottom + 0.5;
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return [id, { inside: inside && inWindow, hit: !!hit && el.contains(hit), rect: [r.left, r.top, r.right, r.bottom],
+                  box: [box.left, box.top, box.right, box.bottom] }];
+  }));
+}"""
+
+
+def assert_reachable(page, ids):
+    found = page.evaluate(REACHABLE, ids)
+    for name, r in found.items():
+        assert r["inside"] and r["hit"], f"#{name} isn't wholly inside the message box: {r}"
+
+
+@pytest.mark.parametrize("window, chat_w", [
+    ({"width": 1440, "height": 900}, 300), ({"width": 1440, "height": 900}, 380), ({"width": 1440, "height": 900}, 440),
+    ({"width": 1024, "height": 700}, 300), ({"width": 1024, "height": 700}, 440)])
+def test_stop_steer_and_queue_stay_inside_the_message_box_while_a_turn_runs(page, server, session, window, chat_w):
+    page.set_viewport_size(window)
+    page.add_init_script(f"localStorage.setItem('cp--chat-w', '{chat_w}px')")  # the width you dragged the chat to
+    open_app(page)
+    assert_reachable(page, ["sendBtn"])
+    page.fill("#input", "be very slow")
+    page.press("#input", "Enter")
+    page.wait_for_function("() => !document.querySelector('#stopBtn').hidden")
+    assert_reachable(page, ["stopBtn", "steerBtn", "queueBtn"])
+    page.click("#stopBtn")
+    wait_idle(page)
+
+
+def test_cmd_period_stops_the_running_turn(page, server, session):
+    open_app(page)
+    page.fill("#input", "be very slow")  # sixteen words, half a second each: it runs for eight seconds
+    page.press("#input", "Enter")
+    page.locator(".msg.assistant", has_text="Thinking").wait_for()
+    page.keyboard.press("ControlOrMeta+Period")  # from the message box, where the focus is after sending
+    page.wait_for_function("() => document.querySelector('#stopBtn').hidden", timeout=4_000)
+    assert "Thinking slowly. " * 8 not in page.locator(".msg.assistant").last.text_content()
+    assert ("⌘." if page.evaluate("/Mac/.test(navigator.platform)") else "Ctrl+.") in page.get_attribute("#stopBtn", "title")
