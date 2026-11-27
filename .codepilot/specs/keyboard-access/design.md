@@ -17,7 +17,7 @@ Adding a new kind of row is adding a selector.
 | `viewChanged()` | The activity bar's pressed state and the Changes count in its name (2.3, 2.4). |
 | `menu(m)` | Roles, first-item focus, keys, and focus back to the opener (3.1, 3.2). |
 | Dialogs | Dialog role and name, focus in, Tab kept inside, Escape, focus back to the opener (3.3–3.5). |
-| `announce(text, now)` | Writes to one of two visually hidden live regions (5.1–5.3). |
+| `announce(text, now)`, `turnState(kind)` | Write to one of two visually hidden live regions, in the words on screen (5.1–5.3). |
 | F6 | The next and previous pane, those shown (2.5). |
 
 ## The tree
@@ -154,10 +154,21 @@ scrolls the selected row into view (`block: "nearest"`), one line.
 ## Announcements
 
 Two elements in `index.html`: `#srPolite` (`role="status"`) and `#srNow` (`role="alert"`), class `sr-only` (clipped,
-1px). `toast(msg, isErr)` calls `announce(msg, isErr)`. `updateBusy` and the `approval_needed`, `error` and `done`
-branches call `a11y.turnState(kind)`, which announces "codepilot is working" (once per turn), "codepilot needs your
-approval: <command>", "codepilot stopped with an error" or "codepilot finished". The transcript gets no live region
-(5.3).
+1px). Each announcement replaces the region's content with a new node, so the same words twice (Copied twice) are said
+twice. `toast(msg, isErr)` calls `announce(msg, isErr)`: errors at once, the rest politely. `updateBusy` and the
+`approval_needed`, `error` and `done` branches call `a11y.turnState(kind)`, only for live events (`!replay`), so a
+session drawn again on load or switch says nothing.
+
+**In the words on screen.** The first draft announced "codepilot needs your approval: <command>" and "codepilot
+stopped with an error". Since #119 a waiting command's step reads "Wants to run …" (`waitingVerb` in `steps.js`), so
+the announcement is that, with the command as the review bar shows it (`cmdShort`): "Wants to run: ls", "Wants to run
+the tests: pytest -q", at once, because the turn waits for you. An error says the error banner's own message, at once,
+and the turn doesn't then also say it finished. Otherwise: "codepilot is working" once a turn, "codepilot finished"
+when it ends (the desktop notification's words). The transcript gets no live region (5.3).
+
+Approving a waiting command resumes the same turn as a new stream, so `turnState` doesn't say "working" again then:
+checked on the real UI, where it did. The live regions hold a toast's words while it shows, so a browser test that
+found a toast by its text alone (`get_by_text`) now finds two; five such tests look for `.toast` instead.
 
 ## Regions
 

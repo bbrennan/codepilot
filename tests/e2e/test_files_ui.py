@@ -73,7 +73,7 @@ def test_existing_names_are_refused(page, server, session):
     open_app(page)
     page.click("#newFileBtn")
     answer(page, "Makefile")
-    page.get_by_text("Makefile already exists.").wait_for()
+    page.locator(".toast", has_text="Makefile already exists.").wait_for()
     assert (server.repo / "Makefile").read_text().startswith("eval-bedrock")
 
 
@@ -215,7 +215,7 @@ def test_unsaved_edits_are_never_replaced_by_a_change_on_disk(page, server, sess
     page.locator("#codeEdit").press("End")
     page.locator("#codeEdit").type("\n# mine")
     (server.repo / "agent" / "core.py").write_text("theirs = 1\n")
-    page.get_by_text("changed on disk. Your unsaved edits are kept").wait_for(timeout=5000)
+    page.locator(".toast", has_text="changed on disk. Your unsaved edits are kept").wait_for(timeout=5000)
     assert "# mine" in page.input_value("#codeEdit")
 
 

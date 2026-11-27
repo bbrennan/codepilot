@@ -42,4 +42,4 @@ def test_issue_needs_a_title(page, server, session):
     page.click("#helpBtn")
     menu(page, "Report a problem")
     page.click("#rpIssue")
-    page.get_by_text("Give the issue a short title first.").wait_for()
+    page.locator(".toast", has_text="Give the issue a short title first.").wait_for()

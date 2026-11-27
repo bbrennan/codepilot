@@ -60,7 +60,7 @@ def test_undo_remember_and_export(page, server, session):
     assert "a - b" in (server.repo / "agent/core.py").read_text()
 
     run(page, "/remember tests need make db-up first")
-    page.get_by_text("Saved to this folder's notes").wait_for()
+    page.locator(".toast", has_text="Saved to this folder's notes").wait_for()
     assert "- tests need make db-up first" in server.store.read_notes(str(server.repo))
 
     with page.expect_download() as dl:

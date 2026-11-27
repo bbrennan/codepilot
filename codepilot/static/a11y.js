@@ -427,6 +427,35 @@ function a11ySuggestions() {
 new MutationObserver(a11ySuggestions).observe($("#mentionPop"), { childList: true, attributes: true, attributeFilter: ["hidden"] });
 a11ySuggestions();
 
+// ---- being told (5.1–5.3)
+// Two visually hidden live regions in index.html: #srPolite (status) for what can wait, #srNow (alert) for what can't.
+// Each announcement replaces the region's content with a new node, so the same words twice are said twice. The
+// transcript is no live region: a streamed reply would be read word by word (5.3).
+function a11yAnnounce(text, now) {
+  const el = $(now ? "#srNow" : "#srPolite");
+  if (!el || !text) return;
+  const said = document.createElement("div"); said.textContent = text;
+  el.replaceChildren(said);
+}
+// A turn, in the words on screen: working (once a turn), a command waiting ("Wants to run: ls", as its step says,
+// steps.js), an error (the banner's own message, at once), finished (unless it ended with an error). app.js tells this
+// only for live events, never for a session's history drawn again.
+// (Approving a waiting command resumes the same turn as a new stream: it isn't said to start again.)
+const a11yTurn = { busy: false, ended: false, waiting: false };
+function a11yTurnState(kind, detail) {
+  if (kind === "busy" || kind === "idle") {
+    if (kind === "busy" && !a11yTurn.busy) {
+      if (!a11yTurn.waiting) { a11yTurn.ended = false; a11yAnnounce("codepilot is working"); }
+      a11yTurn.waiting = false;
+    }
+    a11yTurn.busy = kind === "busy";
+  } else if (kind === "approval") {
+    a11yTurn.waiting = true;
+    a11yAnnounce(detail.map((t) => `${waitingVerb(t)}: ${cmdShort(t.command || "")}`.replace(/: $/, "")).join("; "), true);
+  } else if (kind === "error") { a11yTurn.ended = true; a11yAnnounce(detail, true); }
+  else if (kind === "done" && !a11yTurn.ended) { a11yTurn.ended = true; a11yAnnounce("codepilot finished"); }
+}
+
 // What app.js calls. focus(selector): put focus somewhere deliberate, on an element that may not be decorated yet.
 function a11yFocus(sel) {
   const el = document.querySelector(sel); if (!el) return;
@@ -434,6 +463,6 @@ function a11yFocus(sel) {
 }
 // (window.a11y?.…: app.js may draw before this script has loaded, and this catches up below.)
 window.a11y = { treeRendered: a11yTreeRendered, tabsRendered: a11yTabsRendered, panelTabsShown: a11yPanelTabsShown,
-  viewChanged: a11yViewChanged, menu: a11yMenu, focus: a11yFocus };
+  viewChanged: a11yViewChanged, menu: a11yMenu, focus: a11yFocus, announce: a11yAnnounce, turnState: a11yTurnState };
 a11yTabsRendered();
 if ($("#tree .row")) a11yTreeRendered();
