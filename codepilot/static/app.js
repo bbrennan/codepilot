@@ -115,7 +115,7 @@ const ide = $("#ide");
 function setView(view, reveal = true) {
   $$("#activitybar button").forEach((b) => b.classList.toggle("on", b.dataset.view === view));
   $$(".sidebar .view").forEach((v) => v.classList.toggle("on", v.dataset.view === view));
-  if (reveal) { ide.classList.remove("no-sidebar"); store("cp-no-sidebar", "0"); }
+  if (reveal) showSidebar();
   store("cp-view", view);
   if (view === "traces") loadTraces();
   if (view === "changes") { renderProposalList(); loadGit(); }
@@ -126,11 +126,15 @@ function setView(view, reveal = true) {
 }
 $("#activitybar").addEventListener("click", (e) => {
   const b = e.target.closest("button"); if (!b) return;
-  if (b.classList.contains("on") && !ide.classList.contains("no-sidebar")) { ide.classList.add("no-sidebar"); store("cp-no-sidebar", "1"); return; }
+  if (b.classList.contains("on") && layoutShown(ide, "sidebar")) { ide.classList.add("no-sidebar"); store("cp-no-sidebar", "1"); return; }
   setView(b.dataset.view);
 });
 const toggle = (cls) => { ide.classList.toggle(cls); store("cp-" + cls, ide.classList.contains(cls) ? "1" : "0"); };
-$("#toggleSidebar").onclick = () => toggle("no-sidebar");
+// Shown by you: it stays until the window is next resized, even where it would step aside for room (layout.js).
+function showSidebar() { layoutUserShowedSidebar(ide); ide.classList.remove("no-sidebar"); store("cp-no-sidebar", "0"); }
+// The toggle (button, ⌘B) goes by what you see: a sidebar that stepped aside for room is shown, not hidden.
+const toggleSidebar = () => (layoutShown(ide, "sidebar") ? toggle("no-sidebar") : showSidebar());
+$("#toggleSidebar").onclick = toggleSidebar;
 $("#togglePanel").onclick = () => toggle("no-panel");
 $("#toggleChat").onclick = () => toggle("no-chat");
 $("#closePanel").onclick = () => toggle("no-panel");
@@ -2703,7 +2707,7 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault(); pasteFromClipboard(e.target); return;
   }
   if (mod && e.key.toLowerCase() === "p") { e.preventDefault(); openPalette(); }
-  else if (mod && e.key.toLowerCase() === "b") { e.preventDefault(); toggle("no-sidebar"); }
+  else if (mod && e.key.toLowerCase() === "b") { e.preventDefault(); toggleSidebar(); }
   else if (mod && e.key.toLowerCase() === "j") { e.preventDefault(); toggle("no-panel"); }
   else if (mod && e.key.toLowerCase() === "l") { e.preventDefault(); ide.classList.remove("no-chat"); input.focus(); }
   else if (e.altKey && e.code === "KeyW") { e.preventDefault(); if (state.active) closeTab(state.active); }

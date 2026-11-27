@@ -87,10 +87,12 @@ svg.i { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none;
   grid-template-rows: 38px minmax(0, 1fr) 24px;
   grid-template-areas: "title title title title title title" "act side rs1 center rs2 chat" "status status status status status status";
 }
-.ide.no-sidebar { grid-template-columns: 48px 0 0 minmax(280px, 1fr) 4px var(--chat-w); }
+/* auto-no-sidebar: layout.js has the sidebar step aside where the editor couldn't keep 400px; hidden as if you had. */
+.ide.no-sidebar, .ide.auto-no-sidebar { grid-template-columns: 48px 0 0 minmax(280px, 1fr) 4px var(--chat-w); }
 .ide.no-chat { grid-template-columns: 48px var(--sidebar-w) 4px minmax(280px, 1fr) 0 0; }
-.ide.no-sidebar.no-chat { grid-template-columns: 48px 0 0 minmax(280px, 1fr) 0 0; }
-.ide.no-sidebar .sidebar, .ide.no-sidebar #sidebarResizer, .ide.no-chat .chat, .ide.no-chat #chatResizer { display: none; }
+.ide.no-sidebar.no-chat, .ide.auto-no-sidebar.no-chat { grid-template-columns: 48px 0 0 minmax(280px, 1fr) 0 0; }
+.ide.no-sidebar .sidebar, .ide.no-sidebar #sidebarResizer, .ide.no-chat .chat, .ide.no-chat #chatResizer,
+.ide.auto-no-sidebar .sidebar, .ide.auto-no-sidebar #sidebarResizer { display: none; }
 .titlebar { grid-area: title; }
 .activitybar { grid-area: act; }
 .sidebar { grid-area: side; }

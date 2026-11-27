@@ -71,13 +71,15 @@ def test_dragging_the_chat_wider_stops_at_the_window_edge(page, server, session)
     assert_fits(geometry(page))
 
 
-def test_hiding_the_sidebar_gives_the_chat_its_chosen_width_back(page, server, session):
+def test_hiding_the_sidebar_gives_the_chat_back_what_the_editor_can_spare(page, server, session):
     page.set_viewport_size(LAPTOP)
     page.add_init_script(f"({SAVED_ON_BIG_MONITOR})()")
     open_app(page)
-    assert geometry(page)["chat"]["width"] < 820
+    before = geometry(page)["chat"]["width"]
     page.click("#toggleSidebar")
-    page.wait_for_function("() => Math.round(document.querySelector('.chat').getBoundingClientRect().width) === 820")
+    # The chosen 820px would leave the editor 408px; it gets all but the editor's 440: 1280 - 48 - 4 - 440 = 788.
+    page.wait_for_function("() => Math.round(document.querySelector('.chat').getBoundingClientRect().width) === 788")
+    assert before < 788
     assert_fits(geometry(page))
 
 

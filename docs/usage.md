@@ -49,8 +49,15 @@
 
 All panes resize by dragging their edges. The layout (sizes, hidden panes, the open sidebar view and
 bottom-panel tab) and the theme are remembered per browser. Sizes always fit the window: when it gets smaller (say
-a laptop leaves its external monitor), the sidebar, chat and bottom panel shrink so the editor and the message box
-stay on screen, and your sizes come back when the window is big again. Each folder's open tabs and the Explorer's open
+a laptop leaves its external monitor), the sidebar and chat shrink toward their narrowest before the editor goes under
+440px, and the bottom panel shrinks so the editor and the message box stay on screen; your sizes come back when the
+window is big again. In a window 821–935px wide, where even that would leave the editor under 400px, the sidebar
+steps aside until the window grows; your own choice to show or hide it is kept. Show it yourself (its icon, the
+toggle, ⌘B) and it stays until you next resize the window. Under 821px the panes stack and the page scrolls down.
+
+In a narrow editor or panel, toolbar buttons show icons instead of words (hover for the name), the path is shortened
+first, and nothing is cut off. The Review tab puts its list of changes above the diff once the editor is 640px or
+narrower. Each folder's open tabs and the Explorer's open
 folders are remembered too (see [tabs come back](#tabs-come-back)).
 
 ## Start working on a folder
