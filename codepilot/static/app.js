@@ -512,7 +512,13 @@ function renderTabs() {
   $("#editorTabs").innerHTML = state.tabs.map((t) => `<div class="tab ${t.id === state.active ? "on" : ""} ${t.dirty ? "dirty" : ""}" data-tab="${esc(t.id)}" title="${esc((t.tip || t.title) + (t.dirty ? " (unsaved)" : ""))}">
     <span class="ticon">${t.kind === "file" ? fileIcon(t.path) : icon(t.icon || "file")}</span><span class="label">${esc(t.title)}</span>
     <button class="icon-btn sm close" data-close="${esc(t.id)}">${icon("x")}</button></div>`).join("");
+  $("#editorTabs .tab.on")?.scrollIntoView({ block: "nearest", inline: "nearest" }); // the tab you're on is never out of sight
 }
+// A mouse wheel scrolls the tab strip sideways (a trackpad's sideways swipe already does).
+$("#editorTabs").addEventListener("wheel", (e) => {
+  if (e.deltaX || !e.deltaY) return;
+  e.preventDefault(); e.currentTarget.scrollLeft += e.deltaY;
+}, { passive: false });
 $("#editorTabs").addEventListener("click", (e) => {
   const c = e.target.closest("[data-close]"); if (c) { e.stopPropagation(); closeTab(c.dataset.close); return; }
   const t = e.target.closest("[data-tab]"); if (t) { state.active = t.dataset.tab; renderEditor(); }

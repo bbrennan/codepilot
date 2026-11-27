@@ -272,3 +272,45 @@ def test_a_file_tab_keeps_its_place_when_you_come_back_to_it(page, server, sessi
     page.locator("#editorTabs [data-tab='file:long.py']").click()
     page.locator("#codeEdit").wait_for()
     assert abs(page.evaluate(TOP_LINE, "#codeEdit") - 80) <= 1  # and the editor
+
+
+# Whether the active tab is wholly inside the tab strip's box (not scrolled past either edge).
+ACTIVE_TAB_SHOWN = """() => {
+  const strip = document.querySelector('#editorTabs').getBoundingClientRect();
+  const r = document.querySelector('#editorTabs .tab.on').getBoundingClientRect();
+  return r.left >= strip.left - 0.5 && r.right <= strip.right + 0.5;
+}"""
+
+
+def test_the_active_tab_is_always_in_view(page, server, session):
+    page.set_viewport_size({"width": 1024, "height": 700})
+    for i in range(12):
+        (server.repo / f"module_{i:02d}.py").write_text(f"x = {i}\n")
+    open_app(page)
+    for i in range(12):
+        page.click(f"#tree [data-file='module_{i:02d}.py']")
+        page.locator("#editorTabs .tab.on", has_text=f"module_{i:02d}.py").wait_for()
+        assert page.evaluate(ACTIVE_TAB_SHOWN), f"module_{i:02d}.py's tab is out of sight"
+    page.locator("#editorTabs [data-tab='file:module_00.py']").click()  # back to the first: the strip follows
+    page.locator("#editorTabs .tab.on", has_text="module_00.py").wait_for()
+    assert page.evaluate(ACTIVE_TAB_SHOWN)
+
+    page.fill("#input", "fix two things")
+    page.press("#input", "Enter")
+    page.locator("#rbReview").click()  # the Review tab opens at the far end of the strip
+    page.locator("#editorTabs .tab.on", has_text="Review changes").wait_for()
+    assert page.evaluate(ACTIVE_TAB_SHOWN), "the Review tab opened out of sight"
+
+
+def test_the_mouse_wheel_scrolls_the_tab_strip_sideways(page, server, session):
+    page.set_viewport_size({"width": 1024, "height": 700})
+    for i in range(12):
+        (server.repo / f"module_{i:02d}.py").write_text(f"x = {i}\n")
+    open_app(page)
+    for i in range(12):
+        page.click(f"#tree [data-file='module_{i:02d}.py']")
+    page.locator("#editorTabs .tab.on", has_text="module_11.py").wait_for()
+    page.evaluate("document.querySelector('#editorTabs').scrollLeft = 0")
+    page.locator("#editorTabs").hover()
+    page.mouse.wheel(0, 300)
+    page.wait_for_function("() => document.querySelector('#editorTabs').scrollLeft > 0", timeout=2_000)

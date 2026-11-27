@@ -16,10 +16,11 @@ named in design.md, watch it fail for the reason in bugfix.md, then fix.
     `docs/architecture.md` (script list).
   - _Requirements: 2.1, 2.2, 2.3_
   - _Tests: tests/e2e/test_files_ui.py (Edit and Done keep your place; a file tab keeps its place when you come back)_
-- [ ] 3. The active tab is always in view (`fix/active-tab-in-view`)
+- [x] 3. The active tab is always in view (`fix/active-tab-in-view`)
   - Test first (Playwright): twelve files open in a 1024px window; the Review tab opening; the wheel.
   - `app.js` (`renderTabs`, one listener).
   - _Requirements: 3.1, 3.2_
+  - _Tests: tests/e2e/test_files_ui.py (the active tab is always in view; the mouse wheel scrolls the tab strip sideways)_
 - [ ] 4. A step that waits says so, and a denied one says it didn't run (`fix/step-wording`)
   - Test first (Playwright): waiting, approved and denied rows, live and after a reload.
   - `steps.js` (`WAITING_TEXT`, `stepWaiting`, `stepApproved`, `stepDenied`), `app.js` (three calls), `app.css` (the two
