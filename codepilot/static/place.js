@@ -3,7 +3,7 @@
 // Edit opens where you were reading, Done goes back to where you were editing, and a tab you come back to is where you
 // left it. A line number rather than pixels, because the view and the editor scroll different elements.
 
-const LINE = 20; // px: the line height of .code-view and .code-edit (app.css)
+const LINE = 20; // px: the line height of .code-view (app.css) and of the editor (editor.js's theme)
 
 function topLine(scrollEl) {
   return Math.floor(scrollEl.scrollTop / LINE) + 1;
