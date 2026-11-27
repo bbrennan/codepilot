@@ -301,6 +301,7 @@ function setWorkspace(repo, changed = true) {
   $("#workspaceBtn").title = tilde(repo) || "Open folder";
   $("#explorerTitle").textContent = repo ? base(repo) : "Explorer";
   if (changed) {
+    saveTabs(); // tabstate.js: the folder being left keeps its tabs, an edit typed a moment ago too
     state.tree.clear();
     restoreTabs(repo); // tabstate.js: this folder's tabs replace the current ones (its open folders before the tree)
   }

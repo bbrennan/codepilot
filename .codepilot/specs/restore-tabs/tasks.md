@@ -21,8 +21,10 @@ One branch, `feature/restore-tabs`, one PR. Needs `place.js` from ui-review-fixe
     changed on disk is kept, said once, and Save asks; an edit to a deleted file comes back and Save writes the file
     again; a draft too large to store, and storage that is full, ask before the page is left; a stored draft leaves
     without asking; a discarded edit stays discarded)_
-- [ ] 3. Each folder keeps its own tabs
+- [x] 3. Each folder keeps its own tabs
   - Test first (Playwright): two sessions on two folders, and two on one.
   - `app.js` (`setWorkspace`: save before the tabs are dropped, restore after); `docs/usage.md` (The screen, Files and
     folders: what comes back, and the two-window limit), `docs/architecture.md` (script list).
   - _Requirements: 3.1, 3.2_
+  - _Tests: tests/e2e/test_restore_tabs_ui.py (each folder keeps its own tabs and drafts, switching at once after
+    typing; sessions on one folder share its tabs; Review comes back only for a session with changes)_
