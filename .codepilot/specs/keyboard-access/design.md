@@ -8,7 +8,7 @@ Adding a new kind of row is adding a selector.
 
 | Part | What it does |
 |---|---|
-| `ACTIVATABLE` | Selectors for click-only elements (`A11Y_BUTTONS`, `A11Y_LINKS`): `.session`, `.grep-file > .row`, `.grep-hit`, `#proposalList .row`, `#gitList .row` (an added folder's rows are drawn there too), `.rv-item`, `#specsView .row`, `#steeringView .row`, `#traceList .row`, `.welcome .link`, `#sbContext`, `[data-spec-open]`; links: `a.loc`, `.msg.user .ref`, `.attached span`. Each match gets `tabindex="0"` and `role="button"` (`role="link"` for the links). One `keydown` listener turns Enter, and Space on a button, into `el.click()`. An element that already has a `tabindex` has keys of its own (the plan line, Progress markers) and is left alone, so it never acts twice. The folder dialog's rows are not here: Enter in that dialog already means "go into the selected folder", so they are the dialog's (task 4). |
+| `ACTIVATABLE` | Selectors for click-only elements (`A11Y_BUTTONS`, `A11Y_LINKS`): `.session`, `.grep-file > .row`, `.grep-hit`, `#proposalList .row`, `#gitList .row` (an added folder's rows are drawn there too), `.rv-item`, `#specsView .row`, `#steeringView .row`, `#traceList .row`, `.welcome .link`, `#sbContext`, `[data-spec-open]`; links: `a.loc`, `.msg.user .ref`, `.attached span`. Each match gets `tabindex="0"` and `role="button"` (`role="link"` for the links). One `keydown` listener turns Enter, and Space on a button, into `el.click()`. An element that already has a `tabindex` has keys of its own (the plan line, Progress markers) and is left alone, so it never acts twice. The folder dialog's places (`#fdPlaces .row`) are added in task 4; its list of folders is not here: Enter in that dialog already means "go into the selected folder", so the list is the dialog's (see Menus and dialogs). |
 | The observer | A `MutationObserver` on `document.body` that looks only at added nodes, skips records inside `.xterm` (the terminal redraws its rows many times a second), and decorates what was added once per frame. A streamed reply redraws its message on every word, so doing the work per mutation would be per word. Pending work is also flushed by a capturing `keydown` listener, so a key never lands on a row that isn't ready yet. |
 | Focus across redraws | Most of these rows live in lists that redraw when a row is used (Review, Changes, Sessions, Specs), and the focused row goes with the old list, leaving focus on the page body. A `focusin` listener remembers the focused element and how to find it again: its id, or its `data-*` attributes and its parents' up to the nearest id (a Review row: whichever row is selected, so focus follows j and k). When the observer sees the remembered element gone and focus on the body, it focuses the same thing in the new list, or else the first row (never a button, where a second Enter would act on something you didn't aim at) of the same container. A `mousedown` forgets it: a click on something that can't take focus is where you put focus. Measured in Chromium: removing the focused element fires `focusout` first and leaves `document.activeElement` on the body; hiding it does not move focus at all (menus and dialogs give focus back themselves). |
 | Buttons inside rows | A session row's Delete and the `@` and Undo buttons in rows are real buttons inside the row. Enter or Space on one is that button's: the listener acts only when the row itself is the event's target. They are shown on `:focus-within` as well as `:hover`, so Tab reaches them where they are. |
@@ -16,7 +16,7 @@ Adding a new kind of row is adding a selector.
 | Tab strips | The editor's and the panel's tabs: one Tab stop each, arrows move and show, Delete closes (2.1–2.3). |
 | `viewChanged()` | The activity bar's pressed state and the Changes count in its name (2.3, 2.4). |
 | `menu(m)` | Roles, first-item focus, keys, and focus back to the opener (3.1, 3.2). |
-| `modal(el)` | Dialog role, focus in, Tab trap, focus back (3.3, 3.4). |
+| Dialogs | Dialog role and name, focus in, Tab kept inside, Escape, focus back to the opener (3.3–3.5). |
 | `announce(text, now)` | Writes to one of two visually hidden live regions (5.1–5.3). |
 | F6 | The next and previous pane, those shown (2.5). |
 
@@ -109,14 +109,35 @@ selection causes. `a11y.js` decorates the gutter when it's drawn; `renderFileTab
   went. (Hiding doesn't move focus in Chromium, so this must be done; see task 1's measurement.) Buttons that open
   menus get `aria-haspopup="menu"` and `aria-expanded` in `index.html`: `#workspaceBtn`, `#fileMenuBtn`,
   `#terminalMenuBtn`, `#helpBtn`, `#termMore` and `#newSteeringBtn`.
-- The four overlays (`#palette`, `#dialog`, `#folderDialog`, `#reportDialog`) all toggle `hidden`. `a11y.js` observes
-  that attribute: on show, `modal(el)` sets `role="dialog"`, `aria-modal="true"`, `aria-labelledby` (the title element;
-  `aria-label` for the palette), remembers `document.activeElement`, moves focus in if the dialog's own code hasn't,
-  and traps Tab; on hide it restores focus. `#folderDialog` gets Escape from anywhere inside it.
-- 3.5: `confirmDialog` focuses `#dialogCancel` when the OK label is destructive (the same test it uses for the red
-  style: delete, discard, overwrite). Enter then cancels; the confirming button takes one Tab or a click.
-- `#mentionPop`: `role="listbox"`, options `role="option"` with ids, and `aria-activedescendant` on `#input` while it
-  is open (4.4). `renderMentions` ends with `a11y.mentionsRendered()`.
+- The four overlays (`#palette`, `#dialog`, `#folderDialog`, `#reportDialog`) all toggle `hidden`. Each gets
+  `role="dialog"`, `aria-modal="true"` and `aria-labelledby` its title (`#dialogTitle`; the folder and report dialogs'
+  headings get ids, `fdTitle` and `rpHeading`, in `index.html`) or, for the palette, `aria-label="Go to file"`.
+  `a11y.js` observes `hidden`. On show it remembers the opener and moves focus in (to its text box, else its first
+  control) if the dialog's own code hasn't; Tab and Shift+Tab go round inside it, and Escape closes it from anywhere
+  inside (it clicks the dialog's Cancel or close button; before, a prompt closed on Escape only from its text box).
+  On hide it gives focus back, after the key that closed it has been handled (a zero-delay timeout): done within that
+  key's handling, Enter in a prompt's text box went on to click the button the focus had just returned to (New Folder)
+  and opened the prompt again. Found by `test_files_ui.py` and the spec tests, which answer prompts with Enter.
+- **The opener is not `document.activeElement` on show.** `promptDialog` and `confirmDialog` focus their input or
+  button before the observer sees the dialog shown, so reading `document.activeElement` there finds the dialog itself
+  and the opener is lost. The opener is the last element focused outside any overlay, which the `focusin` listener
+  keeps (menus use the same). A dialog opened from a menu item (Rename… on a row) gives focus back to what opened the
+  menu. Focus goes back only if it's still in the dialog or on the body: the observer runs before the code awaiting
+  the dialog continues, so an action that then moves focus (opening a file) wins.
+- `#folderDialog` already closed on Escape from anywhere inside (its own `keydown`), so `app.js` needs nothing for
+  that. Its list is a listbox, one tab stop, Up, Down, Home and End move, and the row you're on is selected as a click
+  selects it, so Enter (the dialog's own key) goes into it; its places are buttons. The dialog's `keydown` lets Enter
+  on a place through to the place (one condition in `app.js`). These were in the click-only list in the first draft,
+  where Enter would have both selected a row and closed the dialog on the folder shown.
+- 3.5: `confirmDialog` focuses `#dialogCancel` when the OK button is red (`danger`: delete, discard, overwrite). Enter
+  then cancels; the confirming button takes one Tab or a click. No browser test confirmed one of these with Enter: they
+  click `#dialogOk` (`confirm()` in `test_files_ui.py`) or confirm a prompt by Enter in its text box, which is unchanged.
+- `#mentionPop` follows the session switcher (`sessions.js`, #100): `role="listbox"`, options `role="option"` with ids
+  and `aria-selected`, and the current option as `aria-activedescendant` on `#input` while it's open, with
+  `aria-controls` and `aria-autocomplete="list"` (4.4). The switcher's search box is also `role="combobox"`; a
+  `<textarea>` can't take that role, so the message box stays a text box with an active descendant. Three functions
+  draw the list (`renderMentions`, `showSkillMenu`, `showSteeringMenu`), so `a11y.js` observes `#mentionPop` instead
+  of adding a call to each.
 
 ## Message actions
 

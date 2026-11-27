@@ -241,7 +241,7 @@
 <!-- Open folder -->
 <div class="palette" id="folderDialog" hidden>
   <div class="palette-box folder-box">
-    <div class="fd-head"><b>Open folder</b><span class="spacer"></span><label class="toggle"><input type="checkbox" role="switch" id="fdHidden"><span>show hidden</span></label><button class="icon-btn sm" id="fdClose" title="Close" data-icon="x"></button></div>
+    <div class="fd-head"><b id="fdTitle">Open folder</b><span class="spacer"></span><label class="toggle"><input type="checkbox" role="switch" id="fdHidden"><span>show hidden</span></label><button class="icon-btn sm" id="fdClose" title="Close" data-icon="x"></button></div>
     <div class="fd-path"><button class="icon-btn sm" id="fdUp" title="Up one level" data-icon="up"></button><input id="fdInput" spellcheck="false" title="Type or paste a path and press Enter"></div>
     <div class="fd-body"><div class="fd-places" id="fdPlaces"></div><div class="fd-list" id="fdList"></div></div>
     <div class="fd-foot"><span class="hint" id="fdHint"></span><span class="spacer"></span><button class="btn" id="fdCancel">Cancel</button><button class="btn primary" id="fdOpen">Open</button></div>
@@ -250,7 +250,7 @@
 <!-- Report a problem -->
 <div class="palette" id="reportDialog" hidden>
   <div class="palette-box report-box">
-    <div class="fd-head"><b>Report a problem</b><span class="spacer"></span><button class="icon-btn sm" id="rpClose" title="Close" data-icon="x"></button></div>
+    <div class="fd-head"><b id="rpHeading">Report a problem</b><span class="spacer"></span><button class="icon-btn sm" id="rpClose" title="Close" data-icon="x"></button></div>
     <div class="rp-body">
       <label class="rp-label">Title<input class="field" id="rpTitle" placeholder="Short summary, e.g. “Applied changes reappear after restart”" spellcheck="true"></label>
       <label class="rp-label">What happened?<textarea class="field" id="rpDesc" rows="4" placeholder="What you did, what you expected, and what happened instead."></textarea></label>

@@ -92,16 +92,30 @@ One branch and PR per numbered task, merged before the next starts. Every sub-ta
     - _Tests: tests/e2e/test_keyboard_access_ui.py (from the message box F6 goes to the tree, then the shown tab, then
       skips the closed panel back to the message box; Shift+F6 goes back; with the panel open it's included; with the
       sidebar hidden it's skipped; the landmarks are named Views, Sidebar, Editor, Panel, Chat and Status)_
-- [ ] 4. Dialogs and suggestion lists (`feature/keyboard-dialogs`)
-  - [ ] 4.1 Dialogs: role, focus in, Tab stays in, Escape, focus back
-    - `a11y.js` (`modal`, the `hidden` observer), `app.js` (`#folderDialog` Escape).
+- [x] 4. Dialogs and suggestion lists (`feature/keyboard-dialogs`)
+  - [x] 4.1 Dialogs: role, focus in, Tab stays in, Escape, focus back
+    - `a11y.js` (the four dialogs, the `hidden` observer, the opener tracked outside overlays, focus back after the
+      closing key; the folder dialog's list and places), `app.js` (the folder dialog lets Enter on a place through),
+      `index.html` (ids on two headings). `#folderDialog` already closed on Escape from anywhere inside.
     - _Requirements: 3.3, 3.4_
-  - [ ] 4.2 A destructive confirmation focuses Cancel
-    - `app.js` (`confirmDialog`); update any test that confirmed with Enter.
+    - _Tests: tests/e2e/test_keyboard_access_ui.py (Add folder… from the folder menu opens a named modal dialog with focus
+      inside; 30 Tabs and 5 Shift+Tabs never leave it; Escape gives focus back to the folder button; in its list Down
+      selects as a click does and Enter goes in, focus staying inside; a place is a button Enter goes to; F2's prompt is
+      named, Shift+Tab goes round to OK, Escape from Cancel closes it and focus is back on the row, where Delete then
+      works; Go to file and Report a problem are named dialogs that give focus back to the tree and the message box;
+      Enter in a prompt opened from New Folder by keyboard doesn't open it a second time)_
+  - [x] 4.2 A destructive confirmation focuses Cancel
+    - `app.js` (`confirmDialog`). No browser test confirmed one with Enter: they click `#dialogOk` or answer a prompt
+      in its text box, which is unchanged.
     - _Requirements: 3.5_
-  - [ ] 4.3 The @, / and # lists say which option is current
-    - `a11y.js` (`mentionsRendered`), `app.js` (`renderMentions`: one call).
+    - _Tests: tests/e2e/test_keyboard_access_ui.py (Delete on a row opens the confirmation on Cancel; Enter cancels and
+      the file stays, focus back on the row; Delete again, Tab to Delete, Enter deletes it)_
+  - [x] 4.3 The @, / and # lists say which option is current
+    - `a11y.js` (the list observed: three functions draw it), no change to `app.js`.
     - _Requirements: 4.4_
+    - _Tests: tests/e2e/test_keyboard_access_ui.py (typing "@a" opens a listbox whose current option is selected and is
+      the message box's active descendant, with `aria-controls` and `aria-autocomplete`; Down moves it; Escape clears
+      it; the same for "/he")_
 - [ ] 5. Announcements (`feature/keyboard-announce`)
   - [ ] 5.1 Toasts, and a turn that finishes, needs approval or fails
     - `a11y.js` (`announce`, `turnState`), `index.html` (the two live regions), `app.css` (`.sr-only`), `app.js`

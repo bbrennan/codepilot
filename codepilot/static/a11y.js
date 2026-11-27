@@ -7,7 +7,7 @@
 // already has a tabindex has keys of its own (the plan line, Progress markers) and is left alone.
 const A11Y_BUTTONS = [
   ".session", ".grep-file > .row", ".grep-hit", "#proposalList .row", "#gitList .row", ".rv-item", "#specsView .row",
-  "#steeringView .row", "#traceList .row", ".welcome .link", "#sbContext", "[data-spec-open]",
+  "#steeringView .row", "#traceList .row", ".welcome .link", "#sbContext", "[data-spec-open]", "#fdPlaces .row",
 ];
 const A11Y_LINKS = ["a.loc", ".msg.user .ref", ".attached span"];
 const A11Y_ACT = [...A11Y_BUTTONS, ...A11Y_LINKS].join(",");
@@ -98,7 +98,8 @@ function a11yKeepFocus() {
     const box = last.box && document.querySelector(last.box);
     if (box) a11yDecorateIn(box); // (a row, never a button: a second Enter mustn't do something you didn't aim at)
     const rows = box ? [...box.querySelectorAll(A11Y_ROWS)].filter(shown) : [];
-    el = rows.find((r) => r.tabIndex === 0 && r.matches("[role=tab], [role=treeitem]")) || rows[0]; // (a list's own stop)
+    const own = "[role=tab], [role=treeitem], [role=option]"; // (a list's own tab stop first)
+    el = rows.find((r) => r.tabIndex === 0 && r.matches(own)) || rows[0];
   }
   if (!el) return;
   a11yDecorateIn(el);
@@ -340,6 +341,91 @@ document.addEventListener("keydown", (e) => {
     if (el) { e.preventDefault(); a11yDecorateIn(el); el.focus(); return; }
   }
 });
+
+// ---- dialogs (3.3, 3.4)
+// The four overlays toggle `hidden`. Shown: focus moves in (to its text box, else its first control) unless its own
+// code already put it there, and Tab and Shift+Tab go round inside it. Hidden: focus goes back to what had it before
+// (the last thing focused outside an overlay, or the same thing redrawn), unless something else has taken it since;
+// Chromium leaves focus on a hidden element, so this is always needed. Escape closes from anywhere inside.
+const A11Y_DIALOGS = [
+  { sel: "#dialog", label: "dialogTitle", cancel: "#dialogCancel" },
+  { sel: "#folderDialog", label: "fdTitle", cancel: "#fdCancel" },
+  { sel: "#reportDialog", label: "rpHeading", cancel: "#rpClose" },
+  { sel: "#palette", name: "Go to file", close: () => closePalette() },
+];
+const a11yShown = (el) => el.getClientRects().length > 0;
+for (const d of A11Y_DIALOGS) {
+  const el = $(d.sel);
+  el.setAttribute("role", "dialog"); el.setAttribute("aria-modal", "true");
+  if (d.label) el.setAttribute("aria-labelledby", d.label); else el.setAttribute("aria-label", d.name);
+  new MutationObserver(() => {
+    const now = document.activeElement;
+    if (!el.hidden) {
+      el._opener = a11yState.outside;
+      if (!el.contains(now)) (el.querySelector("input:not([type=checkbox]):not([hidden])") || a11yFirst(el))?.focus();
+    } else if (now === document.body || el.contains(now)) {
+      // After the key that closed it is done: Enter in a prompt's text box would otherwise go on to click the button
+      // that opened the prompt (New File…), and open it again.
+      setTimeout(() => {
+        const at = document.activeElement;
+        if (el.hidden && (at === document.body || el.contains(at))) a11yBack(el._opener)?.focus({ preventScroll: true });
+      });
+    }
+  }).observe(el, { attributes: true, attributeFilter: ["hidden"] });
+  el.addEventListener("keydown", (e) => {
+    if (el.hidden) return; // (its own keys closed it already)
+    if (e.key === "Escape") { e.preventDefault(); if (d.cancel) $(d.cancel).click(); else d.close(); return; }
+    if (e.key !== "Tab" || e.altKey || e.ctrlKey || e.metaKey) return;
+    const all = [...el.querySelectorAll(A11Y_TABBABLE)].filter(a11yShown), at = document.activeElement;
+    if (!all.length) return;
+    const next = e.shiftKey ? all.findLast((x) => at.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_PRECEDING)
+      : all.find((x) => at.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_FOLLOWING);
+    if (!next) { e.preventDefault(); (e.shiftKey ? all.at(-1) : all[0]).focus(); }
+  });
+}
+
+// The folder dialog's list: one tab stop, Up, Down, Home and End move, and the row you're on is selected as a click
+// selects it, so Enter (the dialog's own key) goes into it. Its places are buttons (above).
+function a11yFolderList() {
+  const list = $("#fdList"), rows = [...list.querySelectorAll(".row")];
+  list.setAttribute("role", "listbox"); list.setAttribute("aria-label", "Folders");
+  for (const r of rows) {
+    r.setAttribute("role", "option"); r.setAttribute("aria-selected", String(r.classList.contains("sel"))); r.tabIndex = -1;
+  }
+  (rows.find((r) => r.classList.contains("sel")) || rows[0])?.setAttribute("tabindex", "0");
+  a11yKeepFocus();
+}
+new MutationObserver(a11yFolderList).observe($("#fdList"), { childList: true });
+$("#fdList").addEventListener("focusin", (e) => {
+  const row = e.target.closest(".row[data-fdpath]");
+  if (row && !row.classList.contains("sel")) { row.click(); a11yFolderList(); }
+});
+$("#fdList").addEventListener("keydown", (e) => {
+  const rows = [...$$("#fdList .row[data-fdpath]")], i = rows.indexOf(e.target.closest(".row"));
+  if (i < 0 || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+  const to = { ArrowDown: rows[i + 1], ArrowUp: rows[i - 1], Home: rows[0], End: rows.at(-1) }[e.key];
+  if (!to) return;
+  e.preventDefault(); e.stopPropagation();
+  for (const r of rows) r.tabIndex = r === to ? 0 : -1;
+  to.focus(); to.scrollIntoView({ block: "nearest" });
+});
+
+// ---- the @, / and # suggestion lists (4.4)
+// The session switcher's pattern (sessions.js): a listbox of options with ids, and the current one as the text box's
+// active descendant, so focus stays in the message box while the list says which option Enter takes.
+function a11ySuggestions() {
+  const pop = $("#mentionPop"), box = $("#input");
+  pop.setAttribute("role", "listbox"); pop.setAttribute("aria-label", "Suggestions");
+  box.setAttribute("aria-controls", "mentionPop"); box.setAttribute("aria-autocomplete", "list");
+  [...pop.querySelectorAll(".opt")].forEach((o, i) => {
+    o.id = "mention-opt-" + i; o.setAttribute("role", "option");
+    o.setAttribute("aria-selected", String(o.classList.contains("on")));
+  });
+  const on = !pop.hidden && pop.querySelector(".opt.on");
+  if (on) box.setAttribute("aria-activedescendant", on.id); else box.removeAttribute("aria-activedescendant");
+}
+new MutationObserver(a11ySuggestions).observe($("#mentionPop"), { childList: true, attributes: true, attributeFilter: ["hidden"] });
+a11ySuggestions();
 
 // What app.js calls. focus(selector): put focus somewhere deliberate, on an element that may not be decorated yet.
 function a11yFocus(sel) {
