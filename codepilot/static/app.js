@@ -970,6 +970,7 @@ function renderReviewTab(tab) {
       ${depAdvice(p)}${receiptFindings(p.path)}<div class="ed-scroll">${diffHtml(p.diff)}</div>
       <div class="rv-ask"><textarea class="field" id="rvAsk" rows="2" placeholder="Ask for a change to this, e.g. &quot;keep the old name as an alias&quot;"></textarea><button class="btn" id="rvAskBtn">${icon("send")}Send</button></div></div></div>`;
   bindReceipt($("#editor"));
+  $(".rv-item.on").scrollIntoView({ block: "nearest" }); // (a redraw starts the list at the top: j and k keep it in view)
   $(".rv-list").onclick = (e) => { const it = e.target.closest("[data-rv]"); if (it) { tab.sel = +it.dataset.rv; renderReviewTab(tab); } };
   $("#rvOpen").onclick = () => openFile(p.path);
   $("#rvApplyAll") && ($("#rvApplyAll").onclick = () => bulkProposals("apply"));
@@ -1272,7 +1273,7 @@ function markTurn(el, mid, text) {
   el.dataset.mid = mid;
   if (text != null) state.msgText.set(String(mid), text);
   else if (!state.msgText.has(String(mid))) state.msgText.set(String(mid), $(".body", el)?.innerText ?? "");
-  if (!$(".msg-actions", el)) el.insertAdjacentHTML("beforeend", `<div class="msg-actions"><button data-act="edit" title="Edit and resend (rewinds the conversation to here)">${icon("edit")}</button><button data-act="retry" title="Send again from here">${icon("refresh")}</button><button data-act="undo" title="Undo file changes from here (keeps the conversation)" hidden>${icon("history")}</button></div>`);
+  if (!$(".msg-actions", el)) el.insertAdjacentHTML("beforeend", `<div class="msg-actions"><button data-act="edit" title="Edit and resend (rewinds the conversation to here)" aria-label="Edit and resend (rewinds the conversation to here)">${icon("edit")}</button><button data-act="retry" title="Send again from here" aria-label="Send again from here">${icon("refresh")}</button><button data-act="undo" title="Undo file changes from here (keeps the conversation)" aria-label="Undo file changes from here (keeps the conversation)" hidden>${icon("history")}</button></div>`);
 }
 const lastTurnBubble = () => [...$$("#transcript .msg.user[data-mid]")].at(-1) || null;
 function rewindTo(el, text, undo = null) { // undo: {ids, keep} of file changes to undo with it (checkpoints.js)
