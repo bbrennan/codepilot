@@ -652,8 +652,16 @@ a.loc:hover { text-decoration: underline; }
   body { overflow: auto; }
   .ide, .ide.no-sidebar, .ide.no-chat { grid-template-columns: 48px minmax(0, 1fr); grid-template-rows: 38px 40vh 60vh 70vh 24px; grid-template-areas: "title title" "act side" "center center" "chat chat" "status status"; height: auto; }
   .resizer { display: none; }
-  .workspace-btn { max-width: 40vw; }
+  /* Every title-bar button stays on screen at its size, down to 480px: File and Terminal keep their icons, and the
+     folder's name is what shrinks. The status bar drops its least used items rather than widen the page. */
+  .titlebar { gap: 4px; }
+  .titlebar > button { flex: none; }
+  .titlebar > .workspace-btn { max-width: 40vw; min-width: 0; flex: 0 1 auto; }
+  .menu-btn > span:not([data-icon]) { display: none; }
+  #sbTest, #sbGithub, #sbTokens { display: none; }
+  .statusbar > .sb-item { min-width: 0; overflow: hidden; }
 }
+@media (max-width: 560px) { .brand-name { display: none; } } /* the logo alone, so the folder's name keeps 100px */
 /* Toolbars in a narrow pane keep every control: buttons show icons instead of words (their titles are the tooltips),
    and the path is what gets shortened. The widths are measured: with words, a markdown file's toolbar needs about 600px
    and every other editor toolbar under 500px; with icons, the markdown one keeps its Preview/Source words down to about

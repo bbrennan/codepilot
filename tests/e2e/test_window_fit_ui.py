@@ -92,7 +92,11 @@ BRAND_WORD_AT = 560  # app.css: under this the title bar shows the logo without 
 
 
 @pytest.mark.parametrize("width", [600, BRAND_WORD_AT + 1, BRAND_WORD_AT - 1, 480])
-def test_the_title_bar_fits_a_small_window_and_the_page_never_scrolls_sideways(page, server, session, width):
+def test_the_title_bar_fits_a_small_window_and_the_page_never_scrolls_sideways(page, server, width):
+    folder = server.repo.parent / "a-folder-with-a-rather-long-name"  # long enough that its name has to shrink
+    folder.mkdir()
+    (folder / "notes.txt").write_text("hi\n")
+    server.store.create_session(str(folder), "main")
     page.set_viewport_size({"width": width, "height": 800})
     open_app(page)
     scroll = page.evaluate("[document.documentElement.scrollWidth, document.documentElement.clientWidth]")
@@ -100,8 +104,10 @@ def test_the_title_bar_fits_a_small_window_and_the_page_never_scrolls_sideways(p
     buttons = page.evaluate(TITLE_BAR)
     off = [b for b in buttons if not (b["onScreen"] and b["full"] and b["hit"] and b["title"])]
     assert not off, f"title bar buttons cut off, squashed or covered at {width}px: {off}"
-    folder = page.locator("#workspaceBtn").bounding_box()
-    assert folder["width"] >= 100, f"the folder's name has {folder['width']}px"
+    name = page.evaluate("(() => { const n = document.querySelector('#workspaceName');"
+                         " return [n.textContent, n.scrollWidth > n.clientWidth]; })()")
+    assert name[0] == folder.name and name[1], f"the folder's name isn't long enough to test: {name}"
+    assert page.locator("#workspaceBtn").bounding_box()["width"] >= 100
     word = page.evaluate("document.querySelector('.brand-name')?.getBoundingClientRect().width ?? 0")
     assert (word > 0) == (width > BRAND_WORD_AT)
 

@@ -13,10 +13,13 @@ One branch, `feature/small-windows`, one PR. After ui-review-fixes task 1.
     421, 419 and 280px, words shown or hidden as measured; the terminal's toolbar at 421, 419 and 280; the panel's
     tabs one line each at 280 with Clear and Close reachable; at 1024×700 the file and terminal toolbars, the words
     still naming the buttons)_
-- [ ] 2. The title bar fits a 480px window
+- [x] 2. The title bar fits a 480px window
   - Test first (Playwright): no sideways scroll and theme and help in view at 600 and 480 wide.
-  - `app.css` (the 820px block).
+  - `app.css` (the 820px block, and the status bar's items), `index.html` (the word "codepilot" in a span).
   - _Requirements: 1.4_
+  - _Tests: tests/e2e/test_window_fit_ui.py (at 600, 561, 559 and 480 wide the page doesn't scroll sideways, every
+    title-bar button is on screen at full size with a tooltip, a long folder name keeps 100px, and the word
+    "codepilot" shows only above 560)_
 - [ ] 3. Panes give the editor 440px, and the sidebar steps aside when even that can't fit
   - Test first (Playwright): the editor's width at 1024; `auto-no-sidebar` at 900 and back at 1440; the user's own
     toggle wins until the next resize; saved sizes untouched.
