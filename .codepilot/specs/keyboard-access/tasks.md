@@ -57,19 +57,41 @@ One branch and PR per numbered task, merged before the next starts. Every sub-ta
     - _Tests: tests/e2e/test_keyboard_access_ui.py (the line numbers are one tab stop; Down twice and Enter selects
       line 3 with focus kept, Shift+Enter extends to 5, End goes to line 40 and Space selects it, scrolled into view;
       the audit no longer allows the tree or the line numbers)_
-- [ ] 3. Tabs, menus and regions (`feature/keyboard-tabs-menus`)
-  - [ ] 3.1 Editor tabs and panel tabs as tab lists; the close button's name
-    - `a11y.js` (`tabsRendered`), `app.js` (`renderTabs`: one attribute, one call; `showPanelTab`: one call).
+- [x] 3. Tabs, menus and regions (`feature/keyboard-tabs-menus`)
+  - [x] 3.1 Editor tabs and panel tabs as tab lists; the close button's name
+    - `a11y.js` (`tabsRendered`, `panelTabsShown`, the strips' keys; a click on a tab leaves focus on the page),
+      `app.js` (`renderTabs`: one attribute, one call; `showPanelTab`: one call), `index.html` (the panel's tabs in
+      their own tablist, with ids, `aria-controls` and tab panels), `app.css` (`.ptabs`).
     - _Requirements: 2.1, 2.2, 2.3_
-  - [ ] 3.2 Activity bar state and names; the chat title's name
-    - `a11y.js` (`viewChanged`), `app.js` (`setView`, `renderProposalList`), `progress.js` (its badge), `sessions.js`.
+    - _Tests: tests/e2e/test_keyboard_access_ui.py (from the tree, Tab lands on the shown tab, a selected `tab` in a
+      `tablist` over a `tabpanel`; Left, Home and End move and show it with focus following; Delete closes it and focus
+      lands on the tab shown next; one Tab leaves the strip; close buttons are named "Close <title>"; Delete on a tab
+      with unsaved edits asks first; tabs reopened after a reload don't take focus; the panel's tabs are a "Panel"
+      tablist where Right shows Output with focus on its tab, and one Shift+Tab leaves it; the audit allows nothing),
+      tests/e2e/test_review_ui.py (after a click on the Review tab, j still moves the list)_
+  - [x] 3.2 Activity bar state and names; the chat title's name
+    - `a11y.js` (`viewChanged`, asking `layoutShown`; the chat title watched), `app.js` (`setView`,
+      `renderProposalList`: one call each), `index.html` (badges hidden from assistive technology). `progress.js` and
+      `sessions.js` unchanged: Progress already names its count.
     - _Requirements: 2.3, 2.4_
-  - [ ] 3.3 Menus take focus, move with arrows and give focus back
-    - `a11y.js` (`menu`), `app.js` (`showMenu` ends with one call; `aria-haspopup` on the five menu buttons).
+    - _Tests: tests/e2e/test_keyboard_access_ui.py (Explorer is pressed, nothing when ⌘B hides the sidebar, Explorer
+      again when shown, then Search; Changes is named "Changes, 1 waiting for review" and its badge is hidden; at 900
+      wide, where the sidebar steps aside, nothing is pressed; the chat title is "Switch session: <title>")_
+  - [x] 3.3 Menus take focus, move with arrows and give focus back
+    - `a11y.js` (`menu`, the opener tracked outside overlays, focus back when the menu hides), `app.js` (`showMenu`
+      ends with one call), `index.html` (`aria-haspopup` and `aria-expanded` on the six menu buttons).
     - _Requirements: 3.1, 3.2_
-  - [ ] 3.4 F6 moves between sidebar, editor, panel and chat
-    - `a11y.js` (`regions`), `index.html` (landmark labels); `docs/usage.md` (Keyboard shortcuts).
+    - _Tests: tests/e2e/test_keyboard_access_ui.py (Enter on File opens a `menu` with focus on New File… and the button
+      expanded; Down, End, Down round to the top, "o" finds Open Folder…; Escape closes it with focus back on File,
+      collapsed; Shift+F10 on a tree row focuses Open, "c" finds Copy relative path, Enter copies it and focus is back
+      on the row)_
+  - [x] 3.4 F6 moves between sidebar, editor, panel and chat
+    - `a11y.js` (the panes, asking `layoutShown`), `index.html` (landmark labels); `docs/usage.md` (Keyboard shortcuts:
+      F6, the Explorer, tabs, menus, line numbers, where Review's keys act).
     - _Requirements: 2.5_
+    - _Tests: tests/e2e/test_keyboard_access_ui.py (from the message box F6 goes to the tree, then the shown tab, then
+      skips the closed panel back to the message box; Shift+F6 goes back; with the panel open it's included; with the
+      sidebar hidden it's skipped; the landmarks are named Views, Sidebar, Editor, Panel, Chat and Status)_
 - [ ] 4. Dialogs and suggestion lists (`feature/keyboard-dialogs`)
   - [ ] 4.1 Dialogs: role, focus in, Tab stays in, Escape, focus back
     - `a11y.js` (`modal`, the `hidden` observer), `app.js` (`#folderDialog` Escape).

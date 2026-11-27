@@ -619,8 +619,10 @@ key.
 | ⌘B | Toggle sidebar |
 | ⌘J | Toggle bottom panel |
 | ⌘L | Focus chat |
-| ⌘C (file selected in Explorer) | Copy its path |
-| F2 / Delete or ⌘⌫ (Explorer) | Rename / delete the selected file or folder |
+| F6 / Shift+F6 | Next / previous pane: sidebar, editor, bottom panel, chat (those shown) |
+| ⌘C (Explorer) | Copy the focused file's or folder's path |
+| F2 / Delete or ⌘⌫ (Explorer) | Rename / delete the focused file or folder |
+| Shift+F10 or the menu key (Explorer) | The focused row's menu, as a right-click opens it |
 | ⌘S | Save the file you're editing |
 | ↑ / ↓ (message box) | Earlier / later prompts |
 | ⌥W | Close editor tab |
@@ -629,6 +631,18 @@ key.
 | ⌘. (while it works) | Stop the running work |
 | `@` / `/` / `#` | Reference a file / run a command or skill / attach a steering doc |
 | Esc | Close popups |
+
+Everything you can click can also be reached with Tab and used with Enter or Space: rows in the sidebar's lists, the
+Review list, links in replies, and a message's Edit, Retry and Undo (shown while one has focus). Lists that are one Tab
+stop move with the arrow keys:
+
+| Where | Keys |
+|---|---|
+| Explorer | ↑ ↓ move, Home / End first / last, → opens a folder or goes into it, ← closes it or goes to its folder, Enter or Space opens, typing jumps to a name |
+| Editor and panel tabs | ← → show the next tab, Home / End the first / last; Delete closes an editor tab (asking first if it has unsaved edits) |
+| Menus | Opening one puts focus on its first item; ↑ ↓, Home / End and a letter move; Enter runs; Esc closes and returns focus |
+| Line numbers in a file | ↑ ↓, Page Up / Down, Home / End move; Enter or Space selects the line, Shift+Enter extends the selection |
+| Review | j / k or ↓ / ↑ move, a applies, r rejects: from the Review itself or with nothing focused, never while you're in the Explorer, a tab strip, a menu or a dialog |
 
 ## Tips for good results
 

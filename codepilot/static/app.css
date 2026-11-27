@@ -334,8 +334,9 @@ kbd { font: var(--fs-sm) var(--mono); padding: 1px 6px; border: 1px solid var(--
 .panel { height: var(--panel-h); flex: none; display: flex; flex-direction: column; background: var(--bg-2); min-height: 0; }
 .ide.no-panel .panel, .ide.no-panel #panelResizer { display: none; }
 .panel-tabs { display: flex; align-items: center; gap: 2px; height: 32px; padding: 0 8px 0 10px; flex: none; }
-.panel-tabs > button:not(.icon-btn) { border: 0; background: none; color: var(--muted); font-size: var(--fs-sm); font-weight: 650; text-transform: uppercase; letter-spacing: .6px; padding: 8px 8px 6px; border-bottom: 1px solid transparent; }
-.panel-tabs > button.on { color: var(--fg); border-bottom-color: var(--accent); }
+.ptabs { display: flex; align-items: center; gap: 2px; flex: none; }
+.ptabs > button { border: 0; background: none; color: var(--muted); font-size: var(--fs-sm); font-weight: 650; text-transform: uppercase; letter-spacing: .6px; padding: 8px 8px 6px; border-bottom: 1px solid transparent; }
+.ptabs > button.on { color: var(--fg); border-bottom-color: var(--accent); }
 .count { display: inline-block; min-width: 16px; padding: 0 5px; border-radius: var(--r-pill); background: var(--bg-4); color: var(--fg-2); font-size: var(--fs-xs); text-align: center; margin-left: 4px; }
 .panel-body { flex: 1; overflow: auto; min-height: 0; padding: 0 12px 10px; }
 .act { display: grid; grid-template-columns: 64px 74px 1fr; gap: 10px; font: var(--fs-ui)/20px var(--mono); padding: 1px 4px; border-radius: var(--r-sm); }
@@ -706,7 +707,7 @@ a.loc:hover { text-decoration: underline; }
 }
 /* The panel's tabs stay one line each, count beside its label; a row too narrow for them scrolls sideways. */
 .panel-tabs { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
-.panel-tabs > button { white-space: nowrap; flex: none; }
+.panel-tabs > button, .ptabs > button { white-space: nowrap; flex: none; }
 .btn.sm { height: 24px; padding: 0 8px; font-size: var(--fs-ui); }
 .btn:disabled, .icon-btn:disabled { opacity: .45; pointer-events: none; }
 .menu-btn .caret svg, #termMore svg { transform: rotate(90deg); }

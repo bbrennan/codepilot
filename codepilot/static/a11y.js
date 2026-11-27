@@ -72,10 +72,19 @@ function a11yKey(el) {
   }
   return parts.join(" ");
 }
+// Menus, dialogs and the session switcher sit over the page; focus goes back from them to what had it before.
+const A11Y_OVERLAYS = "#ctxMenu, .palette, #sessPop";
 document.addEventListener("focusin", (e) => {
   const el = e.target, box = el.parentElement?.closest("[id]");
   a11yState.last = { el, key: a11yKey(el), box: box && "#" + CSS.escape(box.id) };
+  if (!el.closest(A11Y_OVERLAYS)) a11yState.outside = a11yState.last;
 });
+// Where to give focus back to: the element that had it, or the same thing redrawn since.
+function a11yBack(to) {
+  if (!to) return null;
+  if (to.el.isConnected && to.el.getClientRects().length) return to.el;
+  try { return document.querySelector(to.key); } catch { return null; }
+}
 // A click on something that can't take focus leaves focus on the page: that's where you put it, not a redraw.
 document.addEventListener("mousedown", () => { a11yState.last = null; }, true);
 
@@ -88,7 +97,8 @@ function a11yKeepFocus() {
   if (!shown(el)) {
     const box = last.box && document.querySelector(last.box);
     if (box) a11yDecorateIn(box); // (a row, never a button: a second Enter mustn't do something you didn't aim at)
-    el = box && [...box.querySelectorAll(A11Y_ROWS)].find(shown);
+    const rows = box ? [...box.querySelectorAll(A11Y_ROWS)].filter(shown) : [];
+    el = rows.find((r) => r.tabIndex === 0 && r.matches("[role=tab], [role=treeitem]")) || rows[0]; // (a list's own stop)
   }
   if (!el) return;
   a11yDecorateIn(el);
@@ -202,9 +212,142 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+// ---- tab strips: the editor's tabs and the bottom panel's (2.1–2.3)
+// One tab stop each, on the tab that's shown; Left and Right (Home, End) move and show; Delete closes an editor tab
+// (closeTab asks first when it has unsaved edits). Each close button is named, and out of the Tab order.
+function a11yTabsRendered() {
+  const strip = $("#editorTabs"), tabs = [...strip.querySelectorAll(".tab")];
+  strip.setAttribute("role", "tablist"); strip.setAttribute("aria-label", "Open files");
+  $("#editor").setAttribute("role", "tabpanel");
+  for (const t of tabs) {
+    const on = t.classList.contains("on");
+    t.setAttribute("role", "tab"); t.setAttribute("aria-selected", String(on)); t.setAttribute("aria-controls", "editor");
+    t.tabIndex = on ? 0 : -1;
+    t.querySelector("[data-close]")?.setAttribute("tabindex", "-1");
+  }
+  if (tabs.length && !tabs.some((t) => t.tabIndex === 0)) tabs[0].tabIndex = 0;
+  a11yKeepFocus();
+}
+function a11yPanelTabsShown() {
+  for (const b of $$(".panel-tabs [data-ptab]")) {
+    const on = b.classList.contains("on");
+    b.setAttribute("aria-selected", String(on)); b.tabIndex = on ? 0 : -1;
+  }
+}
+a11yPanelTabsShown();
+// Which tab of a strip a key moves to, or null.
+function a11yStep(e, list, i) {
+  if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return null;
+  return { ArrowLeft: list[i - 1], ArrowRight: list[i + 1], Home: list[0], End: list.at(-1) }[e.key] || null;
+}
+$("#editorTabs").addEventListener("keydown", (e) => {
+  const tab = e.target.closest(".tab"); if (!tab || e.target.closest("button")) return;
+  const tabs = [...$$("#editorTabs .tab")], to = a11yStep(e, tabs, tabs.indexOf(tab));
+  if (to) {
+    e.preventDefault();
+    state.active = to.dataset.tab; renderEditor();
+    a11yFocus(`#editorTabs .tab[data-tab="${CSS.escape(to.dataset.tab)}"]`);
+  } else if (e.key === "Delete" && !e.altKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); closeTab(tab.dataset.tab); }
+});
+// A click on a tab leaves focus on the page, as a click on one always did, so Review's keys work after it; only the
+// keyboard puts focus on a tab.
+$("#editorTabs").addEventListener("mousedown", (e) => {
+  if (!e.target.closest(".tab") || e.button !== 0) return;
+  e.preventDefault(); document.activeElement?.blur();
+});
+$(".panel-tabs").addEventListener("keydown", (e) => {
+  const b = e.target.closest("[data-ptab]"); if (!b) return;
+  const tabs = [...$$(".panel-tabs [data-ptab]")], to = a11yStep(e, tabs, tabs.indexOf(b));
+  if (to) { e.preventDefault(); showPanelTab(to.dataset.ptab); to.focus(); }
+});
+
+// ---- the activity bar and the chat's title (2.3, 2.4)
+// Each view's button says whether its view is the one shown (not just picked: the sidebar may be hidden, by you or
+// because it stepped aside for room, which layout.js knows). A count keeps the button's name: "Changes, 2 waiting
+// for review". (Progress names its own count: progress.js.)
+function a11yViewChanged() {
+  const shown = layoutShown(ide, "sidebar");
+  for (const b of $$("#activitybar button")) b.setAttribute("aria-pressed", String(shown && b.classList.contains("on")));
+  const n = $("#changesBadge").hidden ? 0 : +$("#changesBadge").textContent || 0;
+  $("#activitybar [data-view=changes]").setAttribute("aria-label", n ? `Changes, ${n} waiting for review` : "Changes");
+}
+new MutationObserver(a11yViewChanged).observe(ide, { attributes: true, attributeFilter: ["class"] }); // (shown, hidden)
+a11yViewChanged();
+// The title is the session's name; the button switches sessions. Said so, so it isn't a second "New session".
+function a11yChatTitle() { $("#chatTitleBtn").setAttribute("aria-label", `Switch session: ${$("#chatTitle").textContent}`); }
+new MutationObserver(a11yChatTitle).observe($("#chatTitle"), { childList: true, characterData: true, subtree: true });
+a11yChatTitle();
+
+// ---- menus (3.1, 3.2)
+// showMenu ends here. Focus moves to the first item; Up and Down (round the ends), Home, End and a letter move; Enter
+// or Space runs an item; Escape or Tab closes it. When it closes by a key or by running an item, focus goes back to
+// what opened it, unless the item put focus somewhere itself (a dialog). A click elsewhere puts focus where it went.
+function a11yMenu(m) {
+  m.setAttribute("role", "menu");
+  for (const it of m.querySelectorAll("[data-mi]")) { it.setAttribute("role", "menuitem"); it.tabIndex = -1; }
+  for (const sep of m.querySelectorAll(".sep")) sep.setAttribute("role", "separator");
+  const opener = a11yState.menuOpener = a11yState.outside;
+  if (opener?.el.hasAttribute("aria-haspopup")) opener.el.setAttribute("aria-expanded", "true");
+  m.querySelector("[data-mi]")?.focus({ preventScroll: true });
+}
+new MutationObserver(() => {
+  const m = $("#ctxMenu"), opener = a11yState.menuOpener;
+  if (!m.hidden || !opener) return;
+  a11yState.menuOpener = null;
+  if (opener.el.hasAttribute("aria-expanded")) opener.el.setAttribute("aria-expanded", "false");
+  const now = document.activeElement;
+  if (now === document.body || m.contains(now)) a11yBack(opener)?.focus({ preventScroll: true });
+}).observe($("#ctxMenu"), { attributes: true, attributeFilter: ["hidden"] });
+$("#ctxMenu").addEventListener("keydown", (e) => {
+  const m = e.currentTarget, items = [...m.querySelectorAll("[data-mi]")], i = items.indexOf(e.target.closest("[data-mi]"));
+  if (e.altKey || e.ctrlKey || e.metaKey || e.isComposing) return;
+  let to = null;
+  if (e.key === "ArrowDown") to = items[(i + 1) % items.length];
+  else if (e.key === "ArrowUp") to = items[(i - 1 + items.length) % items.length];
+  else if (e.key === "Home") to = items[0];
+  else if (e.key === "End") to = items.at(-1);
+  else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); items[i]?.click(); return; }
+  else if (e.key === "Escape" || e.key === "Tab") { e.preventDefault(); e.stopPropagation(); m.hidden = true; return; }
+  else if (e.key.length === 1) {
+    const label = (it) => (it.querySelector("span")?.textContent || "").toLowerCase();
+    to = [...items.slice(i + 1), ...items.slice(0, i + 1)].find((it) => label(it).startsWith(e.key.toLowerCase()));
+  }
+  if (!to) return;
+  e.preventDefault(); to.focus({ preventScroll: true });
+});
+
+// ---- F6: the next pane (2.5)
+// Sidebar, editor, bottom panel and chat, those shown, in order (Shift: backwards). Each pane's place to land: the
+// sidebar view's first tab stop, the editor's tab (or its first control with no tabs), the panel's tab, the message box.
+const A11Y_TABBABLE = "a[href], button:not([disabled]), input:not([disabled]):not([type=hidden]), select:not([disabled]),"
+  + " textarea:not([disabled]), summary, [tabindex]:not([tabindex='-1'])";
+const a11yFirst = (box) => [...(box?.querySelectorAll(A11Y_TABBABLE) || [])].find((el) => el.getClientRects().length);
+const A11Y_PANES = [
+  { in: ".sidebar", shown: () => layoutShown(ide, "sidebar"),
+    land: () => a11yFirst($(".sidebar .view.on .view-body")) || a11yFirst($(".sidebar .view.on")) },
+  { in: ".center > :not(.panel)", shown: () => true,
+    land: () => $("#editorTabs .tab[tabindex='0']") || a11yFirst($("#editor")) },
+  { in: ".panel", shown: () => !ide.classList.contains("no-panel"), land: () => $(".panel-tabs [data-ptab].on") },
+  { in: ".chat", shown: () => layoutShown(ide, "chat"), land: () => $("#input") },
+];
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "F6" || e.altKey || e.ctrlKey || e.metaKey) return;
+  const at = A11Y_PANES.findIndex((p) => document.activeElement?.closest(p.in));
+  const n = A11Y_PANES.length, step = e.shiftKey ? -1 : 1;
+  for (let k = 1; k <= n; k++) {
+    const p = A11Y_PANES[((at < 0 ? (e.shiftKey ? 0 : -1) : at) + step * k + n * 2) % n];
+    const el = p.shown() && p.land();
+    if (el) { e.preventDefault(); a11yDecorateIn(el); el.focus(); return; }
+  }
+});
+
 // What app.js calls. focus(selector): put focus somewhere deliberate, on an element that may not be decorated yet.
 function a11yFocus(sel) {
   const el = document.querySelector(sel); if (!el) return;
   a11yDecorateIn(el); el.focus({ preventScroll: true });
 }
-const a11y = { treeRendered: a11yTreeRendered, focus: a11yFocus };
+// (window.a11y?.…: app.js may draw before this script has loaded, and this catches up below.)
+window.a11y = { treeRendered: a11yTreeRendered, tabsRendered: a11yTabsRendered, panelTabsShown: a11yPanelTabsShown,
+  viewChanged: a11yViewChanged, menu: a11yMenu, focus: a11yFocus };
+a11yTabsRendered();
+if ($("#tree .row")) a11yTreeRendered();

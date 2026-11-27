@@ -23,33 +23,33 @@
   <!-- Title bar -->
   <header class="titlebar">
     <div class="brand"><span class="logo" data-icon="logo"></span><span class="brand-name">codepilot</span></div>
-    <button class="workspace-btn" id="workspaceBtn" title="This session's folders"><span data-icon="folder"></span><span id="workspaceName">No folder</span></button>
+    <button class="workspace-btn" id="workspaceBtn" title="This session's folders" aria-haspopup="menu" aria-expanded="false"><span data-icon="folder"></span><span id="workspaceName">No folder</span></button>
     <button class="palette-btn" id="paletteBtn" title="Go to file (⌘P)"><span data-icon="search"></span><span>Search files</span><kbd>⌘P</kbd></button>
-    <button class="menu-btn" id="fileMenuBtn" title="New file or folder, open, save"><span data-icon="file"></span><span>File</span><span data-icon="chevron" class="caret"></span></button>
-    <button class="menu-btn" id="terminalMenuBtn" title="Terminals: new, switch, rename, kill"><span data-icon="terminal"></span><span>Terminal</span><span data-icon="chevron" class="caret"></span></button>
+    <button class="menu-btn" id="fileMenuBtn" title="New file or folder, open, save" aria-haspopup="menu" aria-expanded="false"><span data-icon="file"></span><span>File</span><span data-icon="chevron" class="caret"></span></button>
+    <button class="menu-btn" id="terminalMenuBtn" title="Terminals: new, switch, rename, kill" aria-haspopup="menu" aria-expanded="false"><span data-icon="terminal"></span><span>Terminal</span><span data-icon="chevron" class="caret"></span></button>
     <div class="spacer"></div>
     <button class="icon-btn" id="toggleSidebar" title="Toggle sidebar (⌘B)" data-icon="sidebar"></button>
     <button class="icon-btn" id="togglePanel" title="Toggle panel (⌘J)" data-icon="panel"></button>
     <button class="icon-btn" id="toggleChat" title="Toggle chat (⌘L)" data-icon="chat"></button>
     <button class="icon-btn" id="themeBtn" title="Toggle theme" data-icon="theme"></button>
-    <button class="icon-btn" id="helpBtn" title="Help and problem reports" data-icon="help"></button>
+    <button class="icon-btn" id="helpBtn" title="Help and problem reports" aria-haspopup="menu" aria-expanded="false" data-icon="help"></button>
   </header>
 
   <!-- Activity bar -->
-  <nav class="activitybar" id="activitybar">
+  <nav class="activitybar" id="activitybar" aria-label="Views">
     <button data-view="sessions" title="Sessions" data-icon="history"></button>
     <button data-view="explorer" title="Explorer" data-icon="files"></button>
-    <button data-view="progress" title="Progress: the plan or spec run under way" aria-label="Progress" data-icon="progress"><span class="badge" id="progressBadge" hidden></span></button>
+    <button data-view="progress" title="Progress: the plan or spec run under way" aria-label="Progress" data-icon="progress"><span class="badge" id="progressBadge" aria-hidden="true" hidden></span></button>
     <button data-view="search" title="Search" data-icon="search"></button>
     <button data-view="traces" title="Traces" data-icon="pulse"></button>
-    <button data-view="changes" title="Changes" data-icon="branch"><span class="badge" id="changesBadge" hidden></span></button>
+    <button data-view="changes" title="Changes" data-icon="branch"><span class="badge" id="changesBadge" aria-hidden="true" hidden></span></button>
     <button data-view="specs" title="Specs: plan, then build task by task" data-icon="list"></button>
     <button data-view="steering" title="Steering: standing instructions" data-icon="compass"></button>
     <button data-view="memory" title="Memory &amp; context" data-icon="brain"></button>
   </nav>
 
   <!-- Sidebar -->
-  <aside class="sidebar" id="sidebar">
+  <aside class="sidebar" id="sidebar" aria-label="Sidebar">
     <section class="view" data-view="sessions">
       <div class="view-head"><span>Sessions</span><div class="actions"><button class="icon-btn sm" id="newSessionBtn" title="New session" data-icon="plus"></button></div></div>
       <div class="view-body">
@@ -104,7 +104,7 @@
     </section>
     <section class="view" data-view="steering">
       <div class="view-head"><span>Steering</span><div class="actions">
-        <button class="icon-btn sm" id="newSteeringBtn" title="New steering doc" data-icon="plus"></button>
+        <button class="icon-btn sm" id="newSteeringBtn" title="New steering doc" aria-haspopup="menu" aria-expanded="false" data-icon="plus"></button>
         <button class="icon-btn sm" id="refreshSteeringBtn" title="Refresh" data-icon="refresh"></button>
       </div></div>
       <div class="view-body" id="steeringView"></div>
@@ -117,21 +117,23 @@
   <div class="resizer v" id="sidebarResizer"></div>
 
   <!-- Editor + bottom panel -->
-  <main class="center">
+  <main class="center" aria-label="Editor">
     <div class="tabs" id="editorTabs"></div>
     <div class="editor" id="editor"></div>
     <div class="resizer h" id="panelResizer"></div>
-    <section class="panel" id="panel">
+    <section class="panel" id="panel" aria-label="Panel">
       <div class="panel-tabs">
-        <button data-ptab="activity" class="on">Activity <span class="count" id="actCount">0</span></button>
-        <button data-ptab="output">Output</button>
-        <button data-ptab="terminal" id="terminalTabBtn">Terminal <span class="count" id="termCount" hidden>0</span></button>
+        <div class="ptabs" role="tablist" aria-label="Panel">
+          <button data-ptab="activity" class="on" role="tab" id="ptabActivity" aria-controls="activity">Activity <span class="count" id="actCount">0</span></button>
+          <button data-ptab="output" role="tab" id="ptabOutput" aria-controls="panelOutput">Output</button>
+          <button data-ptab="terminal" id="terminalTabBtn" role="tab" aria-controls="panelTerminal">Terminal <span class="count" id="termCount" hidden>0</span></button>
+        </div>
         <div class="spacer"></div>
         <button class="icon-btn sm" id="clearActivity" title="Clear" data-icon="trash"></button>
         <button class="icon-btn sm" id="closePanel" title="Close panel" data-icon="x"></button>
       </div>
-      <div class="panel-body" data-ptab="activity" id="activity"></div>
-      <div class="panel-body" data-ptab="output" hidden>
+      <div class="panel-body" data-ptab="activity" id="activity" role="tabpanel" aria-labelledby="ptabActivity"></div>
+      <div class="panel-body" data-ptab="output" id="panelOutput" role="tabpanel" aria-labelledby="ptabOutput" hidden>
         <div class="run-bar">
           <button class="btn" id="runTestsBtn"><span data-icon="play"></span>Run tests</button>
           <button class="btn" id="runChecksBtn" title="Linters, type checkers, security scanners"><span data-icon="check"></span>Run checks</button>
@@ -142,7 +144,7 @@
         </div>
         <div id="output" class="output"></div>
       </div>
-      <div class="panel-body term-body" data-ptab="terminal" hidden>
+      <div class="panel-body term-body" data-ptab="terminal" id="panelTerminal" role="tabpanel" aria-labelledby="terminalTabBtn" hidden>
         <div class="term-bar">
           <select class="field sm term-select" id="termSelect" title="Switch terminal (double-click to rename)" aria-label="Terminals"></select>
           <span class="mono muted term-cwd" id="termCwd"></span>
@@ -153,7 +155,7 @@
           <button class="icon-btn sm" id="termNew" title="New terminal (in the session's folder)" data-icon="plus"></button>
           <button class="icon-btn sm" id="termRename" title="Rename terminal" data-icon="edit"></button>
           <button class="icon-btn sm" id="termKill" title="Kill terminal" data-icon="trash"></button>
-          <button class="icon-btn sm" id="termMore" title="More terminal actions" data-icon="chevron"></button>
+          <button class="icon-btn sm" id="termMore" title="More terminal actions" aria-haspopup="menu" aria-expanded="false" data-icon="chevron"></button>
         </div>
         <div class="term-host" id="termHost">
           <div class="term-empty" id="termEmpty" hidden><span id="termEmptyText">No terminals are open.</span><button class="btn" id="termEmptyNew"><span data-icon="plus"></span>New Terminal</button></div>
@@ -164,7 +166,7 @@
   <div class="resizer v" id="chatResizer"></div>
 
   <!-- Chat -->
-  <aside class="chat" id="chat">
+  <aside class="chat" id="chat" aria-label="Chat">
     <div class="chat-head">
       <button class="chat-title" id="chatTitleBtn" title="Switch session" aria-haspopup="listbox" aria-expanded="false"><span id="chatTitle">New session</span><span data-icon="chevron" class="caret"></span></button>
       <select class="field sm mode-select" id="modeSelect" title="Mode: a focused agent profile"></select>
@@ -205,7 +207,7 @@
   </aside>
 
   <!-- Status bar -->
-  <footer class="statusbar">
+  <footer class="statusbar" aria-label="Status">
     <span class="sb-item" id="sbProvider"></span>
     <span class="sb-item" id="sbBranch"></span>
     <span class="sb-item" id="sbTest"></span>

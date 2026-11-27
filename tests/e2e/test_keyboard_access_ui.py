@@ -260,8 +260,8 @@ AUDIT = """(allowed) => {
   return [...found];
 }"""
 
-# Still unreachable, each until the task that makes it so; a task starts by taking its line out (task 3: the tabs).
-NOT_YET = ["#editorTabs .tab"]
+# Still unreachable, each until the task that makes it so; a task starts by taking its line out (none now).
+NOT_YET = []
 
 
 def audit(page, screen):
@@ -531,3 +531,172 @@ def test_the_bars_review_button_puts_you_in_the_review_where_a_applies(page, ser
     assert focus_is(page, ".rv-item.on"), page.evaluate(ACTIVE)
     page.keyboard.press("a")
     page.wait_for_function("() => [...state.proposals.values()].some((p) => p.status === 'applied')")
+
+
+# -- task 3: tabs, the activity bar, menus and F6 (2.1-2.5, 3.1, 3.2) -----------------------------------------------
+
+
+def three_tabs(page):
+    for path in ("Makefile", "agent/core.py", "tests/test_core.py"):
+        page.evaluate(f"openFile('{path}')")
+        page.wait_for_function(f"() => state.active === 'file:{path}'")
+
+
+def test_the_editor_tabs_are_one_tab_stop_that_arrows_move_through_and_delete_closes(page, server, session):
+    open_app(page)
+    three_tabs(page)
+    into_tree(page)
+    page.keyboard.press("Tab")  # from the tree to the editor's tabs: the one you're on
+    assert focus_is(page, "#editorTabs [data-tab='file:tests/test_core.py']"), page.evaluate(ACTIVE)
+    assert role(page) == "tab" and page.evaluate("() => document.activeElement.getAttribute('aria-selected')") == "true"
+    assert page.evaluate("() => document.querySelector('#editorTabs').getAttribute('role')") == "tablist"
+    assert page.evaluate("() => document.querySelector('#editor').getAttribute('role')") == "tabpanel"
+    page.keyboard.press("ArrowLeft")  # moves and shows
+    page.wait_for_function("() => state.active === 'file:agent/core.py'")
+    assert focus_is(page, "#editorTabs [data-tab='file:agent/core.py']")
+    page.keyboard.press("Home")
+    page.wait_for_function("() => state.active === 'file:Makefile'")
+    page.keyboard.press("End")
+    page.wait_for_function("() => state.active === 'file:tests/test_core.py'")
+    assert focus_is(page, "#editorTabs [data-tab='file:tests/test_core.py']")
+    page.keyboard.press("Delete")
+    page.wait_for_function("() => state.tabs.length === 2 && state.active === 'file:agent/core.py'")
+    assert focus_is(page, "#editorTabs [data-tab='file:agent/core.py']"), page.evaluate(ACTIVE)
+    page.keyboard.press("Tab")
+    assert not page.evaluate("() => !!document.activeElement.closest('#editorTabs')")  # one stop
+    names = page.evaluate("() => [...document.querySelectorAll('#editorTabs [data-close]')].map((b) =>"
+                          " b.getAttribute('aria-label'))")
+    assert names == ["Close Makefile", "Close core.py"]
+
+
+def test_delete_on_a_tab_with_unsaved_edits_asks_first(page, server, session):
+    open_app(page)
+    three_tabs(page)
+    page.evaluate("editFile('file:tests/test_core.py')")
+    page.locator("#codeEdit").wait_for()
+    page.focus("#codeEdit")
+    page.keyboard.type("# mine\n")
+    into_tree(page)
+    page.keyboard.press("Tab")
+    page.keyboard.press("Delete")
+    page.locator("#dialog").wait_for()
+    assert "Discard changes to test_core.py" in page.text_content("#dialogTitle")
+
+
+def test_restored_tabs_do_not_move_focus(page, server, session):
+    open_app(page)
+    three_tabs(page)
+    page.wait_for_timeout(400)  # (stored)
+    page.reload()
+    page.wait_for_function("() => document.querySelectorAll('#editorTabs .tab').length === 3")
+    page.wait_for_timeout(200)
+    assert page.evaluate(ACTIVE) == "body"
+
+
+def test_the_panel_tabs_are_a_tab_list_too(page, server, session):
+    open_app(page)
+    page.keyboard.press("ControlOrMeta+j")  # the bottom panel
+    page.locator("#activity").wait_for()
+    page.focus("#clearActivity")
+    page.keyboard.press("Shift+Tab")
+    assert focus_is(page, ".panel-tabs [data-ptab='activity']") and role(page) == "tab"
+    assert page.evaluate("() => document.querySelector('[data-ptab=activity]').closest('[role=tablist]')"
+                         ".getAttribute('aria-label')") == "Panel"
+    page.keyboard.press("ArrowRight")
+    page.locator(".panel-body[data-ptab='output']").wait_for()
+    assert focus_is(page, ".panel-tabs [data-ptab='output']")
+    assert page.evaluate("() => [document.querySelector('[data-ptab=output]').getAttribute('aria-selected'),"
+                         " document.querySelector('.panel-body[data-ptab=output]').getAttribute('role')]") == [
+        "true", "tabpanel"]
+    page.keyboard.press("Shift+Tab")
+    assert not page.evaluate("() => !!document.activeElement.closest('[role=tablist]')")  # one stop
+
+
+def test_the_activity_bar_says_which_view_is_shown_and_keeps_its_names_with_a_count(page, server, session):
+    server.store.add_proposal(session.id, "agent/core.py", "a - b", "a + b", "fix the sign")
+    open_app(page)
+    pressed = "() => [...document.querySelectorAll('#activitybar button')].filter((b) =>" \
+              " b.getAttribute('aria-pressed') === 'true').map((b) => b.dataset.view)"
+    assert page.evaluate(pressed) == ["explorer"]
+    page.keyboard.press("ControlOrMeta+b")  # hidden: nothing is shown
+    page.wait_for_function(f"() => ({pressed})().length === 0")
+    page.keyboard.press("ControlOrMeta+b")
+    page.wait_for_function(f"() => ({pressed})().join() === 'explorer'")
+    page.evaluate("setView('search')")
+    page.wait_for_function(f"() => ({pressed})().join() === 'search'")
+    changes = page.locator("#activitybar [data-view=changes]")
+    assert changes.get_attribute("aria-label") == "Changes, 1 waiting for review"
+    assert page.get_attribute("#changesBadge", "aria-hidden") == "true"
+    page.set_viewport_size({"width": 900, "height": 700})  # the sidebar steps aside for room (#126)
+    page.wait_for_function("() => document.getElementById('ide').classList.contains('auto-no-sidebar')")
+    page.wait_for_function(f"() => ({pressed})().length === 0")
+
+
+def test_the_chat_title_says_it_switches_sessions(page, server, session):
+    server.store.update_session(session.id, title="fix the sign")
+    open_app(page)
+    page.wait_for_function("() => document.querySelector('#chatTitleBtn').getAttribute('aria-label')"
+                           " === 'Switch session: fix the sign'")
+
+
+def test_a_menu_takes_focus_moves_with_arrows_and_gives_focus_back(page, server, session):
+    open_app(page)
+    page.focus("#fileMenuBtn")
+    assert page.get_attribute("#fileMenuBtn", "aria-haspopup") == "menu"
+    page.keyboard.press("Enter")
+    page.locator("#ctxMenu").wait_for()
+    assert page.get_attribute("#ctxMenu", "role") == "menu"
+    assert focus_is(page, "#ctxMenu [role=menuitem]") and page.text_content("#ctxMenu :focus") == "New File…"
+    assert page.get_attribute("#fileMenuBtn", "aria-expanded") == "true"
+    page.keyboard.press("ArrowDown")
+    assert page.text_content("#ctxMenu :focus") == "New Folder…"
+    page.keyboard.press("End")
+    assert page.text_content("#ctxMenu :focus") == "Go to File…" + page.evaluate("keyLabel('mod+p')")
+    page.keyboard.press("ArrowDown")  # round to the top
+    assert page.text_content("#ctxMenu :focus") == "New File…"
+    page.keyboard.press("o")
+    assert page.text_content("#ctxMenu :focus") == "Open Folder…"
+    page.keyboard.press("Escape")
+    page.wait_for_function("() => document.querySelector('#ctxMenu').hidden")
+    assert focus_is(page, "#fileMenuBtn")
+    assert page.get_attribute("#fileMenuBtn", "aria-expanded") == "false"
+
+
+def test_a_rows_menu_runs_an_item_and_focus_goes_back_to_the_row(page, server, session):
+    open_app(page)
+    into_tree(page)
+    page.keyboard.press("End")
+    page.keyboard.press("Shift+F10")
+    page.locator("#ctxMenu").wait_for()
+    assert page.text_content("#ctxMenu :focus") == "Open"
+    page.keyboard.press("c")
+    assert page.text_content("#ctxMenu :focus").startswith("Copy relative path")
+    page.keyboard.press("Enter")
+    page.wait_for_function("async () => (await navigator.clipboard.readText()) === 'Makefile'")
+    assert page.evaluate("() => document.querySelector('#ctxMenu').hidden")
+    assert picked(page) == "Makefile"
+
+
+def test_f6_moves_between_the_panes_that_are_shown(page, server, session):
+    open_app(page)
+    page.evaluate("openFile('Makefile')")
+    page.wait_for_function("() => state.active === 'file:Makefile'")
+    page.focus("#input")
+    page.keyboard.press("F6")  # chat → sidebar
+    assert page.evaluate("() => !!document.activeElement.closest('#tree')"), page.evaluate(ACTIVE)
+    page.keyboard.press("F6")  # → editor: the tab you're on
+    assert focus_is(page, "#editorTabs [data-tab='file:Makefile']")
+    page.keyboard.press("F6")  # the panel is closed: → chat
+    assert focus_is(page, "#input")
+    page.keyboard.press("Shift+F6")
+    assert focus_is(page, "#editorTabs [data-tab='file:Makefile']")
+    page.keyboard.press("ControlOrMeta+j")  # the panel open
+    page.keyboard.press("F6")
+    assert focus_is(page, ".panel-tabs [data-ptab].on")
+    page.keyboard.press("ControlOrMeta+b")  # the sidebar hidden: skipped
+    page.focus("#input")
+    page.keyboard.press("F6")
+    assert focus_is(page, "#editorTabs [data-tab='file:Makefile']")
+    labels = page.evaluate("() => ['#activitybar', '#sidebar', '.center', '#panel', '#chat', '.statusbar']"
+                           ".map((s) => document.querySelector(s).getAttribute('aria-label'))")
+    assert labels == ["Views", "Sidebar", "Editor", "Panel", "Chat", "Status"]

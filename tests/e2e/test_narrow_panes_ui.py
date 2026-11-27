@@ -121,7 +121,7 @@ def test_the_terminal_toolbar_keeps_its_controls(page, server, session, width):
 def test_the_panel_tabs_keep_each_count_beside_its_label(page, server, session):
     setup(page, server)
     drag_editor_to(page, 280)
-    lines = page.evaluate("""() => [...document.querySelectorAll('.panel-tabs > button[data-ptab]')].map((b) => {
+    lines = page.evaluate("""() => [...document.querySelectorAll('.panel-tabs button[data-ptab]')].map((b) => {
       const text = document.createRange(); text.selectNodeContents(b.firstChild);
       const t = text.getBoundingClientRect(), c = b.querySelector('.count:not([hidden])')?.getBoundingClientRect();
       return { tab: b.dataset.ptab, wrapped: text.getClientRects().length > 1 || (c && c.top >= t.bottom - 1) }; })""")
