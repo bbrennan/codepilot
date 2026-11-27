@@ -260,9 +260,9 @@ AUDIT = """(allowed) => {
   return [...found];
 }"""
 
-# Still unreachable, each until the task that makes it so; a task starts by taking its line out (task 2: the tree and
-# the code view's line numbers; task 3: the tabs).
-NOT_YET = ["#tree .row", "#gutter", "#editorTabs .tab"]
+# Still unreachable, each until the task that makes it so; a task starts by taking its line out (task 2: the code
+# view's line numbers; task 3: the tabs).
+NOT_YET = ["#gutter", "#editorTabs .tab"]
 
 
 def audit(page, screen):
@@ -335,3 +335,81 @@ def test_a_focused_row_shows_a_ring_that_meets_contrast_selected_or_not(page, se
         tab_to(page, row)
         ring = page.evaluate(RING)
         assert ring["style"] == "solid" and ring["width"] >= 2 and ring["ratio"] >= 3, (row, ring)
+
+
+# -- task 2: the file tree (1.1-1.5), and the code view's line numbers -------------------------------------------------
+
+TREE_ROW = "#tree .row[data-file], #tree .row[data-dir]"
+
+
+def into_tree(page):
+    """Tab into the Explorer's tree from its own toolbar: one press."""
+    page.evaluate("setView('explorer')")
+    page.focus("#collapseTreeBtn")
+    page.keyboard.press("Tab")
+    assert page.evaluate("() => !!document.activeElement.closest('#tree')"), page.evaluate(ACTIVE)
+
+
+def picked(page):
+    return page.evaluate("() => { const r = document.activeElement.closest('#tree .row');"
+                         " return r && (r.dataset.file || r.dataset.dir); }")
+
+
+def test_the_tree_is_one_tab_stop_with_roles_and_levels(page, server, session):
+    open_app(page)
+    into_tree(page)
+    assert page.evaluate("() => [document.querySelector('#tree').getAttribute('role'),"
+                         " document.querySelector('#tree').getAttribute('aria-label')]") == ["tree", "Files"]
+    assert page.evaluate(f"""() => [...document.querySelectorAll("{TREE_ROW}")].filter((r) => r.tabIndex === 0)
+      .length""") == 1
+    assert role(page) == "treeitem" and picked(page) == "agent"
+    assert page.evaluate("() => [document.activeElement.getAttribute('aria-level'),"
+                         " document.activeElement.getAttribute('aria-expanded')]") == ["1", "false"]
+    page.keyboard.press("Tab")
+    assert not page.evaluate("() => !!document.activeElement.closest('#tree')")  # out in one press
+    page.keyboard.press("Shift+Tab")
+    assert picked(page) == "agent"
+
+
+def test_arrows_open_and_close_folders_and_enter_opens_a_file(page, server, session):
+    open_app(page)
+    into_tree(page)
+    page.keyboard.press("ArrowRight")  # opens agent/
+    page.locator("#tree [data-file='agent/core.py']").wait_for()
+    assert picked(page) == "agent"
+    assert page.evaluate("() => document.activeElement.getAttribute('aria-expanded')") == "true"
+    page.keyboard.press("ArrowRight")  # into it
+    assert picked(page) == "agent/core.py"
+    assert page.evaluate("() => document.activeElement.getAttribute('aria-level')") == "2"
+    page.keyboard.press("Enter")
+    page.wait_for_function("() => state.active === 'file:agent/core.py'")
+    assert picked(page) == "agent/core.py"  # focus stays in the tree
+    page.keyboard.press("ArrowLeft")  # to its folder
+    assert picked(page) == "agent"
+    page.keyboard.press("ArrowLeft")  # closes it
+    page.wait_for_function("() => !document.querySelector(\"#tree [data-file='agent/core.py']\")")
+    assert picked(page) == "agent"
+    page.keyboard.press("End")
+    assert picked(page) == "Makefile"
+    page.keyboard.press("Home")
+    assert picked(page) == "agent"
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press(" ")  # Space opens or closes a folder too
+    page.locator("#tree [data-file='tests/test_core.py']").wait_for()
+    assert picked(page) == "tests"
+    page.keyboard.press("ArrowDown")
+    assert picked(page) == "tests/test_core.py"
+    page.keyboard.press("ArrowUp")
+    assert picked(page) == "tests"
+
+
+def test_typing_moves_to_the_next_row_starting_with_the_letters(page, server, session):
+    (server.repo / "README.md").write_text("# Read me\n")
+    (server.repo / "requirements.txt").write_text("")
+    open_app(page)
+    into_tree(page)
+    page.keyboard.type("re")
+    assert picked(page) == "README.md"
+    page.wait_for_timeout(800)  # a pause starts a new search
+    page.keyboard.type("r")
+    assert picked(page) == "requirements.txt"

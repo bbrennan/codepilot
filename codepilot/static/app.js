@@ -406,6 +406,7 @@ async function renderTree() {
   await walkFolders(walk, rows); // folders.js: each of the session's folders
   el.innerHTML = rows.join("") || `<div class="empty-state">Empty folder.</div>`;
   saveTabsSoon(); // tabstate.js: the open folders
+  a11y.treeRendered(); // a11y.js: roles, the tab stop, focus kept on the same path
 }
 $("#tree").addEventListener("click", (e) => {
   const picked = e.target.closest("[data-file],[data-dir]");

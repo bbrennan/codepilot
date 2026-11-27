@@ -13,7 +13,7 @@ const A11Y_LINKS = ["a.loc", ".msg.user .ref", ".attached span"];
 const A11Y_ACT = [...A11Y_BUTTONS, ...A11Y_LINKS].join(",");
 const A11Y_LINK = A11Y_LINKS.join(",");
 
-const a11y = {
+const a11yState = {
   pending: new Set(), frame: 0,
   last: null, // what last had focus, and how to find it again once a redraw has replaced it: { el, key, box }
 };
@@ -32,16 +32,16 @@ function a11yDecorateIn(root) {
 // What was drawn is decorated once a frame (a streamed reply redraws on every word) and before any key is handled,
 // so a key never lands where a row isn't ready yet. Only added nodes are looked at, and never the terminal's.
 function a11yFlush() {
-  cancelAnimationFrame(a11y.frame); a11y.frame = 0;
-  for (const root of a11y.pending) if (root.isConnected) a11yDecorateIn(root);
-  a11y.pending.clear();
+  cancelAnimationFrame(a11yState.frame); a11yState.frame = 0;
+  for (const root of a11yState.pending) if (root.isConnected) a11yDecorateIn(root);
+  a11yState.pending.clear();
 }
 new MutationObserver((records) => {
   for (const r of records) {
     if (!r.addedNodes.length || r.target.closest?.(".xterm")) continue;
-    for (const n of r.addedNodes) if (n.nodeType === 1) a11y.pending.add(n);
+    for (const n of r.addedNodes) if (n.nodeType === 1) a11yState.pending.add(n);
   }
-  if (a11y.pending.size && !a11y.frame) a11y.frame = requestAnimationFrame(a11yFlush);
+  if (a11yState.pending.size && !a11yState.frame) a11yState.frame = requestAnimationFrame(a11yFlush);
   a11yKeepFocus();
 }).observe(document.body, { childList: true, subtree: true });
 addEventListener("keydown", a11yFlush, true);
@@ -72,13 +72,13 @@ function a11yKey(el) {
 }
 document.addEventListener("focusin", (e) => {
   const el = e.target, box = el.parentElement?.closest("[id]");
-  a11y.last = { el, key: a11yKey(el), box: box && "#" + CSS.escape(box.id) };
+  a11yState.last = { el, key: a11yKey(el), box: box && "#" + CSS.escape(box.id) };
 });
 // A click on something that can't take focus leaves focus on the page: that's where you put it, not a redraw.
-document.addEventListener("mousedown", () => { a11y.last = null; }, true);
+document.addEventListener("mousedown", () => { a11yState.last = null; }, true);
 
 function a11yKeepFocus() {
-  const last = a11y.last, now = document.activeElement;
+  const last = a11yState.last, now = document.activeElement;
   if (!last || last.el.isConnected || (now && now !== document.body)) return;
   const shown = (el) => el?.getClientRects().length > 0;
   let el = null;
@@ -92,3 +92,76 @@ function a11yKeepFocus() {
   a11yDecorateIn(el);
   el.focus({ preventScroll: true });
 }
+
+// ---- the file tree (1.1–1.5)
+// One tab stop: the picked row (else the open file's, else the first) has tabindex 0, the rest -1. Moving with the
+// keys picks the row as a click does (state.picked, state.pickedDir), so New File, F2 and Delete keep their target.
+// Opening and closing go through the row's own click, so a folder of the session (folders.js) works the same way.
+const A11Y_TREE_ROWS = "#tree .row[data-file], #tree .row[data-dir], #tree .row.root";
+const a11yTreeRows = () => [...document.querySelectorAll(A11Y_TREE_ROWS)].filter((r) => r.getClientRects().length);
+const a11yLevel = (r) => (parseInt(r.style.getPropertyValue("--depth"), 10) || 0) + 1;
+const a11yPath = (r) => r.dataset.file ?? r.dataset.dir ?? null;
+const a11yIsFolder = (r) => r.dataset.dir != null || r.classList.contains("root");
+
+function a11yTreePick(row) {
+  for (const r of a11yTreeRows()) {
+    r.tabIndex = r === row ? 0 : -1;
+    r.setAttribute("aria-selected", String(r === row));
+    r.classList.toggle("picked", r === row);
+  }
+  if (a11yPath(row) != null) { state.picked = a11yPath(row); state.pickedDir = row.dataset.dir != null; }
+  row.focus({ preventScroll: true }); row.scrollIntoView({ block: "nearest" });
+}
+
+// renderTree ends here: roles, levels, open or closed, and the tab stop. Focus stays on the same path through the
+// redraw by the same rule as every list (a11yKeepFocus).
+function a11yTreeRendered() {
+  const tree = $("#tree");
+  tree.setAttribute("role", "tree"); tree.setAttribute("aria-label", "Files");
+  tree.tabIndex = -1; // a click on empty space puts focus here, and the keys act on the picked row
+  const rows = [...tree.querySelectorAll(A11Y_TREE_ROWS)];
+  for (const r of rows) {
+    r.setAttribute("role", "treeitem"); r.setAttribute("aria-level", a11yLevel(r)); r.tabIndex = -1;
+    if (a11yIsFolder(r)) r.setAttribute("aria-expanded", String(!!r.querySelector(".caret.open")));
+    for (const b of r.querySelectorAll("button")) b.tabIndex = -1; // "@" is in the row's menu: Add to chat
+  }
+  // The tab stop only: which row is picked (New File's folder, F2's target) changes when you move, never on a redraw.
+  const cur = rows.find((r) => r.classList.contains("picked")) || rows.find((r) => r.classList.contains("on")) || rows[0];
+  for (const r of rows) r.setAttribute("aria-selected", String(r.classList.contains("picked")));
+  if (cur) cur.tabIndex = 0;
+  a11yKeepFocus();
+}
+
+const a11yFind = { text: "", at: 0 };
+$("#tree").addEventListener("keydown", (e) => {
+  if (e.target.closest("button, input") || e.isComposing) return; // (a missing folder's Remove button)
+  const rows = a11yTreeRows(); if (!rows.length) return;
+  const row = e.target.closest(".row") || rows.find((r) => r.tabIndex === 0) || rows[0];
+  const i = rows.indexOf(row), mod = isMac ? e.metaKey : e.ctrlKey, path = a11yPath(row);
+  const open = row.getAttribute("aria-expanded") === "true", plain = !mod && !e.altKey;
+  let to = null;
+  if (e.key === "ArrowDown" && plain) to = rows[i + 1];
+  else if (e.key === "ArrowUp" && plain) to = rows[i - 1];
+  else if (e.key === "Home" && plain) to = rows[0];
+  else if (e.key === "End" && plain) to = rows.at(-1);
+  else if (e.key === "ArrowRight" && plain) {
+    if (a11yIsFolder(row) && !open) row.click();
+    else if (open && rows[i + 1] && a11yLevel(rows[i + 1]) > a11yLevel(row)) to = rows[i + 1];
+  } else if (e.key === "ArrowLeft" && plain) {
+    if (a11yIsFolder(row) && open) row.click();
+    else to = rows.slice(0, i).reverse().find((r) => a11yLevel(r) < a11yLevel(row));
+  } else if ((e.key === "Enter" || e.key === " ") && plain && !e.shiftKey) row.click();
+  else if (e.key.length === 1 && plain && e.key !== " ") { // typing finds the next row whose name starts so
+    const now = performance.now();
+    a11yFind.text = now - a11yFind.at > 700 ? e.key.toLowerCase() : a11yFind.text + e.key.toLowerCase();
+    a11yFind.at = now;
+    const from = a11yFind.text.length > 1 ? i : i + 1, order = [...rows.slice(from), ...rows.slice(0, from)];
+    to = order.find((r) => (r.querySelector(".name")?.textContent || "").toLowerCase().startsWith(a11yFind.text));
+    if (!to) return;
+  } else return;
+  e.preventDefault(); e.stopPropagation();
+  if (to) a11yTreePick(to);
+});
+
+// What app.js calls.
+const a11y = { treeRendered: a11yTreeRendered };
