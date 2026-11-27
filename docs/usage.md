@@ -336,7 +336,9 @@ The **Changes** view shows the working tree diff.
 
 Approvals appear in the same **review bar** above the message box, with the exact command: **Run**
 (or <kbd>⌘</kbd><kbd>⏎</kbd> from anywhere) or **Deny**. The chat keeps a one-line record ("Approved: …").
-A pending approval is still there after a page reload.
+A pending approval is still there after a page reload. While it waits, its step reads "Wants to run …" (or "Wants to
+run the tests", "Wants to open …"); once approved it reads "Ran …" like any step, and once denied "Didn't run …", with a
+neutral mark rather than an error's.
 
 **Always allow … in this session** (under the command) skips asking for commands that start the same way,
 such as `pytest`, `npm test` or `make eval-bedrock`, until the session ends. For an interpreter it keeps the script:

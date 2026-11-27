@@ -28,7 +28,7 @@ def test_steps_read_as_plain_words_with_the_tool_one_click_away(page, server, se
     rows = summaries(page)
     said = [r["summary"] for r in rows]
     assert any(s.startswith("Read agent/core.py") for s in said), said
-    assert any(s.startswith("Ran python -c") for s in said), said
+    assert any(s.startswith("Wants to run python -c") for s in said), said  # not "Ran": it hasn't (ui-review-fixes 4.1)
     for r in rows:
         assert not re.search(r"\b(read_file|run_command)\b", r["summary"]), r  # no tool names up front
         assert r["raw"] and not r["open"]  # but there, folded away: the name and the arguments
