@@ -165,6 +165,21 @@ def test_in_review_enter_selects_a_row_and_focus_follows_the_selection(page, ser
     assert body_focus(page) == []
 
 
+def test_j_and_k_keep_the_selected_change_in_view_in_a_short_stacked_list(page, server, session):
+    for i in range(12):
+        server.store.add_proposal(session.id, "agent/core.py", "a - b", f"a + b  # {i}", f"change {i}")
+    page.set_viewport_size({"width": 1024, "height": 700})
+    open_app(page)
+    page.evaluate("openReview()")
+    page.locator(".rv-item").nth(11).wait_for()
+    page.evaluate("document.activeElement.blur()")
+    for _ in range(11):
+        page.keyboard.press("j")
+        assert page.evaluate("""() => { const r = document.querySelector('.rv-item.on').getBoundingClientRect();
+          const l = document.querySelector('.rv-list').getBoundingClientRect();
+          return r.top >= l.top - 1 && r.bottom <= l.bottom + 1; }"""), "the selected change is out of view"
+
+
 def test_the_welcome_links_and_the_context_meter_work_by_keyboard(page, server, session):
     open_app(page)
     page.focus("#chatTitleBtn")

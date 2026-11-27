@@ -970,6 +970,7 @@ function renderReviewTab(tab) {
       ${depAdvice(p)}${receiptFindings(p.path)}<div class="ed-scroll">${diffHtml(p.diff)}</div>
       <div class="rv-ask"><textarea class="field" id="rvAsk" rows="2" placeholder="Ask for a change to this, e.g. &quot;keep the old name as an alias&quot;"></textarea><button class="btn" id="rvAskBtn">${icon("send")}Send</button></div></div></div>`;
   bindReceipt($("#editor"));
+  $(".rv-item.on").scrollIntoView({ block: "nearest" }); // (a redraw starts the list at the top: j and k keep it in view)
   $(".rv-list").onclick = (e) => { const it = e.target.closest("[data-rv]"); if (it) { tab.sel = +it.dataset.rv; renderReviewTab(tab); } };
   $("#rvOpen").onclick = () => openFile(p.path);
   $("#rvApplyAll") && ($("#rvApplyAll").onclick = () => bulkProposals("apply"));
