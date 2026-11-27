@@ -365,7 +365,8 @@ def test_each_folder_keeps_its_own_tabs_and_drafts(page, server, session, tmp_pa
     switch(page, other.id)
     wait_tabs(page, 1)
     assert tab_ids(page) == ["file:pkg/mod.py"]
-    assert page.locator("#tree [data-file='pkg/mod.py']").count() == 1  # with pkg/ open
+    # with pkg/ open. The tab and the tree are fetched separately, so the tree may still be on its way.
+    page.locator("#tree [data-file='pkg/mod.py']").wait_for()
 
 
 def test_sessions_on_one_folder_share_its_tabs(page, server, session):

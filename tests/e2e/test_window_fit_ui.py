@@ -199,6 +199,7 @@ def test_showing_the_sidebar_yourself_wins_until_the_window_is_resized(page, ser
     else:
         page.click("#activitybar [data-view=search]")
     page.wait_for_function("() => document.querySelector('.sidebar').getBoundingClientRect().width > 0")
+    page.wait_for_function("() => state.workspace")  # (openFile needs the session's folder, which may still be loading)
     page.evaluate("openFile('agent/core.py')")
     page.locator("#fEdit").wait_for()
     settled = page.evaluate(SETTLED)
