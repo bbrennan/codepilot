@@ -116,5 +116,6 @@ failing.
 before `app.js` (which restores the layout before the first paint) and uses none of its helpers. `keys.js` writes
 shortcuts one way per platform (`keyLabel("mod+p")` is ⌘P on a Mac, Ctrl+P elsewhere); it also loads before `app.js`,
 which titles its buttons as it loads. A feature with its own UI gets its own classic script
-(`sessions.js`, `folders.js`, `checkpoints.js`, `verify.js`, `steps.js`, `taskcard.js`, `progress.js`, `plan.js`, `specrun.js`, `policy.js`, `deps.js`, `cost.js`, `specs-quick.js`, `diff.js`, `place.js`, `filekinds.js`), loaded after `app.js` and using its helpers, so `app.js` only wires it in. It vendors highlight.js (BSD-3) for highlighting and
+(`sessions.js`, `folders.js`, `checkpoints.js`, `verify.js`, `steps.js`, `taskcard.js`, `progress.js`, `plan.js`, `specrun.js`, `policy.js`, `deps.js`, `cost.js`, `specs-quick.js`, `diff.js`, `place.js`, `filekinds.js`, `tabstate.js`), loaded after `app.js` and using its helpers, so `app.js` only wires it in. `tabstate.js` keeps each folder's open tabs, their place and unsaved edits in `localStorage` and reopens them
+after a reload or a switch back to that folder. It vendors highlight.js (BSD-3) for highlighting and
 xterm.js (MIT) for the terminal; see [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).

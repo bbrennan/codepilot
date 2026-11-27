@@ -34,7 +34,8 @@
 
 - **Activity bar (far left):** switches the sidebar between Sessions, Explorer, Progress, Search, Traces, Changes and
   Memory. Click the active icon to collapse the sidebar. Progress's icon counts the plan or spec run under way ("2/5").
-- **Editor:** opens files (with syntax highlighting), trace timelines and diffs as tabs.
+- **Editor:** opens files (with syntax highlighting), trace timelines and diffs as tabs. They come back after a reload
+  or a restart, unsaved edits included (see [files and folders](#files-and-folders)).
 - **Chat (right):** the conversation, with every tool call shown as a card you can expand. Its title switches
   sessions.
 - **Bottom panel** (closed until you open it: ⌘J, the toggle in the title bar, or the Terminal menu; then it remembers):
@@ -49,7 +50,8 @@
 All panes resize by dragging their edges. The layout (sizes, hidden panes, the open sidebar view and
 bottom-panel tab) and the theme are remembered per browser. Sizes always fit the window: when it gets smaller (say
 a laptop leaves its external monitor), the sidebar, chat and bottom panel shrink so the editor and the message box
-stay on screen, and your sizes come back when the window is big again.
+stay on screen, and your sizes come back when the window is big again. Each folder's open tabs and the Explorer's open
+folders are remembered too (see [tabs come back](#tabs-come-back)).
 
 ## Start working on a folder
 
@@ -123,6 +125,27 @@ reach outside the workspace folder.
 terminal, your other editor, git) shows up within about two seconds, and right after each agent step. An
 open file reloads in place. If you have unsaved edits in it, they're kept and you're told it changed;
 saving then asks before replacing the newer file. The ↻ button still forces a full reload.
+
+### Tabs come back
+
+A reload, `make restart` or closing the window doesn't cost you your place. When the page loads, or you open a session
+on a folder, that folder's tabs come back in their order with the same one active: files, images, binary files,
+traces, specs, the working-tree diff, and **Review changes** when that session has changes to review. Each file is
+where you left it: its top line, Preview or Source (and a Preview's scroll), its selected lines, and the editor if you
+were editing. The Explorer opens the same folders. A file that's gone from disk is left out, unless you had unsaved
+edits in it.
+
+**Unsaved edits come back too**, in the editor and marked ●. If the file changed on disk since, your edit is kept,
+you're told once, and Save asks before overwriting, as it does while a file is open. If the file was deleted, the tab
+comes back with your edit, says the file is gone, and Save writes it again. The page asks "Leave site?" only when an
+edit couldn't be kept: over a million characters, or the browser's storage full or blocked.
+
+Tabs are kept per folder, not per session: sessions on the same folder share one set, and switching to a session on
+another folder swaps them for that folder's, which come back when you return. A closed tab, or a saved or discarded
+edit, is forgotten. They're stored in this browser (the app window has its own profile); a folder not opened for 30
+days is forgotten, and so are all but the 20 most recent. **One limit:** two windows open on the same folder each
+write that folder's tabs whole, so the last one to change wins, and unsaved edits typed in one can be replaced by the
+other's when it next loads.
 
 ## Talking to it
 
