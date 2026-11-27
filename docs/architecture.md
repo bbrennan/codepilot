@@ -121,5 +121,8 @@ which titles its buttons as it loads. A feature with its own UI gets its own cla
 after a reload or a switch back to that folder. `a11y.js` loads last and makes everything work by keyboard
 without changing how `app.js` draws: it decorates what was drawn (tab stops and roles, by selector, once a frame), owns
 the keys of the tree, tab strips, menus, dialogs and F6, keeps focus on the same row when a list redraws, and speaks
-through two live regions; `app.js` calls it as `window.a11y?.…` where it draws. It vendors highlight.js (BSD-3) for highlighting and
-xterm.js (MIT) for the terminal; see [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
+through two live regions; `app.js` calls it as `window.a11y?.…` where it draws. It vendors highlight.js (BSD-3) for highlighting,
+xterm.js (MIT) for the terminal, marked and DOMPurify for Markdown, Mermaid for diagrams (loaded when a document has
+one), and CodeMirror 6 (MIT) for Edit mode (loaded on the first Edit). CodeMirror is the one vendored file that is
+built: `tools/codemirror/` holds its pinned versions, the entry file and `build.sh`, outside the Python package, and
+the app itself still has no build step. See [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).

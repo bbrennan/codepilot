@@ -7,3 +7,6 @@ __pycache__/
 build/
 dist/
 bench/results/
+
+# tools/codemirror: the bundle is committed, its packages are not
+tools/codemirror/node_modules/
