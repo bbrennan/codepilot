@@ -2,8 +2,10 @@
 :root {
   --bg-0: #0d0f13; --bg-1: #121419; --bg-2: #16191f; --bg-3: #1c2027; --bg-4: #242934;
   --line: #262b35; --line-2: #313744;
-  --fg: #d4d8df; --fg-2: #a9b0bc; --muted: #7a8291; --faint: #5a6170;
-  --accent: #5b8cff; --accent-2: #3e6fe6; --accent-fg: #ffffff; --accent-soft: rgba(91, 140, 255, .14);
+  --fg: #d4d8df; --fg-2: #a9b0bc; --muted: #8a92a1; --faint: #6b7383;
+  /* --accent is links, focus rings and selection; --accent-fill is a solid button under --accent-fg text (4.5:1 or more,
+     tests/e2e/test_design_tokens_ui.py), -2 its hover. */
+  --accent: #5b8cff; --accent-fill: #3e6fe6; --accent-fill-2: #325fd0; --accent-fg: #ffffff; --accent-soft: rgba(91, 140, 255, .14);
   --ok: #4cc38a; --warn: #e5b450; --err: #f2706c; --info: #62b6f7;
   --add-bg: rgba(76, 195, 138, .13); --add-fg: #8fe0b2; --del-bg: rgba(242, 112, 108, .13); --del-fg: #f6a7a4;
   --sel: rgba(91, 140, 255, .18); --hl-line: rgba(229, 180, 80, .14);
@@ -24,9 +26,9 @@
   :root:not([data-theme="dark"]) {
     --bg-0: #e9ecf1; --bg-1: #f3f5f8; --bg-2: #ffffff; --bg-3: #eef1f5; --bg-4: #e3e7ee;
     --line: #dde1e8; --line-2: #cfd5df;
-    --fg: #1f2430; --fg-2: #3b4352; --muted: #6a7282; --faint: #9aa1ad;
-    --accent: #3f6fe8; --accent-2: #2f5dd4; --accent-soft: rgba(63, 111, 232, .12);
-    --ok: #1d8a52; --warn: #a86f08; --err: #c93a36; --info: #1f7fc4;
+    --fg: #1f2430; --fg-2: #3b4352; --muted: #5c6474; --faint: #7f8795;
+    --accent: #255be5; --accent-fill: #3a68de; --accent-fill-2: #2f5dd4; --accent-soft: rgba(63, 111, 232, .12);
+    --ok: #17764a; --warn: #8d5d07; --err: #bc3633; --info: #1a6ba6;
     --add-bg: #e6f6ec; --add-fg: #1b6b3e; --del-bg: #fdecec; --del-fg: #a12e2b;
     --sel: rgba(63, 111, 232, .14); --hl-line: rgba(220, 160, 40, .16); --shadow: 0 8px 30px rgba(20, 30, 50, .18);
     --syn-kw: #8e3fb8; --syn-str: #2f7d32; --syn-num: #b35900; --syn-fn: #2858c7; --syn-com: #8a93a3;
@@ -37,9 +39,9 @@
 :root[data-theme="light"] {
   --bg-0: #e9ecf1; --bg-1: #f3f5f8; --bg-2: #ffffff; --bg-3: #eef1f5; --bg-4: #e3e7ee;
   --line: #dde1e8; --line-2: #cfd5df;
-  --fg: #1f2430; --fg-2: #3b4352; --muted: #6a7282; --faint: #9aa1ad;
-  --accent: #3f6fe8; --accent-2: #2f5dd4; --accent-soft: rgba(63, 111, 232, .12);
-  --ok: #1d8a52; --warn: #a86f08; --err: #c93a36; --info: #1f7fc4;
+  --fg: #1f2430; --fg-2: #3b4352; --muted: #5c6474; --faint: #7f8795;
+  --accent: #255be5; --accent-fill: #3a68de; --accent-fill-2: #2f5dd4; --accent-soft: rgba(63, 111, 232, .12);
+  --ok: #17764a; --warn: #8d5d07; --err: #bc3633; --info: #1a6ba6;
   --add-bg: #e6f6ec; --add-fg: #1b6b3e; --del-bg: #fdecec; --del-fg: #a12e2b;
   --sel: rgba(63, 111, 232, .14); --hl-line: rgba(220, 160, 40, .16); --shadow: 0 8px 30px rgba(20, 30, 50, .18);
   --syn-kw: #8e3fb8; --syn-str: #2f7d32; --syn-num: #b35900; --syn-fn: #2858c7; --syn-com: #8a93a3;
@@ -123,7 +125,7 @@ svg.i { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none;
 .activitybar button svg { width: 22px; height: 22px; stroke-width: 1.6; }
 .activitybar button:hover { color: var(--fg-2); }
 .activitybar button.on { color: var(--fg); border-left-color: var(--accent); }
-.badge { position: absolute; right: 7px; bottom: 7px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: var(--r-pill); background: var(--accent); color: var(--accent-fg); font-size: var(--fs-xs); font-weight: 700; line-height: 16px; text-align: center; }
+.badge { position: absolute; right: 7px; bottom: 7px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: var(--r-pill); background: var(--accent-fill); color: var(--accent-fg); font-size: var(--fs-xs); font-weight: 700; line-height: 16px; text-align: center; }
 
 /* ---------- sidebar ---------- */
 .sidebar { background: var(--bg-1); min-width: 0; min-height: 0; display: flex; flex-direction: column; }
@@ -249,8 +251,8 @@ input[type="checkbox"][role="switch"]:focus-visible { outline: 2px solid var(--a
 .line-hl.flash { background: var(--hl-line); }
 .btn { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: var(--r-md); border: 1px solid var(--line-2); background: var(--bg-3); color: var(--fg); font-size: var(--fs-ui); white-space: nowrap; }
 .btn:hover { border-color: var(--faint); }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 600; }
-.btn.primary:hover { background: var(--accent-2); }
+.btn.primary { background: var(--accent-fill); border-color: var(--accent-fill); color: var(--accent-fg); font-weight: 600; }
+.btn.primary:hover { background: var(--accent-fill-2); }
 .btn.danger { color: var(--err); }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
 .btn.ghost:hover { color: var(--fg); background: var(--bg-3); }
@@ -546,8 +548,8 @@ a.loc:hover { text-decoration: underline; }
 .chip-btn.busy-act { width: auto; display: inline-flex; gap: 5px; padding: 0 9px; font-size: var(--fs-ui); color: var(--fg); }
 .chip-btn.busy-act[hidden] { display: none; }
 .toggle { display: flex; gap: 5px; align-items: center; font-size: var(--fs-sm); color: var(--muted); cursor: pointer; user-select: none; white-space: nowrap; }
-.send { width: 28px; height: 28px; border-radius: var(--r-md); border: 0; background: var(--accent); color: var(--accent-fg); display: grid; place-items: center; padding: 0; }
-.send:hover { background: var(--accent-2); }
+.send { width: 28px; height: 28px; border-radius: var(--r-md); border: 0; background: var(--accent-fill); color: var(--accent-fg); display: grid; place-items: center; padding: 0; }
+.send:hover { background: var(--accent-fill-2); }
 .send:disabled { opacity: .45; cursor: default; }
 .send.stop { background: var(--bg-4); color: var(--fg); }
 .send svg { width: 15px; height: 15px; stroke-width: 2.2; }
@@ -753,7 +755,7 @@ details.card.prop[open] > summary { border-bottom: 1px solid var(--line); }
 .sp-step .n { display: inline-grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; background: var(--bg-4); font-size: var(--fs-xs); }
 .sp-step svg { width: 13px; height: 13px; color: var(--ok); }
 .sp-step.current { color: var(--fg); border-color: var(--accent); }
-.sp-step.current .n { background: var(--accent); color: var(--accent-fg); }
+.sp-step.current .n { background: var(--accent-fill); color: var(--accent-fg); }
 .sp-step.on { background: var(--accent-soft); }
 .sp-step:disabled { opacity: .5; cursor: default; }
 .sp-sep { color: var(--faint); }

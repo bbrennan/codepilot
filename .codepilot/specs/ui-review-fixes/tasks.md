@@ -45,11 +45,13 @@ named in design.md, watch it fail for the reason in bugfix.md, then fix.
   - _Tests: tests/e2e/test_review_ui.py (the header's buttons stay together on one line at editor widths 460–660; a
     diff pane too narrow for them wraps them rather than cutting them off), tests/e2e/test_steering_ui.py (a change row
     never shows the steering sent to the model)_
-- [ ] 7. Text tokens meet contrast in both themes (`fix/contrast`)
+- [x] 7. Text tokens meet contrast in both themes (`fix/contrast`)
   - Test first (Playwright): compute WCAG contrast for each text token on each surface from the computed styles.
   - `app.css` (token values, `--accent-fill`); look at the terminal, the diff and the status chips in both themes with
     the Playwright MCP before opening the PR.
   - _Requirements: 7.1, 7.2_
+  - _Tests: tests/e2e/test_design_tokens_ui.py (text tokens meet contrast in both themes; the two light theme blocks
+    stay identical)_
 - [ ] 8. Wording and small layout slips (`fix/copy-pass-2`)
   - Test first (Playwright): "1 line"; key notation in the welcome list and the File, explorer and terminal menus;
     "(stopped)" live and after reload; "Add folder".
