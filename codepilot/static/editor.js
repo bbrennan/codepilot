@@ -89,9 +89,11 @@ function mountEditor(host, tab, opts) {
         if (u.docChanged) opts.change(u.state.doc.toString());
       }),
     ] }),
-    // (on its first layout: the lines' heights aren't known until then)
-    scrollTo: CM.EditorView.scrollIntoView(editorLinePos(doc, tab.topLine), { y: "start", yMargin: EDITOR_PAD_TOP }),
   });
+  // The top line by place.js's own arithmetic, as the view does it (a 20px line, 6px above the first), once the first
+  // layout has measured the lines. Not scrollIntoView: that lines up a character's box, a few px inside its line.
+  const scrollToLine = (n) => view.requestMeasure({ read: () => null, write: () => showLine(view.scrollDOM, n) });
+  scrollToLine(tab.topLine);
   view.scrollDOM.addEventListener("scroll", () => { tab.topLine = topLine(view.scrollDOM); });
   const handle = editorShown = tab.ed = {
     tab,
@@ -99,9 +101,9 @@ function mountEditor(host, tab, opts) {
     setText: (t) => view.dispatch({ changes: editorDiff(view.state.doc, t) }),
     place: () => ({ topLine: topLine(view.scrollDOM), caret: view.state.selection.main.head }),
     show(p) {
-      const d = view.state.doc, line = editorLinePos(d, p.topLine);
-      view.dispatch({ selection: { anchor: Math.min(p.caret ?? line, d.length) },
-        effects: CM.EditorView.scrollIntoView(line, { y: "start", yMargin: EDITOR_PAD_TOP }) });
+      const d = view.state.doc;
+      view.dispatch({ selection: { anchor: Math.min(p.caret ?? editorLinePos(d, p.topLine), d.length) } });
+      scrollToLine(p.topLine);
     },
     readOnly: (on) => view.dispatch({ effects: ro.reconfigure(CM.EditorState.readOnly.of(on)) }),
     // Text from outside (a Mac's Ctrl+V, app.js), over the selection, as one undoable step.
@@ -187,5 +189,16 @@ function editorTheme() {
     ".cm-scroller": { fontFamily: "var(--mono)", fontSize: "var(--fs-ui)", lineHeight: "20px", overflow: "auto" },
     ".cm-content": { padding: `${EDITOR_PAD_TOP}px 0 24px`, caretColor: "var(--accent)" },
     ".cm-line": { padding: "0 24px 0 8px" },
+    ".cm-gutters": { backgroundColor: "var(--bg-2)", color: "var(--faint)", border: "none" },
+    ".cm-lineNumbers .cm-gutterElement": { padding: "0 12px 0 16px" }, // (as .gutter in the view)
+    ".cm-activeLine": { backgroundColor: "var(--bg-3)" },
+    ".cm-activeLineGutter": { backgroundColor: "var(--bg-3)", color: "var(--fg-2)" },
+    ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--accent)", borderLeftWidth: "2px" },
+    ".cm-selectionBackground, &.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, ::selection":
+      { backgroundColor: "var(--sel)" },
+    ".cm-matchingBracket": { backgroundColor: "var(--accent-soft)", color: "inherit",
+      outline: "1px solid var(--line-2)" },
+    ".cm-nonmatchingBracket": { color: "var(--err)" },
+    ".cm-specialChar": { color: "var(--err)" },
   });
 }

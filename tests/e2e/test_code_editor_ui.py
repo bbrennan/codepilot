@@ -281,7 +281,8 @@ def test_a_bracket_shows_its_match(page, server, session):
     page.keyboard.press("ArrowRight")
     for _ in range(5):
         page.keyboard.press("ArrowRight")  # after "total("
-    matched = page.evaluate("() => [...document.querySelectorAll('#codeEdit .cm-matchingBracket')].map((e) => e.textContent)")
+    matched = page.evaluate("() => [...document.querySelectorAll('#codeEdit .cm-matchingBracket')]"
+                            ".map((e) => e.textContent)")
     assert matched == ["(", ")"], matched
 
 
@@ -291,3 +292,56 @@ def test_several_cursors_type_at_once(page, server, session):
     page.keyboard.type("# ")
     assert editor_text(page) == "# a = 1\n# b = 2\n"
 
+
+# -- task 2.4: the app's colours ---------------------------------------------------------------------------------------
+
+# A token as the page resolves it, as a colour or a background.
+TOKEN = """([name, prop]) => { const p = document.createElement('i'); p.style[prop] = `var(${name})`;
+  document.body.append(p); const c = getComputedStyle(p)[prop]; p.remove(); return c; }"""
+# What the editor draws, by geometry (the line numbers at x 10, the text further right) and, for the keyword, its span.
+LOOK = """() => { const r = document.querySelector('#codeEdit').getBoundingClientRect();
+  const at = (x, y) => document.elementFromPoint(r.left + x, r.top + y);
+  const bg = (el) => { while (el && getComputedStyle(el).backgroundColor === 'rgba(0, 0, 0, 0)') el = el.parentElement;
+    return el && getComputedStyle(el).backgroundColor; };
+  const kw = [...document.querySelectorAll('#codeEdit [contenteditable] span')].find((s) => s.textContent === 'def');
+  return { background: bg(at(r.width - 40, 56)), gutter: bg(at(10, 56)), number: getComputedStyle(at(10, 56)).color,
+    text: getComputedStyle(at(r.width - 40, 56).closest('[contenteditable]')).color,
+    keyword: getComputedStyle(kw).color }; }"""
+
+
+def tokens(page):
+    t = lambda name, prop="color": page.evaluate(TOKEN, [name, prop])  # noqa: E731
+    return {"background": t("--bg-2", "backgroundColor"), "gutter": t("--bg-2", "backgroundColor"),
+            "number": t("--faint"), "text": t("--fg"), "keyword": t("--syn-kw")}
+
+
+@pytest.mark.parametrize("theme", ["dark", "light"])
+def test_the_editor_draws_with_the_apps_tokens_and_follows_the_theme_toggle(page, server, session, theme):
+    page.add_init_script(f"try {{ localStorage.setItem('cp-theme', '{theme}') }} catch {{}}")
+    edit(page, server, "calc.py", "def total(xs):\n    return sum(xs)\n\n\n")
+    assert page.evaluate(LOOK) == tokens(page)
+    first = page.evaluate(LOOK)
+    page.click("#themeBtn")  # while the editor is open
+    page.wait_for_function("(t) => document.documentElement.dataset.theme !== t", arg=theme)
+    assert page.evaluate(LOOK) == tokens(page) and page.evaluate(LOOK) != first
+
+
+# Where line n's number starts, in px below the top of the editor (scanning down the line numbers, by geometry).
+NUMBER_AT = """(n) => { const r = document.querySelector('#codeEdit').getBoundingClientRect();
+  for (let y = 0; y < r.height; y++) {
+    if (document.elementFromPoint(r.left + 10, r.top + y)?.textContent === String(n)) return y;
+  }
+  return null; }"""
+
+
+def test_a_line_is_at_the_same_height_in_the_view_and_the_editor(page, server, session):
+    edit(page, server, "long.py", "".join(f"value_{i} = {i}\n" for i in range(1, 301)))
+    page.click("#fDone")
+    page.evaluate("() => { const s = document.querySelector('#edScroll'); s.scrollTop = 119 * 20;"
+                  " s.dispatchEvent(new Event('scroll')); }")
+    in_view = page.evaluate("""() => document.querySelector('#gutter [data-ln="120"]').getBoundingClientRect().top
+      - document.querySelector('#edScroll').getBoundingClientRect().top""")
+    page.click("#fEdit")
+    wait_editor(page)
+    page.evaluate("() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))")  # (laid out)
+    assert abs(page.evaluate(NUMBER_AT, 120) - in_view) <= 1  # the same line at the same height, not only the same top

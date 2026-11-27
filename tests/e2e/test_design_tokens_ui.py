@@ -61,7 +61,7 @@ def test_keyboard_focus_is_always_visible(page, server, session):
 
 
 # Is focus visible on this element: a ring in a colour other than its own fill, or a field's accent border?
-VISIBLE = """(el) => { const cs = getComputedStyle(el);
+VISIBLE = """(el, pseudo) => { const cs = getComputedStyle(el, pseudo);
   const probe = document.createElement('i'); probe.style.color = 'var(--accent)'; document.body.append(probe);
   const accent = getComputedStyle(probe).color; probe.remove();
   const ring = cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) >= 2 && cs.outlineColor !== cs.backgroundColor;
@@ -88,7 +88,8 @@ def test_focus_shows_in_the_file_palette_and_the_code_editor(page, server, sessi
     page.locator(".ed-bar button", has_text="Edit").click()
     wait_editor(page)
     focus_editor(page)
-    assert page.locator(EDITOR).evaluate(VISIBLE), "the code editor shows no focus"
+    # Drawn over the editor (::after), not as the host's outline: the editor's own layers would paint over that.
+    assert page.locator(EDITOR).evaluate(f"(el) => ({VISIBLE})(el, '::after')"), "the code editor shows no focus"
 
 
 # WCAG contrast, computed from the stylesheet as the page resolves it, in one theme. Text tokens against each surface;
