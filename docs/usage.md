@@ -578,9 +578,13 @@ issue (a short summary you review before submitting). Details: [troubleshooting]
 
 ## Keyboard shortcuts
 
-| Keys (⌘ = Ctrl on Linux) | Action |
+codepilot writes shortcuts the way your system does. On macOS: ⌘ Command, ⌥ Option, ⌃ Control, ⌫ Delete. On Windows
+and Linux: ⌘ is Ctrl+, ⌥ is Alt+ and ⌃ is Ctrl+ (so ⌘P is Ctrl+P, ⌥W is Alt+W), and Delete in the Explorer is the Delete
+key.
+
+| Keys | Action |
 |---|---|
-| Ctrl+` | Toggle the terminal panel (the title-bar **Terminal** menu does everything without shortcuts) |
+| ⌃` | Toggle the terminal panel (the title-bar **Terminal** menu does everything without shortcuts) |
 | ⌘P | Go to file |
 | ⌘B | Toggle sidebar |
 | ⌘J | Toggle bottom panel |
@@ -589,7 +593,7 @@ issue (a short summary you review before submitting). Details: [troubleshooting]
 | F2 / Delete or ⌘⌫ (Explorer) | Rename / delete the selected file or folder |
 | ⌘S | Save the file you're editing |
 | ↑ / ↓ (message box) | Earlier / later prompts |
-| Alt+W | Close editor tab |
+| ⌥W | Close editor tab |
 | Enter / Shift+Enter | Send / new line |
 | Enter / ⌘Enter (while it works) | Queue a message to run after / steer the running work |
 | ⌘. (while it works) | Stop the running work |

@@ -52,9 +52,12 @@ named in design.md, watch it fail for the reason in bugfix.md, then fix.
   - _Requirements: 7.1, 7.2_
   - _Tests: tests/e2e/test_design_tokens_ui.py (text tokens meet contrast in both themes; the two light theme blocks
     stay identical)_
-- [ ] 8. Wording and small layout slips (`fix/copy-pass-2`)
+- [x] 8. Wording and small layout slips (`fix/copy-pass-2`)
   - Test first (Playwright): "1 line"; key notation in the welcome list and the File, explorer and terminal menus;
     "(stopped)" live and after reload; "Add folder".
   - `static/keys.js` (new), `index.html`, `app.js` (callers), `folders.js` (`addFolder`), `app.css`;
     `docs/usage.md` (Keyboard shortcuts), `docs/architecture.md`.
   - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5_
+  - _Tests: tests/e2e/test_copy_ui.py (1 line; shortcuts one way per platform, macOS and other; "(stopped)" live and
+    after a reload; the folder dialog says Add; the GitHub item's spacing; search line numbers line up; a long notes path
+    wraps), tests/e2e/test_chat_input_ui.py (updated: the Mac clipboard message reads ⌃V)_

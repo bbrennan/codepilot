@@ -178,7 +178,8 @@ async function init() {
   loadModels(false);
   if (c.eval_cmd) $("#cmdInput").value = c.eval_cmd;
   api("/api/github").then((g) => {
-    $("#sbGithub").innerHTML = g.available ? `${icon("branch")}github: ${esc(g.user)}${g.host !== "github.com" ? " @ " + esc(g.host) : ""}` : `<span title="GitHub isn't connected: ${esc(g.reason || "")}">${icon("branch")}github off</span>`;
+    $("#sbGithub").innerHTML = g.available ? `${icon("branch")}github: ${esc(g.user)}${g.host !== "github.com" ? " @ " + esc(g.host) : ""}` : `${icon("branch")}github off`;
+    $("#sbGithub").title = g.available ? "" : `GitHub isn't connected: ${g.reason || ""}`;
     $("#sbGithub").className = "sb-item"; // not connected is a state you chose, not a warning
   }).catch(() => {});
   setView(store("cp-view") || "sessions", false); // keep a hidden sidebar hidden; a first visit shows Sessions
@@ -195,7 +196,7 @@ async function init() {
 // The server keeps running the code it started with; after an update (git pull), offer to restart it.
 function showStaleBanner(c) {
   if (c && !("version" in c) && !$("#staleBanner")) { // a server from before version tracking: can't restart itself
-    document.body.insertAdjacentHTML("afterbegin", `<div class="stale-banner" id="staleBanner">${icon("refresh")}<span>The codepilot server running now is older than this page, so newer features (like queued messages) won't work. Stop it and run <span class="mono">make start</span> again (or press Ctrl+C where <span class="mono">make serve</span> runs, then start it).</span></div>`);
+    document.body.insertAdjacentHTML("afterbegin", `<div class="stale-banner" id="staleBanner">${icon("refresh")}<span>The codepilot server running now is older than this page, so newer features (like queued messages) won't work. Stop it and run <span class="mono">make start</span> again (or press ${keyLabel("ctrl+c")} where <span class="mono">make serve</span> runs, then start it).</span></div>`);
     return;
   }
   if (!c?.stale || $("#staleBanner")) return;
@@ -541,7 +542,6 @@ function renderEditor() {
 }
 function welcomeHtml() {
   const recent = (state.sessionList || []).slice(0, 5).map((s) => `<div class="link" data-open-session="${s.id}">${icon("history")}${esc(s.title || "New session")} <span class="muted">${esc(s.repo ? base(s.repo) : "")}</span></div>`).join("");
-  const mod = isMac ? "⌘" : "Ctrl+";
   const model = { ollama: "a local model (Ollama)", bedrock: "Claude via Amazon Bedrock", anthropic: "Claude via the Anthropic API",
     openai: "the OpenAI API" }[state.cfg?.provider] || "your model";
   return `<div class="ed-scroll" style="display:flex"><div class="welcome">
@@ -553,7 +553,7 @@ function welcomeHtml() {
     <div class="link" id="wFind">${icon("search")}Go to file…</div>
     ${recent ? `<h3>Recent sessions</h3>${recent}` : ""}
     <h3>Shortcuts</h3>
-    <div class="kbd-grid"><kbd>Ctrl+\`</kbd><span>Terminal</span><kbd>${mod}P</kbd><span>Go to file</span><kbd>${mod}B</kbd><span>Toggle sidebar</span><kbd>${mod}J</kbd><span>Toggle bottom panel</span><kbd>${mod}L</kbd><span>Focus chat</span><kbd>Alt+W</kbd><span>Close tab</span><kbd>@</kbd><span>Reference a file in chat</span></div>
+    <div class="kbd-grid"><kbd>${keyLabel("ctrl+`")}</kbd><span>Terminal</span><kbd>${keyLabel("mod+p")}</kbd><span>Go to file</span><kbd>${keyLabel("mod+b")}</kbd><span>Toggle sidebar</span><kbd>${keyLabel("mod+j")}</kbd><span>Toggle bottom panel</span><kbd>${keyLabel("mod+l")}</kbd><span>Focus chat</span><kbd>${keyLabel("alt+w")}</kbd><span>Close tab</span><kbd>@</kbd><span>Reference a file in chat</span></div>
   </div></div>`;
 }
 function bindWelcome() {
@@ -596,7 +596,7 @@ function renderFileTab(tab) {
   const selLabel = sel ? (sel.a === sel.b ? `line ${sel.a}` : `lines ${sel.a}–${sel.b}`) : "";
   const parts = tab.path.split("/");
   $("#editor").innerHTML = `<div class="ed-bar"><span class="crumbs">${parts.slice(0, -1).map(esc).join(" › ")}${parts.length > 1 ? " › " : ""}<b>${esc(parts.at(-1))}</b></span>
-      <span class="spacer"></span><span class="muted">${selLabel ? selLabel.replace("lines", "L").replace("line", "L") : lines.length + " lines"}</span>
+      <span class="spacer"></span><span class="muted">${selLabel ? selLabel.replace("lines", "L").replace("line", "L") : lines.length === 1 ? "1 line" : lines.length + " lines"}</span>
       <button class="btn" id="fAdd" title="Reference in chat">${icon("at")}${sel ? "Add lines" : "Add to chat"}</button>
       <button class="btn" id="fAsk">${icon("sparkle")}Ask</button>
       ${isMarkdown(tab.path) ? viewSwitch("source") : ""}
@@ -747,11 +747,10 @@ function setDirty(tab) {
 }
 function renderEditTab(tab) {
   const parts = tab.path.split("/");
-  const mod = isMac ? "⌘" : "Ctrl+";
   $("#editor").innerHTML = `<div class="ed-bar"><span class="crumbs">${parts.slice(0, -1).map(esc).join(" › ")}${parts.length > 1 ? " › " : ""}<b>${esc(parts.at(-1))}</b></span>
       <span class="spacer"></span><span class="muted" id="edState">${tab.dirty ? "Unsaved changes" : "Editing"}</span>
       ${isMarkdown(tab.path) ? `<button class="btn" id="fEditPreview" title="See the draft rendered">${icon(tab.editPreview ? "edit" : "eye")}${tab.editPreview ? "Back to editing" : "Preview"}</button>` : ""}
-      <button class="btn primary" id="fSave" title="Save (${mod}S)">${icon("check")}Save</button>
+      <button class="btn primary" id="fSave" title="Save (${keyLabel("mod+s")})">${icon("check")}Save</button>
       <button class="btn" id="fDone" title="Back to the highlighted view">Done</button></div>
     ${tab.editPreview ? `<div class="ed-scroll doc-scroll"><article class="md-doc" id="docBody">${renderDoc(tab.draft ?? tab.content, dirOf(tab.path))}</article></div>` : `<textarea class="code-edit" id="codeEdit" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" aria-label="Edit ${esc(tab.path)}"></textarea>`}`;
   $("#fEditPreview") && ($("#fEditPreview").onclick = () => { tab.editPreview = !tab.editPreview; renderEditor(); });
@@ -857,13 +856,12 @@ function renderReviewBar() {
   const bar = $("#reviewBar"); if (!bar) return;
   const pend = [...state.proposals.values()].filter((p) => p.status === "pending");
   const ap = state.approval;
-  const mod = isMac ? "⌘" : "Ctrl+";
   let html = "";
   if (ap) {
     const rule = ap.tools.length === 1 ? ap.tools[0].allow : null;
     // The buttons sit on the title line so the command gets the full width (and scrolls if it's long).
     html += `<div class="rb-row rb-approval">${icon("alert")}<div class="rb-main"><div class="rb-head"><b>Run ${ap.tools.length > 1 ? "these" : "this"}?</b><span class="spacer"></span>
-      <div class="rb-acts"><button class="btn primary" id="rbApprove" title="${mod}Enter">${icon("check")}Run <kbd>${mod}⏎</kbd></button><button class="btn" id="rbDeny">Deny</button></div></div>${ap.tools.map((t) => `<code class="rb-cmd">${esc(t.command)}</code>${warningLines(t)}`).join("")}
+      <div class="rb-acts"><button class="btn primary" id="rbApprove" title="${keyLabel("mod+enter")}">${icon("check")}Run <kbd>${keyLabel("mod+enter")}</kbd></button><button class="btn" id="rbDeny">Deny</button></div></div>${ap.tools.map((t) => `<code class="rb-cmd">${esc(t.command)}</code>${warningLines(t)}`).join("")}
       ${rule ? `<label class="toggle rb-allow" title="Run commands starting with this without asking, for the rest of this session. Commands that chain or redirect (;, &&, |, >) always ask."><input type="checkbox" id="rbAllow"><span>always allow <code>${esc(rule.prefix)}</code> in this session</span></label>` : ""}</div></div>`;
   }
   if (pend.length) {
@@ -1006,7 +1004,7 @@ const runGrep = debounce(async () => {
     for (const r of d.results) { if (!byFile.has(r.path)) byFile.set(r.path, []); byFile.get(r.path).push(r); }
     $("#grepStatus").textContent = `${d.results.length} result${d.results.length === 1 ? "" : "s"} in ${byFile.size} file${byFile.size === 1 ? "" : "s"}${d.truncated ? " (limited)" : ""}`;
     let rx; try { rx = new RegExp(q, "gi"); } catch { rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"); }
-    $("#grepResults").innerHTML = [...byFile].map(([path, hits]) => `<div class="grep-file"><div class="row" data-gfile="${esc(path)}">${fileIcon(path)}<span class="name">${esc(base(path))}</span><span class="meta">${esc(dirOf(shownPath(path)))}</span></div>
+    $("#grepResults").innerHTML = [...byFile].map(([path, hits]) => `<div class="grep-file" style="--ln-w:${String(Math.max(...hits.map((h) => h.line))).length}ch"><div class="row" data-gfile="${esc(path)}">${fileIcon(path)}<span class="name">${esc(base(path))}</span><span class="meta">${esc(dirOf(shownPath(path)))}</span></div>
       ${hits.map((h) => `<div class="grep-hit" data-gpath="${esc(h.path)}" data-gline="${h.line}"><b>${h.line}</b>${esc(h.text.trim()).replace(rx, (m) => `<mark>${m}</mark>`)}</div>`).join("")}</div>`).join("");
   } catch (err) { $("#grepStatus").textContent = err.message; }
 }, 250);
@@ -1100,7 +1098,7 @@ function renderMemory() {
     <div class="hint">${state.summary ? esc(state.summary).replace(/\n/g, "<br>") : "None yet — appears when the conversation gets long."}</div>
     <div class="group-head" style="padding-left:2px">Workspace notes</div>
     <textarea class="field mono" id="notesBox" rows="7" style="font-size:var(--fs-ui);resize:vertical" placeholder="${state.workspace ? "Facts codepilot should always know about this folder…" : "Open a folder to keep notes for it."}" ${state.workspace ? "" : "disabled"}></textarea>
-    <div style="display:flex;gap:6px;align-items:center;margin-top:6px"><button class="btn" id="saveNotes" ${state.workspace ? "" : "disabled"}>Save notes</button><span class="hint" id="notesPath" style="margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span></div>
+    <div style="display:flex;gap:6px;align-items:center;margin-top:6px"><button class="btn" id="saveNotes" ${state.workspace ? "" : "disabled"}>Save notes</button><span class="hint wrap-any" id="notesPath" style="margin:0"></span></div>
     <div class="group-head" style="padding-left:2px">Always allowed in this session${allowPausedNote()}</div>
     <div class="hint" id="allowList">${(state.allow || []).length ? state.allow.map((r, i) => `<span class="allow-chip"><code>${esc(r.tool === "github" ? "gh " + r.prefix : r.prefix)}</code><button class="icon-btn sm" data-unallow="${i}" title="Ask again for these">${icon("x")}</button></span>`).join(" ") : "Nothing. Tick “always allow” when approving a command to skip asking for it in this session."}</div>
     <div class="group-head" style="padding-left:2px">Token usage</div><div id="usageTable" class="hint">—</div>
@@ -1397,7 +1395,9 @@ function render(ev, replay) {
     case "verifying": onVerifying(ev); break;
     case "verification": endText(); onVerification(ev, replay); break;
     case "spec_run": endText(); onSpecRun(ev); break; // specrun.js
-    case "notice": endText(); add(`<div class="banner notice">${esc(ev.message)}</div>`); break;
+    case "notice":
+      if (ev.message === "Stopped.") { curBuf = (curBuf + "\n\n_(stopped)_").trim(); (curText ||= add(`<div class="msg assistant"></div>`)).innerHTML = md(curBuf); endText(); break; }
+      endText(); add(`<div class="banner notice">${esc(ev.message)}</div>`); break;
     case "error": {
       endText(); onStreamSettled();
       const b = add(`<div class="banner error">${esc(ev.message)}</div>`);
@@ -1477,7 +1477,7 @@ function notifyDone(sid) {
 function askNotifyPermission() { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {}); }
 function updateBusy() {
   const busy = state.streams.has(state.sid);
-  input.placeholder = busy ? `Working… Enter queues · ${isMac ? "⌘" : "Ctrl+"}Enter steers` : state.placeholder || input.placeholder;
+  input.placeholder = busy ? `Working… Enter queues · ${keyLabel("mod+enter")} steers` : state.placeholder || input.placeholder;
   $("#sendBtn").hidden = busy; $("#stopBtn").hidden = !busy; $("#steerBtn").hidden = $("#queueBtn").hidden = !busy;
   $("#sbBusy").innerHTML = busy ? '<span class="spinner"></span>working…' : "";
   window.renderPinnedPlan?.(); // plan.js: the plan spins only while a turn runs
@@ -1644,14 +1644,14 @@ function pasteFailed(why) {
   notePageError(`Ctrl+V paste: ${why}`);
   const edge = /Edg\//.test(navigator.userAgent), settings = `${edge ? "edge" : "chrome"}://settings/content/clipboard`;
   const chromium = /Chrome\//.test(navigator.userAgent);
-  toast(`Ctrl+V couldn't read the clipboard: ${why}. ⌘V always works.${chromium ? ` To allow Ctrl+V, open ${settings} and add ${location.origin} under "Allowed".` : ""}`, true,
+  toast(`${keyLabel("ctrl+v")} couldn't read the clipboard: ${why}. ${keyLabel("mod+v")} always works.${chromium ? ` To allow ${keyLabel("ctrl+v")}, open ${settings} and add ${location.origin} under "Allowed".` : ""}`, true,
     chromium ? { label: "Copy settings link", run: () => copyText(settings) } : null);
 }
 function insertAtCaret(text, el = input) { el.setRangeText(text, el.selectionStart, el.selectionEnd, "end"); el.dispatchEvent(new Event("input", { bubbles: true })); if (el === input) autosize(); }
 $("#sendBtn").onclick = () => send();
 $("#steerBtn").onclick = () => { if (input.value.trim()) send("now"); else input.focus(); };
-$("#steerBtn").title = `Steer: codepilot reads this at its next step, while it keeps working (${isMac ? "⌘" : "Ctrl+"}Enter)`;
-$("#stopBtn").title = `Stop (${isMac ? "⌘" : "Ctrl+"}.)`;
+$("#steerBtn").title = `Steer: codepilot reads this at its next step, while it keeps working (${keyLabel("mod+enter")})`;
+$("#stopBtn").title = `Stop (${keyLabel("mod+.")})`;
 $("#queueBtn").onclick = () => { if (input.value.trim()) send("after"); else input.focus(); };
 $("#stopBtn").onclick = async () => {
   if (!state.sid) return;
@@ -2015,10 +2015,11 @@ $("#runCmdBtn").onclick = () => runCmd("command");
 $("#cmdInput").addEventListener("keydown", (e) => { if (e.key === "Enter") runCmd("command"); });
 
 // ---------------------------------------------------------------- open-folder browser
-const fd = { path: "", sel: null, resolve: null, seq: 0 };
-function browseFolder(start) {
+const fd = { path: "", sel: null, resolve: null, seq: 0, action: "Open" };
+function browseFolder(start, { title = "Open folder", action = "Open" } = {}) {
   return new Promise((resolve) => {
-    fd.resolve = resolve; fd.sel = null; fd.typed = false;
+    fd.resolve = resolve; fd.sel = null; fd.typed = false; fd.action = action;
+    $("#folderDialog .fd-head b").textContent = title;
     $("#folderDialog").hidden = false;
     fdLoad(start || "");
   });
@@ -2040,7 +2041,7 @@ async function fdLoad(path, fromInput = false) {
     fdHint();
   } catch (err) { if (seq === fd.seq) $("#fdHint").textContent = err.message; }
 }
-function fdHint() { $("#fdHint").textContent = "Open: " + (fd.sel || fd.path); $("#fdOpen").textContent = fd.sel ? "Open selected" : "Open this folder"; }
+function fdHint() { $("#fdHint").textContent = `${fd.action}: ${fd.sel || fd.path}`; $("#fdOpen").textContent = fd.sel ? `${fd.action} selected` : `${fd.action} this folder`; }
 function fdClose(value) { $("#folderDialog").hidden = true; const r = fd.resolve; fd.resolve = null; r && r(value); }
 $("#fdList").addEventListener("click", (e) => {
   const row = e.target.closest("[data-fdpath]"); if (!row) return;
@@ -2126,17 +2127,17 @@ async function deletePath(rel, isDir) {
 }
 function activeFileTab() { const t = state.tabs.find((x) => x.id === state.active); return t?.kind === "file" ? t : null; }
 function fileMenuItems() {
-  const mod = isMac ? "⌘" : "Ctrl+", t = activeFileTab();
+  const t = activeFileTab();
   return [
     { label: "New File…", icon: "filePlus", run: () => newItem("file") },
     { label: "New Folder…", icon: "folderPlus", run: () => newItem("folder") },
     "-",
     { label: "Open Folder…", icon: "folderOpen", run: openFolder },
-    { label: "Go to File…", icon: "search", kbd: mod + "P", run: openPalette },
+    { label: "Go to File…", icon: "search", kbd: keyLabel("mod+p"), run: openPalette },
     ...(t ? ["-",
-      t.editing ? { label: "Save", icon: "check", kbd: mod + "S", run: () => saveFile(t) } : { label: "Edit File", icon: "edit", run: () => editFile(t.id) },
+      t.editing ? { label: "Save", icon: "check", kbd: keyLabel("mod+s"), run: () => saveFile(t) } : { label: "Edit File", icon: "edit", run: () => editFile(t.id) },
       { label: "Rename File…", icon: "edit", run: () => renamePath(t.path) },
-      { label: "Close Tab", icon: "x", kbd: "Alt+W", run: () => closeTab(t.id) }] : []),
+      { label: "Close Tab", icon: "x", kbd: keyLabel("alt+w"), run: () => closeTab(t.id) }] : []),
   ];
 }
 $("#fileMenuBtn").onclick = (e) => menuBelow(e.currentTarget, fileMenuItems());
@@ -2393,7 +2394,6 @@ function showMenu(x, y, items) {
 }
 document.addEventListener("mousedown", (e) => { if (!e.target.closest("#ctxMenu")) $("#ctxMenu").hidden = true; });
 function pathMenu(rel, isDir) {
-  const mod = isMac ? "⌘" : "Ctrl+";
   return [
     isDir ? { label: "Expand / collapse", icon: "folderOpen", run: () => { state.expanded.has(rel) ? state.expanded.delete(rel) : state.expanded.add(rel); renderTree(); } }
           : { label: "Open", icon: "file", run: () => openFile(rel) },
@@ -2402,7 +2402,7 @@ function pathMenu(rel, isDir) {
               : [{ label: "Edit", icon: "edit", run: async () => { await openFile(rel); editFile("file:" + rel); } }]),
     { label: "Add to chat", icon: "at", run: () => insertRef(rel) },
     "-",
-    { label: "Copy relative path", icon: "copy", kbd: mod + "C", run: () => copyText(rel) },
+    { label: "Copy relative path", icon: "copy", kbd: keyLabel("mod+c"), run: () => copyText(rel) },
     { label: "Copy absolute path", icon: "copy", run: () => copyText(absPath(rel)) },
     { label: "Copy @reference", icon: "link", run: () => copyText("@" + rel) },
     "-",
@@ -2410,7 +2410,7 @@ function pathMenu(rel, isDir) {
     ...(isDir ? [{ label: "Open as workspace folder", icon: "folderOpen", run: () => useFolder(absPath(rel)) }] : []),
     "-",
     { label: "Rename…", icon: "edit", kbd: "F2", run: () => renamePath(rel) },
-    { label: "Delete", icon: "trash", kbd: isMac ? "⌘⌫" : "Del", run: () => deletePath(rel, isDir) },
+    { label: "Delete", icon: "trash", kbd: keyLabel(isMac ? "mod+backspace" : "delete"), run: () => deletePath(rel, isDir) },
   ];
 }
 document.addEventListener("contextmenu", (e) => {
