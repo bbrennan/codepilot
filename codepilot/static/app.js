@@ -362,7 +362,7 @@ async function checkDisk() {
       }
       const f = await api(`/api/sessions/${state.sid}/files?path=${encodeURIComponent(tab.path)}`).catch(() => null);
       if (!f || f.content == null) continue;
-      Object.assign(tab, { content: f.content, mtime: f.mtime }, tab.editing ? { draft: f.content } : {});
+      Object.assign(tab, { content: f.content, mtime: f.mtime, encoding: f.encoding }, tab.editing ? { draft: f.content } : {});
       if (state.active === tab.id) renderEditor(); // (each view keeps the tab's place: place.js, or the preview's scroll)
     }
     if (treeChanged) { await renderTree(); loadGitSoon(); }
@@ -535,6 +535,7 @@ function renderEditor() {
   else if (tab.kind === "gitdiff") renderGitDiffTab(tab);
   else if (tab.kind === "review") renderReviewTab(tab);
   else if (tab.kind === "image") renderImageTab(tab);
+  else if (tab.kind === "binary") renderBinaryTab(tab); // filekinds.js
   else if (tab.kind === "spec") renderSpecTab(tab);
   $$("#tree .row[data-file]").forEach((r) => r.classList.toggle("on", "file:" + r.dataset.file === state.active));
 }
@@ -575,7 +576,8 @@ async function openFile(path, line, view) { // view: "preview" opens Markdown re
   try {
     const d = await api(`/api/sessions/${state.sid}/files?path=${encodeURIComponent(path)}`);
     if (d.entries) { state.expanded.add(path); setView("explorer"); renderTree(); return; }
-    openTab({ id, kind: "file", path: d.path, title: base(d.path), tip: d.path, content: d.content, mtime: d.mtime, flash: line || null, topLine: line ? jumpTop(line) : 1, sel: null, ...(view ? { view } : {}) });
+    if (d.binary) { openTab({ id, kind: "binary", path: d.path, title: base(d.path), tip: d.path, size: d.size }); return; } // filekinds.js
+    openTab({ id, kind: "file", path: d.path, title: base(d.path), tip: d.path, content: d.content, mtime: d.mtime, encoding: d.encoding, flash: line || null, topLine: line ? jumpTop(line) : 1, sel: null, ...(view ? { view } : {}) });
   } catch (err) { toast(err.message, true); }
 }
 function highlight(text, path) {
@@ -598,9 +600,9 @@ function renderFileTab(tab) {
       <button class="btn" id="fAdd" title="Reference in chat">${icon("at")}${sel ? "Add lines" : "Add to chat"}</button>
       <button class="btn" id="fAsk">${icon("sparkle")}Ask</button>
       ${isMarkdown(tab.path) ? viewSwitch("source") : ""}
-      ${tab.readonly ? `<span class="muted" title="Edit it in its own tool's folder">read-only</span>` : `<button class="btn" id="fEdit" title="Edit this file">${icon("edit")}Edit</button>`}
+      ${tab.readonly ? `<span class="muted" title="Edit it in its own tool's folder">read-only</span>` : tab.encoding ? "" : `<button class="btn" id="fEdit" title="Edit this file">${icon("edit")}Edit</button>`}
       <button class="btn ghost" id="fCopy" title="Copy path (right-click a file for more)">${icon("copy")}</button>
-      <button class="btn ghost" id="fReload" title="Reload from disk">${icon("refresh")}</button></div>
+      <button class="btn ghost" id="fReload" title="Reload from disk">${icon("refresh")}</button></div>${encodingNote(tab)}
     <div class="ed-scroll" id="edScroll"><div class="code-view">
       <div class="gutter" id="gutter">${lines.map((_, i) => `<div data-ln="${i + 1}" class="${sel && i + 1 >= sel.a && i + 1 <= sel.b ? "sel" : ""}">${i + 1}</div>`).join("")}</div>
       <div class="code-wrap" id="codeWrap"><pre><code>${highlight(lines.join("\n"), tab.path)}</code></pre></div></div></div>`;
@@ -733,7 +735,7 @@ $("#editor").addEventListener("click", (e) => {
 // edit mode: a plain-text editor with Save (⌘S), dirty tracking and a check for changes made on disk
 function editFile(id) {
   if (state.changingFolders) return toast("Changing the session's folders: edit once that's done.", true); // folders.js
-  const t = state.tabs.find((x) => x.id === id); if (!t || t.content == null) return;
+  const t = state.tabs.find((x) => x.id === id); if (!t || t.content == null || !editable(t)) return; // filekinds.js
   t.editing = true; if (t.draft == null) t.draft = t.content;
   state.active = id; renderEditor();
 }

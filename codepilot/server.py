@@ -783,8 +783,12 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
             if base.stat().st_size > MAX_VIEW_BYTES:
                 return err("File too large to view")
             # The path it was reached by, so a tab, rename or delete refers to the same path the explorer showed.
-            return JSONResponse({"path": asked if asked not in (None, "") else ctx.rel(base),
-                                 "content": base.read_text(errors="replace"), "mtime": str(base.stat().st_mtime_ns)})
+            shown = {"path": asked if asked not in (None, "") else ctx.rel(base), "mtime": str(base.stat().st_mtime_ns)}
+            what = textfile.kind(base)
+            if what == "binary":  # no text to show: the tab says what it is instead
+                return JSONResponse({**shown, "binary": True, "size": base.stat().st_size})
+            return JSONResponse({**shown, "content": base.read_text(errors="replace"),
+                                 **({"encoding": "not-utf8"} if what == "not-utf8" else {})})
         entries = []
         stamp = dir_stamp(base)
 

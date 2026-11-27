@@ -314,3 +314,21 @@ def test_the_mouse_wheel_scrolls_the_tab_strip_sideways(page, server, session):
     page.locator("#editorTabs").hover()
     page.mouse.wheel(0, 300)
     page.wait_for_function("() => document.querySelector('#editorTabs').scrollLeft > 0", timeout=2_000)
+
+
+def test_a_binary_file_opens_as_a_binary_file_not_as_text(page, server, session):
+    (server.repo / "data.bin").write_bytes(bytes(range(256)) * 4)
+    open_app(page)
+    page.click("#tree [data-file='data.bin']")
+    page.locator("#editor", has_text="Binary file").wait_for()
+    assert "1 KB" in page.locator("#editor").text_content() or "1,024" in page.locator("#editor").text_content()
+    assert page.locator("#fEdit, #fAsk, #codeEdit, #editor .code-view").count() == 0  # nothing to edit or read as text
+
+
+def test_a_file_that_isnt_utf8_is_shown_but_not_offered_for_editing(page, server, session):
+    (server.repo / "latin1.txt").write_bytes("café crème\n".encode("latin-1"))
+    open_app(page)
+    page.click("#tree [data-file='latin1.txt']")
+    page.locator("#editor code", has_text="cr").wait_for()
+    assert page.locator("#fEdit").count() == 0
+    assert "UTF-8" in page.locator("#editor .enc-note").text_content()  # says why it can't be edited here

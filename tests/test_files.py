@@ -153,3 +153,15 @@ def test_opening_a_file_through_a_link_reports_the_path_it_was_opened_by(fs, rep
     assert got["path"] == "alias/note.txt" and got["content"] == "hi"
     plain = fs.client.get(f"/api/sessions/{fs.sid}/files", params={"path": "docs2/note.txt"}).json()
     assert plain["path"] == "docs2/note.txt"
+
+
+def test_a_file_is_binary_not_utf8_or_text(tmp_path):
+    from codepilot import textfile
+
+    (tmp_path / "a.py").write_text("x = 'café'\n")
+    (tmp_path / "data.bin").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
+    (tmp_path / "late.txt").write_bytes(b"a" * 9000 + b"\x00")  # a NUL past the first 8,000 bytes: git calls it text
+    (tmp_path / "latin1.txt").write_bytes("café crème\n".encode("latin-1"))
+    (tmp_path / "empty").write_bytes(b"")
+    kinds = {p.name: textfile.kind(p) for p in tmp_path.iterdir()}
+    assert kinds == {"a.py": "text", "data.bin": "binary", "late.txt": "text", "latin1.txt": "not-utf8", "empty": "text"}

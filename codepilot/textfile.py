@@ -26,6 +26,19 @@ def read(path: Path, errors: str = "strict") -> str:
                       "Windows-1252)") from None
 
 
+def kind(path: Path) -> str:
+    """"binary" when its first 8,000 bytes hold a NUL (git's rule), "not-utf8" when it's text that read() would refuse,
+    else "text". A binary file opened as text shows symbols and invites typing; a not-UTF-8 one can be shown, not saved."""
+    data = path.read_bytes()
+    if b"\0" in data[:8000]:
+        return "binary"
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError:
+        return "not-utf8"
+    return "text"
+
+
 def write(path: Path, text: str) -> None:
     path.write_bytes(text.encode("utf-8"))
 

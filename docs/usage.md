@@ -105,6 +105,12 @@ You can manage files yourself, as in any IDE. Use the title-bar **File** menu, t
   new file opens in it straight away. **Save** (⌘S) writes the file; a ● on the tab means unsaved changes,
   and closing the tab asks first. **Done** returns to the highlighted view. If the file changed on disk
   since you opened it (you elsewhere, a tool, an applied proposal), Save asks before overwriting.
+  Edit and Done keep your place: the editor opens at the line you were reading, and Done returns to the line you
+  were editing. Each tab remembers where it was when you switch away and back.
+- **Files that aren't text.** A binary file (one with a zero byte in its first 8,000 bytes, as git decides) opens as
+  its name and size, with no text view, **Edit** or **Ask**. A text file that isn't UTF-8 (Latin-1, say) is shown, with
+  a line saying it can't be edited here: saving would write it back as UTF-8 and change every character UTF-8 can't
+  read.
 - **Rename…** (F2): a new name, or a workspace-relative path to move it. Open tabs follow the file.
 - **Delete** (Delete or ⌘⌫): asks first, then moves the item to codepilot's trash
   (`~/.codepilot/trash`). **Undo** in the notification puts it back.
