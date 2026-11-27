@@ -477,3 +477,81 @@ def test_the_find_panel_fits_inside_the_editor(page, server, session, size):
     width = page.evaluate("() => document.querySelector('#codeEdit').getBoundingClientRect().width")
     assert not outside, (width, outside)
 
+
+# -- task 3.2: place, drafts, read-only, large files -------------------------------------------------------------------
+
+
+def test_switching_tabs_keeps_the_editors_caret_and_top_line(page, server, session):
+    edit(page, server, "long.py", "".join(f"value_{i} = {i}\n" for i in range(1, 301)))
+    page.keyboard.press("Control+g")
+    page.locator("#codeEdit input").first.wait_for()
+    page.keyboard.type("150")
+    page.keyboard.press("Enter")
+    page.wait_for_function("() => document.activeElement?.isContentEditable")
+    top = editor_top_line(page)
+    page.evaluate("openFile('agent/core.py')")
+    page.locator("#editor .code-view").wait_for()
+    page.locator("#editorTabs [data-tab='file:long.py']").click()
+    wait_editor(page)
+    assert editor_caret_line(page) == 150 and editor_top_line(page) == top
+
+
+def test_the_editors_caret_and_draft_come_back_after_a_reload(page, server, session):
+    edit(page, server, "long.py", "".join(f"value_{i} = {i}\n" for i in range(1, 301)))
+    page.keyboard.press("Control+g")
+    page.locator("#codeEdit input").first.wait_for()
+    page.keyboard.type("90")
+    page.keyboard.press("Enter")
+    page.wait_for_function("() => document.activeElement?.isContentEditable")
+    page.keyboard.type("# here ")
+    page.wait_for_timeout(500)  # (stored)
+    page.reload()
+    wait_editor(page)
+    assert editor_caret_line(page) == 90 and "value_89 = 89\n# here value_90" in editor_text(page)
+    assert dirty(page)
+
+
+def test_a_two_megabyte_file_opens_in_the_editor_within_a_second_and_scrolls(page, server, session):
+    line = "x" * 40 + " = 'some value'  # a comment\n"
+    (server.repo / "big.py").write_text(line * (1_990_000 // len(line)))
+    open_app(page)
+    edit_core(page)  # the bundle loaded: what's timed is the editor, not the network
+    page.click("#fDone")
+    # Timed in the page around the mount, to the frame after it's laid out (not from the click: the file's own fetch and
+    # the read view are the same as before).
+    page.evaluate("""() => { const mount = window.mountEditor; window.mountEditor = (...args) => {
+      const t0 = performance.now(), ed = mount(...args);
+      requestAnimationFrame(() => requestAnimationFrame(() => { window.__mounted = performance.now() - t0; }));
+      return ed; }; }""")
+    page.evaluate("openFile('big.py')")
+    page.locator("#fEdit").click()
+    page.wait_for_function("() => window.__mounted !== undefined", timeout=20_000)
+    took = page.evaluate("window.__mounted")
+    # 1 s is the requirement; this Mac takes a fraction of it, and CI's runners are slower (see the PR).
+    assert took < 1000, f"{took:.0f} ms"
+    scrolled = page.evaluate("""() => new Promise((done) => { const host = document.querySelector('#codeEdit');
+      const el = [...host.querySelectorAll('*')].find((e) => /auto|scroll/.test(getComputedStyle(e).overflowY));
+      const t0 = performance.now(); el.scrollTop = el.scrollHeight / 2;
+      requestAnimationFrame(() => requestAnimationFrame(() => done(performance.now() - t0))); })""")
+    assert scrolled < 250, f"{scrolled:.0f} ms to draw the middle of the file"
+    page.keyboard.press("ControlOrMeta+End")
+    page.keyboard.type("# end")
+    assert editor_text(page).endswith("# end") and dirty(page)
+
+
+def test_find_cannot_replace_while_the_folders_change(page, server, session):
+    held = []
+    page.route(f"**/api/sessions/{session.id}",
+               lambda r: held.append(r) if r.request.method == "PATCH" else r.continue_())
+    open_app(page)
+    edit_core(page)
+    before = editor_text(page)
+    page.evaluate("() => { setFolders({ folders: [] }); }")  # held: the change is on its way (not awaited)
+    page.wait_for_function("() => state.changingFolders")
+    focus_editor(page)
+    page.keyboard.press("ControlOrMeta+f")
+    type_into(page, FIND, "a")
+    assert page.locator(REPLACE).count() == 0  # find, but no replacing in a locked editor
+    page.locator(FIND).press("Enter")
+    assert editor_text(page) == before and not dirty(page)
+    held[0].continue_()

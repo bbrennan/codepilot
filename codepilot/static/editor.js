@@ -92,19 +92,13 @@ function mountEditor(host, tab, opts) {
   });
   // The top line by place.js's own arithmetic, as the view does it (a 20px line, 6px above the first), once the first
   // layout has measured the lines. Not scrollIntoView: that lines up a character's box, a few px inside its line.
-  const scrollToLine = (n) => view.requestMeasure({ read: () => null, write: () => showLine(view.scrollDOM, n) });
-  scrollToLine(tab.topLine);
+  view.requestMeasure({ read: () => null, write: () => showLine(view.scrollDOM, tab.topLine) });
   view.scrollDOM.addEventListener("scroll", () => { tab.topLine = topLine(view.scrollDOM); });
   const handle = editorShown = tab.ed = {
     tab,
     text: () => view.state.doc.toString(),
     setText: (t) => view.dispatch({ changes: editorDiff(view.state.doc, t) }),
     place: () => ({ topLine: topLine(view.scrollDOM), caret: view.state.selection.main.head }),
-    show(p) {
-      const d = view.state.doc;
-      view.dispatch({ selection: { anchor: Math.min(p.caret ?? editorLinePos(d, p.topLine), d.length) } });
-      scrollToLine(p.topLine);
-    },
     readOnly: (on) => view.dispatch({ effects: ro.reconfigure(CM.EditorState.readOnly.of(on)) }),
     // Text from outside (a Mac's Ctrl+V, app.js), over the selection, as one undoable step.
     insert(t) {
