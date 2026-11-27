@@ -30,7 +30,7 @@ in for CI's wider Linux font (DejaVu Sans). With words, a toolbar needs:
 | a spec's steps (four) | 482 | 493 |
 | a markdown file in Preview | 460 | 475 |
 | a trace ("Ask codepilot about this trace") | 443 | 471 |
-| a file | 446 | — |
+| a file | 446 | not measured |
 | the terminal, its folder's path at 0 | 382 | 388 |
 | the panel's tabs | 321 | 339 |
 
@@ -80,12 +80,13 @@ there is none.
   class write with the same value would still notify the observer). `layoutRoom` and `fitLayout` count
   `auto-no-sidebar` as hidden (`layoutShown(ide, "sidebar")`). `app.css` treats `.ide.auto-no-sidebar` exactly as
   `.ide.no-sidebar`. Nothing is written to `localStorage`.
-- 2.3: `layoutUserShowedSidebar(ide)` sets `LAYOUT.keepSidebar = true`, removes `auto-no-sidebar`, and returns whether
-  the sidebar was hidden this way. `app.js` calls it from `setView(…, reveal)` (an activity-bar icon, Reveal in
-  Explorer) and from a `toggleSidebar()` used by the title-bar button and ⌘B: when the sidebar was hidden for room,
-  the toggle shows it and saves nothing; otherwise it toggles `no-sidebar` as before. The activity bar's "click the
-  active icon to collapse" asks `layoutShown(ide, "sidebar")`, so on a sidebar hidden for room it shows it instead of
-  saving "hidden". The `resize` listener clears `keepSidebar` before fitting.
+- 2.3: `layoutUserShowedSidebar(ide)` sets `LAYOUT.keepSidebar = true` and removes `auto-no-sidebar`. In `app.js`,
+  `showSidebar()` calls it, removes `no-sidebar` and saves "shown"; `setView(…, reveal)` (an activity-bar icon, Reveal
+  in Explorer, Progress opening once per run as it already does for a sidebar you hid) uses it. `toggleSidebar()`, for
+  the title-bar button and ⌘B, goes by what you see: shown (`layoutShown`), it toggles `no-sidebar` as before;
+  hidden, by you or for room, it calls `showSidebar()`. The activity bar's "click the active icon to collapse" asks
+  `layoutShown` too, so on a sidebar hidden for room it shows it instead of saving "hidden". The `resize` listener
+  clears `keepSidebar` before fitting. `makeResizer` counts the other pane as shown by `layoutShown`.
 
 With the default sizes (280 and 440) at 1024px: room for the panes is 1024 − 48 − 8 − 440 = 528, the shortfall of 192
 is shared by slack (100 and 140), giving a 200px sidebar, a 328px chat and a 440px editor. The message box at 328px
@@ -94,10 +95,11 @@ relies on ui-review-fixes task 1 (the busy row wraps). At 900px the sidebar step
 ## The Review tab in a narrow editor (1.5)
 
 `.review` is a two-column grid whose change list takes up to 280px, so in a 440px editor the diff got about 160px.
-`@container editor (max-width: 640px)`: `.review` becomes a column; `.rv-list` is at most 30% of its height (40% left the diff shorter than the list with the bottom panel open) (it
-scrolls), with a bottom border instead of a right one; `.rv-main` takes the rest. At 640px side by side the diff would
-get 360px, about what its header needs to keep the path, the reason and Apply, Reject and Open file on one row.
-j/k and the header are unchanged.
+`@container editor (max-width: 640px)`: `.review` becomes a flex column; `.rv-list` is at most 30% of its height (it
+scrolls), with a bottom border instead of a right one; `.rv-main` takes the rest. 40% left the diff's scroll area
+shorter than the list at 1024×700 with the bottom panel open, once the header and the ask box had their share. Side
+by side at 640px the diff would get 360px; its header needs about 300 for a short path and the three buttons, and the
+reason shrinks. j/k and the header are unchanged.
 
 ## Menus and `container-type`
 
@@ -122,10 +124,12 @@ toolbar tests drag; the rest set sizes through `localStorage`. All assert geomet
   trace, binary, spec) keeps every control inside its bar and hit-testable, each with a tooltip, at 641/639,
   521/519, 421/419 and 280px, with words shown or hidden as the thresholds say; the terminal's toolbar at 421/419 and
   280; the panel's tabs one line each at 280; at 1024×700 the file and terminal toolbars, with the words still naming
-  the buttons; the Review at 1024×700 with "fix two" (list above and shorter, buttons in the header, j/k), and at
-  641/640.
+  the buttons; the Review at 1024×700 with the bottom panel open and "fix two" (list above and shorter than the
+  diff, buttons in the header, j/k), and with a 641 and a 640px editor.
 - `tests/e2e/test_window_fit_ui.py`: the title bar at 600, 561, 559 and 480 (no sideways scroll, every button on
   screen at full size, the folder ≥ 100px, the word "codepilot" only above 560); the editor ≥ 440 at 1024×700, also
   with an 820px chat saved (still saved); `auto-no-sidebar` at 935 and 821, not at 936 or 820; at 900 it settles (no
   class or size change for a second) and the sidebar is back at its saved width at 1440; showing it yourself (button,
   ⌘B, the active or another activity icon) wins through opening a file, until a resize; hiding it yourself is saved.
+  `test_hiding_the_sidebar_gives_the_chat_back_what_the_editor_can_spare` (was `…its_chosen_width_back`) now expects
+  788px at 1280 wide, not the chosen 820, which would leave the editor 408.
