@@ -30,13 +30,13 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from starlette.websockets import WebSocket
 from starlette.routing import Mount, Route, WebSocketRoute
-from starlette.staticfiles import StaticFiles
 
 from .http_input import HANDLERS, json_body
 from . import (checkpoints, checks, diagnostics, folders, github, images, mentions, models, modes, plans, skills,
                spec_runs, specs, steering, textfile, traces, uploads, verification, version)
 from .agent import Agent, history_events
 from .config import TIER_CHOICES, TIERS, Config
+from .static_files import RevalidatedStaticFiles
 from .store import Store
 from .tools import (
     SKIP_DIRS,
@@ -1207,7 +1207,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
 
     routes = [
         Route("/", index),
-        Mount("/static", app=StaticFiles(directory=STATIC), name="static"),
+        Mount("/static", app=RevalidatedStaticFiles(directory=STATIC), name="static"),
         Route("/api/config", config_view),
         Route("/api/restart", restart_view, methods=["POST"]),
         Route("/api/report", report_view, methods=["POST"]),
