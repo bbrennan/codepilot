@@ -6,7 +6,7 @@ import {
   EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, dropCursor,
   highlightSpecialChars, rectangularSelection, crosshairCursor,
 } from "@codemirror/view";
-import { defaultKeymap, historyKeymap, history, indentWithTab, undo, redo } from "@codemirror/commands";
+import { defaultKeymap, historyKeymap, history, indentMore, indentLess, undo, redo } from "@codemirror/commands";
 import { indentUnit, indentOnInput, bracketMatching, syntaxHighlighting, HighlightStyle, StreamLanguage } from "@codemirror/language";
 import { search, searchKeymap, gotoLine, openSearchPanel, closeSearchPanel, getSearchQuery, setSearchQuery, SearchQuery } from "@codemirror/search";
 import { tags } from "@lezer/highlight";
@@ -71,7 +71,7 @@ window.CM = {
   EditorState, EditorSelection, Compartment, Prec,
   EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, dropCursor,
   highlightSpecialChars, rectangularSelection, crosshairCursor,
-  defaultKeymap, historyKeymap, history, indentWithTab, undo, redo,
+  defaultKeymap, historyKeymap, history, indentMore, indentLess, undo, redo,
   indentUnit, indentOnInput, bracketMatching, syntaxHighlighting, HighlightStyle,
   search, searchKeymap, gotoLine, openSearchPanel, closeSearchPanel, getSearchQuery, setSearchQuery, SearchQuery,
   tags, languages,

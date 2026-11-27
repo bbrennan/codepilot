@@ -2,16 +2,23 @@
 
 One branch and PR per numbered task. After ui-review-fixes task 2 (`place.js`) and spec restore-tabs.
 
-- [ ] 1. Vendor CodeMirror 6 as one file (`feature/vendor-codemirror`)
-  - [ ] 1.1 The recipe and the built bundle
+- [x] 1. Vendor CodeMirror 6 as one file (`feature/vendor-codemirror`)
+  - [x] 1.1 The recipe and the built bundle
     - Read the current CodeMirror docs first. `tools/codemirror/` (`package.json`, lockfile, `entry.js`, `build.sh`,
-      `README.md`); run it; commit `static/vendor/codemirror.min.js` and `LICENSE-codemirror`.
+      `README.md`, and `licenses.mjs`, which writes `LICENSE-codemirror` from what was bundled); run it; commit
+      `static/vendor/codemirror.min.js` and `LICENSE-codemirror`.
     - Marked done as untested (a build output); 1.2 and task 2 exercise it.
     - _Requirements: 5.1, 5.2_
-  - [ ] 1.2 Notices and hygiene
+    - _Tests: none (a build output: 1.2 checks it names the pinned versions; task 2 loads it)_
+  - [x] 1.2 Notices and hygiene
     - Test first (unit): every vendored script is in `THIRD_PARTY_NOTICES.md`; versions in `package.json` are exact.
-    - `THIRD_PARTY_NOTICES.md`, `tests/test_repo_hygiene.py`; `docs/architecture.md` (Front end: the vendored list).
+    - `THIRD_PARTY_NOTICES.md` (a File column), `tests/test_repo_hygiene.py`; `docs/architecture.md` (Front end: the
+      vendored list).
     - _Requirements: 5.2, 5.3_
+    - _Tests: tests/test_repo_hygiene.py (every `static/vendor/*.js` is named in the notices table and each licence
+      file it names exists; `tools/codemirror/package.json` pins exact versions, the bundle's first line names each of
+      them, and the CodeMirror row names `@codemirror/view`'s version; none of the app's own `static/*.js` imports,
+      exports or requires a package); tests/test_no_mcp.py unchanged and green_
 - [ ] 2. Edit mode uses it (`feature/code-editor`)
   - [ ] 2.1 Test helpers, and the existing editor tests moved onto them
     - `tests/e2e/uihelpers.py` (`editor_text`, `type_in_editor`, `set_editor_text`); the six test files that use
