@@ -1273,7 +1273,7 @@ function markTurn(el, mid, text) {
   el.dataset.mid = mid;
   if (text != null) state.msgText.set(String(mid), text);
   else if (!state.msgText.has(String(mid))) state.msgText.set(String(mid), $(".body", el)?.innerText ?? "");
-  if (!$(".msg-actions", el)) el.insertAdjacentHTML("beforeend", `<div class="msg-actions"><button data-act="edit" title="Edit and resend (rewinds the conversation to here)">${icon("edit")}</button><button data-act="retry" title="Send again from here">${icon("refresh")}</button><button data-act="undo" title="Undo file changes from here (keeps the conversation)" hidden>${icon("history")}</button></div>`);
+  if (!$(".msg-actions", el)) el.insertAdjacentHTML("beforeend", `<div class="msg-actions"><button data-act="edit" title="Edit and resend (rewinds the conversation to here)" aria-label="Edit and resend (rewinds the conversation to here)">${icon("edit")}</button><button data-act="retry" title="Send again from here" aria-label="Send again from here">${icon("refresh")}</button><button data-act="undo" title="Undo file changes from here (keeps the conversation)" aria-label="Undo file changes from here (keeps the conversation)" hidden>${icon("history")}</button></div>`);
 }
 const lastTurnBubble = () => [...$$("#transcript .msg.user[data-mid]")].at(-1) || null;
 function rewindTo(el, text, undo = null) { // undo: {ids, keep} of file changes to undo with it (checkpoints.js)

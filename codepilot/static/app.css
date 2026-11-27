@@ -720,8 +720,9 @@ a.loc:hover { text-decoration: underline; }
 .row.steer .incl.auto { color: var(--syn-kw); border-color: color-mix(in srgb, var(--syn-kw) 40%, transparent); }
 .steer-chip { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
 .msg.user { position: relative; }
-.msg-actions { position: absolute; top: -10px; right: 8px; display: none; gap: 2px; background: var(--bg-2); border: 1px solid var(--line-2); border-radius: var(--r-md); padding: 1px; box-shadow: var(--shadow); white-space: normal; }
-.msg.user[data-mid]:hover .msg-actions { display: flex; }
+/* Always there, so Tab reaches its buttons; seen (and clickable) on hover or while one has focus. */
+.msg-actions { position: absolute; top: -10px; right: 8px; display: flex; opacity: 0; pointer-events: none; gap: 2px; background: var(--bg-2); border: 1px solid var(--line-2); border-radius: var(--r-md); padding: 1px; box-shadow: var(--shadow); white-space: normal; }
+.msg.user[data-mid]:is(:hover, :focus-within) .msg-actions { opacity: 1; pointer-events: auto; }
 .msg.user.editing .msg-actions { display: none !important; }
 .msg-actions button { border: 0; background: transparent; color: var(--muted); width: 24px; height: 22px; border-radius: var(--r-sm); display: grid; place-items: center; cursor: pointer; }
 .msg-actions button:hover { background: var(--bg-4); color: var(--fg); }

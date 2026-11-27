@@ -220,6 +220,23 @@ def test_a_spec_and_a_steering_doc_open_from_their_lists(page, server, session):
     page.wait_for_function("() => (state.active || '').includes('style.md')")
 
 
+def test_a_messages_edit_retry_and_undo_are_reached_with_tab_and_shown_while_focused(page, server, session):
+    open_app(page)
+    send(page, "hello")
+    wait_idle(page)
+    actions = "#transcript .msg.user[data-mid] .msg-actions"
+    assert page.evaluate(f"() => getComputedStyle(document.querySelector('{actions}')).opacity") == "0"
+    page.focus("#chatTitleBtn")
+    tab_to(page, f"{actions} [data-act='edit']")
+    assert page.evaluate("() => document.activeElement.getAttribute('aria-label')").startswith("Edit")
+    page.wait_for_function(f"() => getComputedStyle(document.querySelector('{actions}')).opacity === '1'")
+    page.keyboard.press("Tab")
+    assert focus_is(page, f"{actions} [data-act='retry']")
+    assert page.evaluate("() => document.activeElement.getAttribute('aria-label')") == "Send again from here"
+    page.keyboard.press("Enter")
+    wait_calls(page, server, 2)  # sent again
+
+
 # -- the audit (4.5) -------------------------------------------------------------------------------------------------
 
 # Every visible element that looks clickable (a pointer cursor, or grab for a row you can drag) must be focusable
