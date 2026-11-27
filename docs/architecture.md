@@ -57,6 +57,7 @@ store.py (SQLite in ~/.codepilot): sessions, messages, proposals, usage, notes
 | `plans.py` | The plan checklist's lifecycle: new, update, complete, clear and restore, the same live and on reload |
 | `folders.py` | A session's folders: the main one plus added ones (checking a folder to add, making one main, telling the model) |
 | `checkpoints.py` | Turn checkpoints: the changes applied from a message onwards, and undoing them together (guarded like Undo) |
+| `static_files.py` | The `/static/` mount: every response says `Cache-Control: no-cache`, so an upgrade's scripts are always fetched together (unchanged ones answer 304) |
 | `server.py` | HTTP API, NDJSON streaming, localhost and CSRF guards, static files, terminal endpoints. Blocking filesystem and git work runs in worker threads so it can't stall streams or terminals |
 | `terminal.py` | Server-side terminals: PTY shells with scrollback that outlive the page, bridged to xterm.js over WebSockets |
 | `service.py` | `codepilot start/stop/status/logs` (background server) and the macOS launcher (`codepilot app`) |
