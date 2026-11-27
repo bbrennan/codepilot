@@ -644,6 +644,14 @@ stop move with the arrow keys:
 | Line numbers in a file | ↑ ↓, Page Up / Down, Home / End move; Enter or Space selects the line, Shift+Enter extends the selection |
 | Review | j / k or ↓ / ↑ move, a applies, r rejects: from the Review itself or with nothing focused, never while you're in the Explorer, a tab strip, a menu or a dialog |
 
+Dialogs (prompts, confirmations, Open folder, Report a problem, Go to file) keep Tab inside them, close with Esc, and
+give focus back to what opened them. A confirmation for something that can't be undone (Delete, Discard) starts on
+**Cancel**, so Enter cancels; Tab to the red button to confirm.
+
+With a screen reader, codepilot says when a turn starts and finishes, when a command waits for you ("Wants to run: …",
+as its step reads), when a turn stops with an error, and every notification (errors at once). Replies aren't read word by
+word as they stream.
+
 ## Tips for good results
 
 - **Say what done looks like:** "fix it and make sure `pytest tests/billing` passes".
