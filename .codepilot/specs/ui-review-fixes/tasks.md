@@ -10,11 +10,12 @@ named in design.md, watch it fail for the reason in bugfix.md, then fix.
   - _Requirements: 1.1, 1.2, 1.3_
   - _Tests: tests/e2e/test_chat_input_ui.py (Stop, Steer and Queue inside the message box at chat widths 300–440 and
     windows 1024×700 and 1440×900; ⌘. stops the running turn)_
-- [ ] 2. Edit and Done keep your place (`fix/edit-keeps-place`)
+- [x] 2. Edit and Done keep your place (`fix/edit-keeps-place`)
   - Test first (Playwright): a 300-line file; from the top, from line 120, Done, and across a tab switch.
   - `static/place.js` (new), `index.html`, `app.js` (`renderFileTab`, `renderEditTab`, `checkDisk`);
     `docs/architecture.md` (script list).
   - _Requirements: 2.1, 2.2, 2.3_
+  - _Tests: tests/e2e/test_files_ui.py (Edit and Done keep your place; a file tab keeps its place when you come back)_
 - [ ] 3. The active tab is always in view (`fix/active-tab-in-view`)
   - Test first (Playwright): twelve files open in a 1024px window; the Review tab opening; the wheel.
   - `app.js` (`renderTabs`, one listener).
