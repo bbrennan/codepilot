@@ -2077,7 +2077,7 @@ $("#fdCancel").onclick = () => fdClose(null);
 $("#fdClose").onclick = () => fdClose(null);
 $("#folderDialog").addEventListener("mousedown", (e) => { if (e.target.id === "folderDialog") fdClose(null); });
 $("#folderDialog").addEventListener("keydown", (e) => {
-  if (e.target.id === "fdInput") return;
+  if (e.target.id === "fdInput" || e.target.closest("[data-fdgo]")) return; // (a place takes Enter itself: a11y.js)
   if (e.key === "Escape") fdClose(null);
   if (e.key === "Enter") { fd.typed = false; fd.sel ? fdLoad(fd.sel) : fdClose(fd.path); }
   if (e.key === "Backspace" && fd.parent) { fd.typed = false; fdLoad(fd.parent); }

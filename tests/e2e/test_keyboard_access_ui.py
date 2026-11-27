@@ -15,6 +15,10 @@ def focus_is(page, sel):
     return page.evaluate("(s) => !!document.activeElement?.matches(s)", sel)
 
 
+def wait_focus(page, sel):
+    page.wait_for_function("(s) => !!document.activeElement?.matches(s)", arg=sel)
+
+
 def tab_to(page, sel, limit=80, key="Tab"):
     """Press Tab (or Shift+Tab) until focus is on sel; how many presses it took."""
     for n in range(1, limit + 1):
@@ -700,3 +704,119 @@ def test_f6_moves_between_the_panes_that_are_shown(page, server, session):
     labels = page.evaluate("() => ['#activitybar', '#sidebar', '.center', '#panel', '#chat', '.statusbar']"
                            ".map((s) => document.querySelector(s).getAttribute('aria-label'))")
     assert labels == ["Views", "Sidebar", "Editor", "Panel", "Chat", "Status"]
+
+
+# -- task 4: dialogs and suggestion lists (3.3-3.5, 4.4) -------------------------------------------------------------
+
+
+def dialog_state(page, sel):
+    return page.evaluate("""(s) => { const d = document.querySelector(s), lab = d.getAttribute('aria-labelledby');
+      return { role: d.getAttribute('role'), modal: d.getAttribute('aria-modal'),
+               name: lab ? document.getElementById(lab)?.textContent : d.getAttribute('aria-label'),
+               inside: d.contains(document.activeElement) }; }""", sel)
+
+
+def test_the_folder_dialog_takes_focus_keeps_tab_inside_and_gives_focus_back(page, server, session):
+    (server.repo.parent / "other" / "inner").mkdir(parents=True)
+    open_app(page)
+    page.focus("#workspaceBtn")
+    page.keyboard.press("Enter")  # the folder menu
+    page.locator("#ctxMenu").wait_for()
+    page.keyboard.press("a")  # Add folder…
+    page.keyboard.press("Enter")
+    page.locator("#folderDialog").wait_for()
+    page.locator("#fdList .row").first.wait_for()
+    assert dialog_state(page, "#folderDialog") == {"role": "dialog", "modal": "true", "name": "Add folder",
+                                                   "inside": True}, dialog_state(page, "#folderDialog")
+    for _ in range(30):
+        page.keyboard.press("Tab")
+        assert page.evaluate("() => document.querySelector('#folderDialog').contains(document.activeElement)"), \
+            page.evaluate(ACTIVE)
+    for _ in range(5):
+        page.keyboard.press("Shift+Tab")
+        assert page.evaluate("() => document.querySelector('#folderDialog').contains(document.activeElement)")
+    page.keyboard.press("Escape")
+    page.wait_for_function("() => document.querySelector('#folderDialog').hidden")
+    wait_focus(page, "#workspaceBtn")
+
+
+def test_in_the_folder_dialog_the_list_moves_with_arrows_and_enter_goes_in(page, server, session):
+    (server.repo / "agent" / "sub").mkdir()
+    open_app(page)
+    page.evaluate("() => { browseFolder(state.workspace); }")  # (its promise waits for a choice)
+    page.locator("#fdList [data-fdpath$='/agent']").wait_for()
+    page.focus("#fdInput")
+    tab_to(page, "#fdList .row")
+    assert role(page) == "option"
+    for _ in range(10):
+        if focus_is(page, "#fdList [data-fdpath$='/agent']"):
+            break
+        page.keyboard.press("ArrowDown")
+    assert focus_is(page, "#fdList [data-fdpath$='/agent']"), page.evaluate(ACTIVE)
+    assert page.evaluate("() => fd.sel").endswith("/agent")  # selected as a click selects
+    page.keyboard.press("Enter")  # into it
+    page.locator("#fdList [data-fdpath$='/agent/sub']").wait_for()
+    assert page.evaluate("() => document.querySelector('#folderDialog').contains(document.activeElement)")
+    page.focus("#fdInput")
+    tab_to(page, "#fdPlaces .row", key="Shift+Tab")
+    assert role(page) == "button"
+    page.keyboard.press("Enter")  # a place: goes there, the dialog stays open
+    page.wait_for_function("() => !document.querySelector('#fdList [data-fdpath$=\"/agent/sub\"]')")
+    assert not page.evaluate("() => document.querySelector('#folderDialog').hidden")
+
+
+def test_a_prompt_traps_tab_closes_on_escape_from_a_button_and_gives_focus_back(page, server, session):
+    open_app(page)
+    into_tree(page)
+    page.keyboard.press("End")
+    page.keyboard.press("F2")
+    page.locator("#dialog").wait_for()
+    assert dialog_state(page, "#dialog")["role"] == "dialog"
+    assert dialog_state(page, "#dialog")["name"] == "Rename Makefile"
+    assert focus_is(page, "#dialogInput")
+    page.keyboard.press("Shift+Tab")  # round to the last button
+    assert focus_is(page, "#dialogOk"), page.evaluate(ACTIVE)
+    page.keyboard.press("Tab")
+    assert focus_is(page, "#dialogInput")
+    page.keyboard.press("Tab")
+    page.keyboard.press("Escape")  # from Cancel, not the text box
+    page.wait_for_function("() => document.querySelector('#dialog').hidden")
+    wait_focus(page, "#tree [data-file='Makefile']")
+    page.keyboard.press("Delete")  # the row has focus again: its keys work (after task 2's F2, Escape)
+    page.locator("#dialog").wait_for()
+    assert "Makefile" in page.text_content("#dialogTitle")
+
+
+def test_go_to_file_and_the_report_are_dialogs_that_give_focus_back(page, server, session):
+    open_app(page)
+    into_tree(page)
+    page.keyboard.press("ControlOrMeta+p")
+    page.locator("#palette").wait_for()
+    assert dialog_state(page, "#palette") == {"role": "dialog", "modal": "true", "name": "Go to file", "inside": True}
+    page.keyboard.press("Escape")
+    page.wait_for_function("() => document.querySelector('#palette').hidden")
+    wait_focus(page, "#tree [data-dir='agent']")
+    page.focus("#input")
+    page.keyboard.type("/report")
+    page.keyboard.press("Enter")  # (picks /report from the list)
+    page.locator("#reportDialog").wait_for()
+    st = dialog_state(page, "#reportDialog")
+    assert st["role"] == "dialog" and st["name"] == "Report a problem" and st["inside"], st
+    page.keyboard.press("Escape")
+    page.wait_for_function("() => document.querySelector('#reportDialog').hidden")
+    wait_focus(page, "#input")
+
+
+def test_enter_in_a_prompt_opened_by_a_button_does_not_open_it_again(page, server, session):
+    """Focus goes back to New Folder after the key that closed the prompt, not during it: during it, the same Enter
+    went on to click the button and opened a second prompt."""
+    open_app(page)
+    page.focus("#newFolderBtn")
+    page.keyboard.press("Enter")
+    page.locator("#dialog").wait_for()
+    page.keyboard.type("helpers")
+    page.keyboard.press("Enter")
+    page.locator("#tree [data-dir='helpers']").wait_for()
+    wait_focus(page, "#newFolderBtn")
+    page.wait_for_timeout(200)
+    assert page.evaluate("() => document.querySelector('#dialog').hidden"), "the prompt opened a second time"
