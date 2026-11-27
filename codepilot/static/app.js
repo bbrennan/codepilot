@@ -746,6 +746,7 @@ function setDirty(tab) {
   const dirty = tab.draft != null && tab.draft !== tab.content;
   if (dirty !== !!tab.dirty) { tab.dirty = dirty; renderTabs(); }
   const st = $("#edState"); if (st) st.textContent = dirty ? "Unsaved changes" : "Saved";
+  saveTabsSoon(); // tabstate.js: the draft
 }
 function renderEditTab(tab) {
   const parts = tab.path.split("/");
@@ -783,8 +784,9 @@ async function saveFile(tab, force = false) {
   try {
     const d = tab.global
       ? await api("/api/steering/global", { method: "PUT", body: { name: tab.global, content: tab.draft, base_mtime: tab.mtime, force } })
-      : await fsApi({ op: "save", path: tab.path, content: tab.draft, base_mtime: tab.mtime, force });
-    tab.content = tab.draft; tab.mtime = d.mtime; setDirty(tab);
+      : await fsApi(tab.missing ? { op: "new_file", path: tab.path, content: tab.draft } // (tabstate.js: deleted since)
+        : { op: "save", path: tab.path, content: tab.draft, base_mtime: tab.mtime, force });
+    tab.content = tab.draft; tab.mtime = d.mtime; tab.missing = false; setDirty(tab);
     toast(`Saved ${tab.path}`); loadGit();
     if (tab.global || tab.path.startsWith(".codepilot/steering/")) loadSteering();
   } catch (err) {

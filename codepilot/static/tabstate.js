@@ -2,15 +2,17 @@
 // Tabs come back: each main folder's open tabs, their order and place, the Explorer's open folders and any unsaved edit
 // are kept in this browser (localStorage, cp-tabs:<folder>) and reopened after a reload, a restart, or a switch back to
 // a session on that folder. Per folder, not per session: sessions on one folder share their tabs, as they always have.
-// A file's text is never stored.
+// A file's text is never stored, only a draft that differs from it. The page asks before it's left only when a draft
+// couldn't be stored (too large, or storage full or blocked); asking on every reload would teach you to click through.
 
 const TABS_KEY = "cp-tabs:";
+const TABS_MAX_DRAFT = 1_000_000; // characters: localStorage holds a few million in all, for every folder
 const TABS_MAX_AGE = 30 * 86400; // s: a folder not opened for this long is forgotten at startup
 const TABS_MAX_FOLDERS = 20;
 
 // folder: whose tabs state.tabs holds, and so where they're written (null while a folder's tabs are being reopened:
-// writing a half-restored list then would lose the rest).
-const tabStore = { folder: null, restoring: 0, seq: 0 };
+// writing a half-restored list then would lose the rest). unsafe: ids of tabs whose draft the last write couldn't keep.
+const tabStore = { folder: null, restoring: 0, seq: 0, unsafe: new Set() };
 
 function tabsRestoring() { return !!tabStore.restoring; } // openTab: reopened tabs don't take focus one by one
 
@@ -27,17 +29,22 @@ const TAB_KINDS = {
   gitdiff: { record: () => ({}), reopen: () => openGitDiff() },
 };
 
-function tabRecord(tab) {
+function tabRecord(tab, unsafe) {
   const kind = TAB_KINDS[tab.kind];
   const fields = kind && !tab.global && !tab.readonly ? kind.record(tab) : null;
   if (!fields) return null;
-  return { id: tab.id, kind: tab.kind, ...fields };
+  const rec = { id: tab.id, kind: tab.kind, ...fields };
+  if (rec.draft != null && rec.draft.length > TABS_MAX_DRAFT) { delete rec.draft; delete rec.baseMtime; unsafe.add(tab.id); }
+  return rec;
 }
 
 function fileRecord(t) {
   const editor = state.active === t.id && t.editing && !t.editPreview ? $("#codeEdit") : null;
-  return { path: t.path, view: t.view || null, topLine: t.topLine || 1, scroll: t.scroll || 0, sel: t.sel || null,
+  const rec = { path: t.path, view: t.view || null, topLine: t.topLine || 1, scroll: t.scroll || 0, sel: t.sel || null,
     caret: editor ? editor.selectionStart : t.caret ?? null, editing: !!t.editing, editPreview: !!t.editPreview };
+  // Only an edit that differs from the file, and never for one that isn't UTF-8 (it can't be edited here).
+  if (t.dirty && t.draft != null && !t.encoding) Object.assign(rec, { draft: t.draft, baseMtime: t.mtime ?? null });
+  return rec;
 }
 
 function writeTabRecord(folder, rec) {
@@ -55,8 +62,16 @@ function readTabRecord(folder) {
 function saveTabs() {
   const folder = tabStore.folder;
   if (!folder || tabStore.restoring) return;
-  writeTabRecord(folder, { v: 1, at: Math.floor(Date.now() / 1000), active: state.active, expanded: [...state.expanded],
-    tabs: state.tabs.map(tabRecord).filter(Boolean) });
+  const unsafe = new Set();
+  const rec = { v: 1, at: Math.floor(Date.now() / 1000), active: state.active, expanded: [...state.expanded],
+    tabs: state.tabs.map((t) => tabRecord(t, unsafe)).filter(Boolean) };
+  if (!writeTabRecord(folder, rec)) {
+    // Full or blocked: every draft is at risk. Keep the tabs and their place if that much still fits.
+    for (const t of state.tabs) if (t.dirty) unsafe.add(t.id);
+    for (const t of rec.tabs) { delete t.draft; delete t.baseMtime; }
+    writeTabRecord(folder, rec);
+  }
+  tabStore.unsafe = unsafe;
 }
 const saveTabsSoon = debounce(saveTabs, 300);
 
@@ -64,7 +79,7 @@ const saveTabsSoon = debounce(saveTabs, 300);
 // already shows them; then each tab is reopened in order, quietly, and the editor is drawn once at the end.
 async function restoreTabs(repo) {
   const seq = ++tabStore.seq;
-  tabStore.restoring = seq; tabStore.folder = null;
+  tabStore.restoring = seq; tabStore.folder = null; tabStore.unsafe = new Set();
   state.tabs = []; state.active = null;
   const rec = repo ? readTabRecord(repo) : null;
   state.expanded.clear(); for (const p of rec?.expanded || []) state.expanded.add(p);
@@ -104,13 +119,23 @@ async function restoreTabs(repo) {
 // A file tab, where it was. A place is set before the one render, not passed to openFile as a line: a line would
 // flash and clear the selection.
 async function reopenFile(r, found) {
-  if (found.mtimes[r.path] === null) return; // gone: left out (undefined: not known, so try)
-  await openFile(r.path);
+  const mtime = found.mtimes[r.path]; // null: gone; undefined: not known, so try
+  const draft = typeof r.draft === "string" ? r.draft : null;
+  if (mtime === null) {
+    if (draft == null) return; // gone, with nothing of yours in it: left out
+    openTab({ id: r.id, kind: "file", path: r.path, title: base(r.path), tip: r.path, content: "", mtime: null, missing: true, sel: null });
+    toast(`${r.path} was deleted on disk. Your unsaved edit is kept: Save writes the file again.`);
+  } else await openFile(r.path);
   const tab = state.tabs.find((t) => t.id === r.id);
   if (tab?.kind !== "file") return;
   Object.assign(tab, { view: r.view || undefined, topLine: r.topLine || 1, scroll: r.scroll || 0, sel: r.sel || null,
     caret: r.caret ?? null, flash: null, editPreview: !!r.editPreview });
-  if (r.editing && !tab.encoding) Object.assign(tab, { editing: true, draft: tab.content });
+  if (tab.encoding) return;
+  if (draft != null) {
+    // The draft's own base: when the file changed since, checkDisk says so once, and Save asks before overwriting.
+    Object.assign(tab, { editing: true, draft, mtime: tab.missing ? null : r.baseMtime ?? tab.mtime });
+    tab.dirty = tab.draft !== tab.content;
+  } else if (r.editing) Object.assign(tab, { editing: true, draft: tab.content });
 }
 
 function reopenSpec(r) {
@@ -130,7 +155,10 @@ function pruneTabRecords(now = Date.now() / 1000) {
   } catch { /* storage blocked: nothing stored either */ }
 }
 
-// Leaving: write now (the debounce may not have run).
-addEventListener("beforeunload", saveTabs);
+// Leaving: write now (the debounce may not have run), and ask only for an edit that couldn't be kept.
+addEventListener("beforeunload", (e) => {
+  saveTabs();
+  if (state.tabs.some((t) => t.dirty && tabStore.unsafe.has(t.id))) { e.preventDefault(); e.returnValue = ""; }
+});
 addEventListener("pagehide", saveTabs);
 document.addEventListener("visibilitychange", () => { if (document.hidden) saveTabs(); });
