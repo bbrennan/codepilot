@@ -170,6 +170,7 @@ async function init() {
   initLayout(); // layout.js: saved pane sizes, fitted to this window
   hydrateIcons(); renderQuick(); // before the first await, so the composer doesn't change height after first paint
   state.cfg = await api("/api/config");
+  pruneTabRecords(); // tabstate.js (loaded by now)
   const c = state.cfg;
   showStaleBanner(c);
   $("#sbProvider").innerHTML = `${icon("server")}${c.provider === "bedrock" ? `bedrock · ${esc(c.region)}${c.profile ? " · " + esc(c.profile) : ""}` : `${esc(c.provider)} · ${esc(shortModel(c.models.main) || "no model set")}`}`;
@@ -300,9 +301,8 @@ function setWorkspace(repo, changed = true) {
   $("#workspaceBtn").title = tilde(repo) || "Open folder";
   $("#explorerTitle").textContent = repo ? base(repo) : "Explorer";
   if (changed) {
-    state.tree.clear(); state.expanded.clear();
-    state.tabs = state.tabs.filter((t) => !["file", "trace", "gitdiff"].includes(t.kind));
-    if (!state.tabs.some((t) => t.id === state.active)) state.active = state.tabs[0]?.id || null;
+    state.tree.clear();
+    restoreTabs(repo); // tabstate.js: this folder's tabs replace the current ones (its open folders before the tree)
   }
   renderTree(); renderEditor(); loadGit(); loadWorkspaceInfo();
   if ($(".chat-empty")) renderChatEmpty();
@@ -397,6 +397,7 @@ async function renderTree() {
   };
   await walkFolders(walk, rows); // folders.js: each of the session's folders
   el.innerHTML = rows.join("") || `<div class="empty-state">Empty folder.</div>`;
+  saveTabsSoon(); // tabstate.js: the open folders
 }
 $("#tree").addEventListener("click", (e) => {
   const picked = e.target.closest("[data-file],[data-dir]");
@@ -496,10 +497,10 @@ async function loadWorkspaceInfo() {
 }
 
 // ---------------------------------------------------------------- editor tabs
-function openTab(tab) {
+function openTab(tab, quiet = tabsRestoring()) { // quiet: added, not shown (tabstate.js shows the right one at the end)
   const existing = state.tabs.find((t) => t.id === tab.id);
   if (existing) Object.assign(existing, tab); else state.tabs.push(tab);
-  state.active = tab.id; renderEditor();
+  if (!quiet) { state.active = tab.id; renderEditor(); }
 }
 async function closeTab(id) {
   const i = state.tabs.findIndex((t) => t.id === id); if (i < 0) return;
@@ -526,6 +527,7 @@ $("#editorTabs").addEventListener("click", (e) => {
 });
 $("#editorTabs").addEventListener("auxclick", (e) => { const t = e.target.closest("[data-tab]"); if (t && e.button === 1) closeTab(t.dataset.tab); });
 function renderEditor() {
+  saveTabsSoon(); // tabstate.js
   renderTabs();
   const tab = state.tabs.find((t) => t.id === state.active);
   const ed = $("#editor");
