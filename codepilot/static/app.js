@@ -123,6 +123,7 @@ function setView(view, reveal = true) {
   if (view === "steering") loadSteering();
   if (view === "specs") loadSpecs();
   if (view === "search") $("#grepInput").focus();
+  window.a11y?.viewChanged(); // a11y.js: which view the activity bar says is shown
 }
 $("#activitybar").addEventListener("click", (e) => {
   const b = e.target.closest("button"); if (!b) return;
@@ -1056,7 +1057,7 @@ $("#traceList").addEventListener("click", (e) => { const r = e.target.closest("[
 function renderProposalList() {
   const list = [...state.proposals.values()].reverse();
   const pending = list.filter((p) => p.status === "pending").length;
-  $("#changesBadge").hidden = !pending; $("#changesBadge").textContent = pending;
+  $("#changesBadge").hidden = !pending; $("#changesBadge").textContent = pending; window.a11y?.viewChanged(); // (its name and count)
   $("#proposalList").innerHTML = list.map((p) => `<div class="row" data-prop-open="${p.id}">${icon("diff")}<span class="name">${esc(base(p.path))} <span class="muted">#${p.id}</span></span>${p.status === "applied" ? `<button class="icon-btn sm hover-act" data-revert="${p.id}" title="Undo">${icon("history")}</button>` : ""}<span class="status ${p.status}">${p.status}</span></div>`).join("")
     || `<div class="hint" style="padding:0 14px">Nothing proposed yet. Diffs codepilot suggests show up here for review.</div>`;
 }

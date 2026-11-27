@@ -252,6 +252,23 @@ $(".panel-tabs").addEventListener("keydown", (e) => {
   if (to) { e.preventDefault(); showPanelTab(to.dataset.ptab); to.focus(); }
 });
 
+// ---- the activity bar and the chat's title (2.3, 2.4)
+// Each view's button says whether its view is the one shown (not just picked: the sidebar may be hidden, by you or
+// because it stepped aside for room, which layout.js knows). A count keeps the button's name: "Changes, 2 waiting
+// for review". (Progress names its own count: progress.js.)
+function a11yViewChanged() {
+  const shown = layoutShown(ide, "sidebar");
+  for (const b of $$("#activitybar button")) b.setAttribute("aria-pressed", String(shown && b.classList.contains("on")));
+  const n = $("#changesBadge").hidden ? 0 : +$("#changesBadge").textContent || 0;
+  $("#activitybar [data-view=changes]").setAttribute("aria-label", n ? `Changes, ${n} waiting for review` : "Changes");
+}
+new MutationObserver(a11yViewChanged).observe(ide, { attributes: true, attributeFilter: ["class"] }); // (shown, hidden)
+a11yViewChanged();
+// The title is the session's name; the button switches sessions. Said so, so it isn't a second "New session".
+function a11yChatTitle() { $("#chatTitleBtn").setAttribute("aria-label", `Switch session: ${$("#chatTitle").textContent}`); }
+new MutationObserver(a11yChatTitle).observe($("#chatTitle"), { childList: true, characterData: true, subtree: true });
+a11yChatTitle();
+
 // What app.js calls. focus(selector): put focus somewhere deliberate, on an element that may not be decorated yet.
 function a11yFocus(sel) {
   const el = document.querySelector(sel); if (!el) return;
@@ -259,6 +276,6 @@ function a11yFocus(sel) {
 }
 // (window.a11y?.…: app.js may draw before this script has loaded, and this catches up below.)
 window.a11y = { treeRendered: a11yTreeRendered, tabsRendered: a11yTabsRendered, panelTabsShown: a11yPanelTabsShown,
-  focus: a11yFocus };
+  viewChanged: a11yViewChanged, focus: a11yFocus };
 a11yTabsRendered();
 if ($("#tree .row")) a11yTreeRendered();

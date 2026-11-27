@@ -610,3 +610,30 @@ def test_the_panel_tabs_are_a_tab_list_too(page, server, session):
         "true", "tabpanel"]
     page.keyboard.press("Shift+Tab")
     assert not page.evaluate("() => !!document.activeElement.closest('[role=tablist]')")  # one stop
+
+
+def test_the_activity_bar_says_which_view_is_shown_and_keeps_its_names_with_a_count(page, server, session):
+    server.store.add_proposal(session.id, "agent/core.py", "a - b", "a + b", "fix the sign")
+    open_app(page)
+    pressed = "() => [...document.querySelectorAll('#activitybar button')].filter((b) =>" \
+              " b.getAttribute('aria-pressed') === 'true').map((b) => b.dataset.view)"
+    assert page.evaluate(pressed) == ["explorer"]
+    page.keyboard.press("ControlOrMeta+b")  # hidden: nothing is shown
+    page.wait_for_function(f"() => ({pressed})().length === 0")
+    page.keyboard.press("ControlOrMeta+b")
+    page.wait_for_function(f"() => ({pressed})().join() === 'explorer'")
+    page.evaluate("setView('search')")
+    page.wait_for_function(f"() => ({pressed})().join() === 'search'")
+    changes = page.locator("#activitybar [data-view=changes]")
+    assert changes.get_attribute("aria-label") == "Changes, 1 waiting for review"
+    assert page.get_attribute("#changesBadge", "aria-hidden") == "true"
+    page.set_viewport_size({"width": 900, "height": 700})  # the sidebar steps aside for room (#126)
+    page.wait_for_function("() => document.getElementById('ide').classList.contains('auto-no-sidebar')")
+    page.wait_for_function(f"() => ({pressed})().length === 0")
+
+
+def test_the_chat_title_says_it_switches_sessions(page, server, session):
+    server.store.update_session(session.id, title="fix the sign")
+    open_app(page)
+    page.wait_for_function("() => document.querySelector('#chatTitleBtn').getAttribute('aria-label')"
+                           " === 'Switch session: fix the sign'")
