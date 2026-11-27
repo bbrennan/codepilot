@@ -637,3 +637,41 @@ def test_the_chat_title_says_it_switches_sessions(page, server, session):
     open_app(page)
     page.wait_for_function("() => document.querySelector('#chatTitleBtn').getAttribute('aria-label')"
                            " === 'Switch session: fix the sign'")
+
+
+def test_a_menu_takes_focus_moves_with_arrows_and_gives_focus_back(page, server, session):
+    open_app(page)
+    page.focus("#fileMenuBtn")
+    assert page.get_attribute("#fileMenuBtn", "aria-haspopup") == "menu"
+    page.keyboard.press("Enter")
+    page.locator("#ctxMenu").wait_for()
+    assert page.get_attribute("#ctxMenu", "role") == "menu"
+    assert focus_is(page, "#ctxMenu [role=menuitem]") and page.text_content("#ctxMenu :focus") == "New File…"
+    assert page.get_attribute("#fileMenuBtn", "aria-expanded") == "true"
+    page.keyboard.press("ArrowDown")
+    assert page.text_content("#ctxMenu :focus") == "New Folder…"
+    page.keyboard.press("End")
+    assert page.text_content("#ctxMenu :focus") == "Go to File…" + page.evaluate("keyLabel('mod+p')")
+    page.keyboard.press("ArrowDown")  # round to the top
+    assert page.text_content("#ctxMenu :focus") == "New File…"
+    page.keyboard.press("o")
+    assert page.text_content("#ctxMenu :focus") == "Open Folder…"
+    page.keyboard.press("Escape")
+    page.wait_for_function("() => document.querySelector('#ctxMenu').hidden")
+    assert focus_is(page, "#fileMenuBtn")
+    assert page.get_attribute("#fileMenuBtn", "aria-expanded") == "false"
+
+
+def test_a_rows_menu_runs_an_item_and_focus_goes_back_to_the_row(page, server, session):
+    open_app(page)
+    into_tree(page)
+    page.keyboard.press("End")
+    page.keyboard.press("Shift+F10")
+    page.locator("#ctxMenu").wait_for()
+    assert page.text_content("#ctxMenu :focus") == "Open"
+    page.keyboard.press("c")
+    assert page.text_content("#ctxMenu :focus").startswith("Copy relative path")
+    page.keyboard.press("Enter")
+    page.wait_for_function("async () => (await navigator.clipboard.readText()) === 'Makefile'")
+    assert page.evaluate("() => document.querySelector('#ctxMenu').hidden")
+    assert picked(page) == "Makefile"

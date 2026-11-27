@@ -72,10 +72,19 @@ function a11yKey(el) {
   }
   return parts.join(" ");
 }
+// Menus, dialogs and the session switcher sit over the page; focus goes back from them to what had it before.
+const A11Y_OVERLAYS = "#ctxMenu, .palette, #sessPop";
 document.addEventListener("focusin", (e) => {
   const el = e.target, box = el.parentElement?.closest("[id]");
   a11yState.last = { el, key: a11yKey(el), box: box && "#" + CSS.escape(box.id) };
+  if (!el.closest(A11Y_OVERLAYS)) a11yState.outside = a11yState.last;
 });
+// Where to give focus back to: the element that had it, or the same thing redrawn since.
+function a11yBack(to) {
+  if (!to) return null;
+  if (to.el.isConnected && to.el.getClientRects().length) return to.el;
+  try { return document.querySelector(to.key); } catch { return null; }
+}
 // A click on something that can't take focus leaves focus on the page: that's where you put it, not a redraw.
 document.addEventListener("mousedown", () => { a11yState.last = null; }, true);
 
@@ -269,6 +278,44 @@ function a11yChatTitle() { $("#chatTitleBtn").setAttribute("aria-label", `Switch
 new MutationObserver(a11yChatTitle).observe($("#chatTitle"), { childList: true, characterData: true, subtree: true });
 a11yChatTitle();
 
+// ---- menus (3.1, 3.2)
+// showMenu ends here. Focus moves to the first item; Up and Down (round the ends), Home, End and a letter move; Enter
+// or Space runs an item; Escape or Tab closes it. When it closes by a key or by running an item, focus goes back to
+// what opened it, unless the item put focus somewhere itself (a dialog). A click elsewhere puts focus where it went.
+function a11yMenu(m) {
+  m.setAttribute("role", "menu");
+  for (const it of m.querySelectorAll("[data-mi]")) { it.setAttribute("role", "menuitem"); it.tabIndex = -1; }
+  for (const sep of m.querySelectorAll(".sep")) sep.setAttribute("role", "separator");
+  const opener = a11yState.menuOpener = a11yState.outside;
+  if (opener?.el.hasAttribute("aria-haspopup")) opener.el.setAttribute("aria-expanded", "true");
+  m.querySelector("[data-mi]")?.focus({ preventScroll: true });
+}
+new MutationObserver(() => {
+  const m = $("#ctxMenu"), opener = a11yState.menuOpener;
+  if (!m.hidden || !opener) return;
+  a11yState.menuOpener = null;
+  if (opener.el.hasAttribute("aria-expanded")) opener.el.setAttribute("aria-expanded", "false");
+  const now = document.activeElement;
+  if (now === document.body || m.contains(now)) a11yBack(opener)?.focus({ preventScroll: true });
+}).observe($("#ctxMenu"), { attributes: true, attributeFilter: ["hidden"] });
+$("#ctxMenu").addEventListener("keydown", (e) => {
+  const m = e.currentTarget, items = [...m.querySelectorAll("[data-mi]")], i = items.indexOf(e.target.closest("[data-mi]"));
+  if (e.altKey || e.ctrlKey || e.metaKey || e.isComposing) return;
+  let to = null;
+  if (e.key === "ArrowDown") to = items[(i + 1) % items.length];
+  else if (e.key === "ArrowUp") to = items[(i - 1 + items.length) % items.length];
+  else if (e.key === "Home") to = items[0];
+  else if (e.key === "End") to = items.at(-1);
+  else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); items[i]?.click(); return; }
+  else if (e.key === "Escape" || e.key === "Tab") { e.preventDefault(); e.stopPropagation(); m.hidden = true; return; }
+  else if (e.key.length === 1) {
+    const label = (it) => (it.querySelector("span")?.textContent || "").toLowerCase();
+    to = [...items.slice(i + 1), ...items.slice(0, i + 1)].find((it) => label(it).startsWith(e.key.toLowerCase()));
+  }
+  if (!to) return;
+  e.preventDefault(); to.focus({ preventScroll: true });
+});
+
 // What app.js calls. focus(selector): put focus somewhere deliberate, on an element that may not be decorated yet.
 function a11yFocus(sel) {
   const el = document.querySelector(sel); if (!el) return;
@@ -276,6 +323,6 @@ function a11yFocus(sel) {
 }
 // (window.a11y?.…: app.js may draw before this script has loaded, and this catches up below.)
 window.a11y = { treeRendered: a11yTreeRendered, tabsRendered: a11yTabsRendered, panelTabsShown: a11yPanelTabsShown,
-  viewChanged: a11yViewChanged, focus: a11yFocus };
+  viewChanged: a11yViewChanged, menu: a11yMenu, focus: a11yFocus };
 a11yTabsRendered();
 if ($("#tree .row")) a11yTreeRendered();

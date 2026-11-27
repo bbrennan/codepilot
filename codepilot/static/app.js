@@ -2407,6 +2407,7 @@ function showMenu(x, y, items) {
   const r = m.getBoundingClientRect();
   m.style.left = Math.min(x, innerWidth - r.width - 8) + "px"; m.style.top = Math.min(y, innerHeight - r.height - 8) + "px";
   m.onclick = (e) => { const el = e.target.closest("[data-mi]"); if (!el) return; m.hidden = true; items[+el.dataset.mi].run(); };
+  window.a11y?.menu(m); // a11y.js: focus in, keys, focus back
 }
 document.addEventListener("mousedown", (e) => { if (!e.target.closest("#ctxMenu")) $("#ctxMenu").hidden = true; });
 function pathMenu(rel, isDir) {
