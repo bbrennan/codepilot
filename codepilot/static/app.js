@@ -902,6 +902,7 @@ function decideApproval(approve) {
   const remember = approve && !!$("#rbAllow")?.checked;
   const tools = state.approval.tools;
   state.approval = null; renderReviewBar();
+  for (const t of tools) approve ? stepApproved(state.toolEls.get(t.id)) : stepDenied(state.toolEls.get(t.id), t); // steps.js
   const row = $("#transcript .wait-row.waiting");
   if (row) { row.classList.remove("waiting"); row.classList.add(approve ? "approved" : "denied"); row.innerHTML = `${icon(approve ? "check" : "x")}<span>${approve ? "Approved" : "Denied"}: ${cmdCodes(tools)}${remember ? ` · always allowed <code>${esc(tools[0].allow.prefix)}</code> this session` : ""}</span>`; }
   streamTo(state.sid, `/api/sessions/${state.sid}/approve`, { approve, remember });
@@ -1350,8 +1351,10 @@ function render(ev, replay) {
       const el = state.toolEls.get(ev.id) || toolEl({ id: ev.id, name: ev.name, input: null });
       const exit = ev.output.match(/^exit code (-?\d+)/m);
       const failedRun = !ev.is_error && exit && exit[1] !== "0";
-      const st = $(".st", el); st.className = "st " + (ev.is_error ? "err" : failedRun ? "warn" : "ok");
-      st.innerHTML = `${icon(ev.is_error || failedRun ? "alert" : "check")}${failedRun ? "exit " + exit[1] + " · " : ""}${ev.seconds ? ev.seconds + "s" : ""}`;
+      if (!deniedResult(el, ev)) { // steps.js: a call you denied didn't run; that isn't an error
+        const st = $(".st", el); st.className = "st " + (ev.is_error ? "err" : failedRun ? "warn" : "ok");
+        st.innerHTML = `${icon(ev.is_error || failedRun ? "alert" : "check")}${failedRun ? "exit " + exit[1] + " · " : ""}${ev.seconds ? ev.seconds + "s" : ""}`;
+      }
       el.insertAdjacentHTML("beforeend", `<pre>${esc(ev.output)}</pre>`);
       changeStepDone(el, ev); // steps.js: a change made shows as its change row, not twice
       readStepDone(el, ev); // steps.js: an error splits a group of reads; the group's status follows its steps
@@ -1380,6 +1383,7 @@ function render(ev, replay) {
       $$("#transcript .wait-row.waiting").forEach((w) => w.remove());
       add(`<div class="wait-row waiting" title="${esc(ev.tools.map((t) => t.command).join("\n\n"))}">${icon("alert")}<span>Waiting for your approval: ${cmdCodes(ev.tools)}</span></div>`);
       state.approval = { tools: ev.tools }; renderReviewBar();
+      for (const t of ev.tools) stepWaiting(state.toolEls.get(t.id), t); // steps.js: "Wants to run …"
       break;
     }
     case "workspace": setWorkspace(ev.repo, true); loadSessions(); toast(`Opened ${ev.repo}`); break;

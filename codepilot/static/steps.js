@@ -52,6 +52,47 @@ function stepText(name, input) {
   return [`Used ${name}`, input ? argSummary(name, input) : ""];
 }
 
+// A step that waits for your approval says so ("Wants to run rm -rf build"), with no spinner: nothing runs yet. Approved,
+// it reads as any step ("Ran …"); denied, it says it didn't run, with a neutral mark rather than an error's, live and on
+// reload alike (agent.py stores a denied call's result starting with DECLINED). Only the row's verb and status change.
+const WAITING_TEXT = {
+  run_command: () => "Wants to run",
+  github: () => "Wants to run",
+  run_tests: () => "Wants to run the tests",
+  run_checks: (i) => i.kind && i.kind !== "all" ? `Wants to run the ${i.kind} checks` : "Wants to run the checks",
+  open_workspace: () => "Wants to open",
+};
+const DECLINED = "The user declined this tool call";
+const waitingVerb = (tool) => (WAITING_TEXT[tool.name] || (() => `Wants to use ${tool.name}`))(tool.input || {});
+const stepVerb = (el) => el.querySelector(":scope > summary .tverb");
+const stepStatus = (el) => el.querySelector(":scope > summary .st");
+
+function stepWaiting(el, tool) {
+  if (!el) return;
+  if (!el.classList.contains("waiting")) el.dataset.verb = stepVerb(el).textContent;
+  el.classList.add("waiting");
+  stepVerb(el).textContent = waitingVerb(tool);
+  stepStatus(el).className = "st waiting"; stepStatus(el).innerHTML = icon("alert");
+}
+function stepApproved(el) {
+  if (!el?.classList.contains("waiting")) return;
+  el.classList.remove("waiting");
+  stepVerb(el).textContent = el.dataset.verb;
+  stepStatus(el).className = "st"; stepStatus(el).innerHTML = '<span class="spinner"></span>';
+}
+function stepDenied(el, tool) {
+  if (!el) return;
+  el.classList.remove("waiting"); el.classList.add("denied");
+  stepVerb(el).textContent = waitingVerb(tool).replace(/^Wants to /, "Didn't ");
+  stepStatus(el).className = "st denied"; stepStatus(el).innerHTML = icon("x");
+}
+// A result that says the call was declined: the row reads as denied. True when it was one.
+function deniedResult(el, ev) {
+  if (!ev.is_error || !String(ev.output).startsWith(DECLINED)) return false;
+  stepDenied(el, ev);
+  return true;
+}
+
 // One row per change: a propose_edit step that made a change gives its place to the change's own row (file, +/−,
 // Apply/Reject), which says what the step would. Live, the change arrives before the step's result; on reload, after
 // it; so whichever comes second makes the swap. Anything the result adds after its first line (what the checks found

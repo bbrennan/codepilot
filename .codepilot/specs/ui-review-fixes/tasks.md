@@ -21,11 +21,14 @@ named in design.md, watch it fail for the reason in bugfix.md, then fix.
   - `app.js` (`renderTabs`, one listener).
   - _Requirements: 3.1, 3.2_
   - _Tests: tests/e2e/test_files_ui.py (the active tab is always in view; the mouse wheel scrolls the tab strip sideways)_
-- [ ] 4. A step that waits says so, and a denied one says it didn't run (`fix/step-wording`)
+- [x] 4. A step that waits says so, and a denied one says it didn't run (`fix/step-wording`)
   - Test first (Playwright): waiting, approved and denied rows, live and after a reload.
   - `steps.js` (`WAITING_TEXT`, `stepWaiting`, `stepApproved`, `stepDenied`), `app.js` (three calls), `app.css` (the two
     row states); `docs/usage.md` (Approvals).
   - _Requirements: 4.1, 4.2, 4.3_
+  - _Tests: tests/e2e/test_review_ui.py (a command waiting for approval says so and a denied one didn't run, also after a
+    reload; an approved command reads as any step that ran), tests/e2e/test_readable_steps_ui.py (updated: a waiting
+    command reads "Wants to run")_
 - [ ] 5. Binary files and files that aren't UTF-8 open as what they are (`fix/binary-files`)
   - Test first (unit): `textfile.kind`; the `files` endpoint's two answers. (Playwright): no Edit on either.
   - `textfile.py`, `server.py` (wiring), `static/filekinds.js` (new), `index.html`, `app.js` (`openFile`,

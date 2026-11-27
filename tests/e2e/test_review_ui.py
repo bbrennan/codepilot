@@ -203,3 +203,36 @@ def test_a_long_command_waiting_for_approval_is_one_line_in_the_chat(page, serve
     page.click("#rbApprove")
     page.locator("#transcript .wait-row.approved").wait_for()
     assert page.evaluate(ONE_LINE, "#transcript .wait-row.approved"), "the decision is one line too"
+
+
+STEP = """() => { const d = [...document.querySelectorAll('#transcript details.tool')].at(-1); if (!d) return null;
+  return { verb: d.querySelector('.tverb').textContent, spinning: !!d.querySelector('.st .spinner'),
+           err: d.querySelector('.st').classList.contains('err'), waiting: d.classList.contains('waiting') }; }"""
+
+
+def test_a_command_waiting_for_approval_says_so_and_a_denied_one_didnt_run(page, server, session):
+    open_app(page)
+    send(page, "delete build")
+    page.locator("#rbDeny").wait_for()
+    step = page.evaluate(STEP)
+    assert step["verb"] == "Wants to run" and not step["spinning"] and step["waiting"], step  # not "Ran", not spinning
+    page.click("#rbDeny")
+    wait_idle(page)
+    step = page.evaluate(STEP)
+    assert step["verb"] == "Didn't run" and not step["err"], step  # a decision, not an error
+    page.reload()
+    page.locator("#transcript details.tool").first.wait_for()
+    step = page.evaluate(STEP)
+    assert step["verb"] == "Didn't run" and not step["err"], step
+
+
+def test_an_approved_command_reads_as_any_step_that_ran(page, server, session):
+    open_app(page)
+    send(page, "run python please")
+    page.locator("#rbApprove").wait_for()
+    assert page.evaluate(STEP)["verb"] == "Wants to run"
+    page.click("#rbApprove")
+    page.locator("#transcript .tool pre", has_text="ran-42").wait_for(state="attached")
+    wait_idle(page)
+    step = page.evaluate(STEP)
+    assert step["verb"] == "Ran" and not step["waiting"] and not step["err"], step
