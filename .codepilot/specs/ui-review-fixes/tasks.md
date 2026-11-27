@@ -29,11 +29,14 @@ named in design.md, watch it fail for the reason in bugfix.md, then fix.
   - _Tests: tests/e2e/test_review_ui.py (a command waiting for approval says so and a denied one didn't run, also after a
     reload; an approved command reads as any step that ran), tests/e2e/test_readable_steps_ui.py (updated: a waiting
     command reads "Wants to run")_
-- [ ] 5. Binary files and files that aren't UTF-8 open as what they are (`fix/binary-files`)
+- [x] 5. Binary files and files that aren't UTF-8 open as what they are (`fix/binary-files`)
   - Test first (unit): `textfile.kind`; the `files` endpoint's two answers. (Playwright): no Edit on either.
   - `textfile.py`, `server.py` (wiring), `static/filekinds.js` (new), `index.html`, `app.js` (`openFile`,
     `renderEditor`, `renderFileTab` wiring); `docs/usage.md` (Files and folders), `docs/architecture.md`.
   - _Requirements: 5.1, 5.2_
+  - _Tests: tests/test_files.py::test_a_file_is_binary_not_utf8_or_text,
+    tests/test_server.py::test_opening_a_binary_file_says_so_and_sends_no_text, tests/e2e/test_files_ui.py (a binary file
+    opens as a binary file; a file that isn't UTF-8 is shown but not offered for editing)_
 - [ ] 6. The Review header holds together, and change notes show no prompt text (`fix/review-header`)
   - Test first (Playwright): the header's buttons share a line from 280px to 660px; a change made in a file with
     file-matched steering shows no `<steering` in its row.

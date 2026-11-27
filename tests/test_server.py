@@ -740,3 +740,20 @@ def test_an_empty_main_folder_is_refused_rather_than_meaning_the_servers_own_fol
         r = client.patch(f"/api/sessions/{sid}", json=body, headers=H)
         assert r.status_code == 400, body
     assert store.get_session(sid).repo == str(repo.resolve())
+
+
+def test_opening_a_binary_file_says_so_and_sends_no_text(cfg, store, repo):
+    (repo / "assets").mkdir()
+    (repo / "assets" / "data.bin").write_bytes(bytes(range(256)) * 4)
+    (repo / "latin1.txt").write_bytes("café crème\n".encode("latin-1"))
+    client = TestClient(create_app(cfg, store, Agent(cfg, store, llm=FakeLLM([]))))
+    sid = client.post("/api/sessions", json={"repo": str(repo)}, headers=H).json()["id"]
+    get = lambda p: client.get(f"/api/sessions/{sid}/files", params={"path": p}).json()  # noqa: E731
+
+    binary = get("assets/data.bin")
+    assert binary["binary"] is True and binary["size"] == 1024 and binary["path"] == "assets/data.bin"
+    assert "content" not in binary and binary["mtime"]
+    latin1 = get("latin1.txt")  # shown as now, with a reason it can't be edited here
+    assert latin1["encoding"] == "not-utf8" and latin1["content"].startswith("caf") and "binary" not in latin1
+    text = get("agent/core.py")
+    assert "binary" not in text and "encoding" not in text and text["content"].startswith("def add")

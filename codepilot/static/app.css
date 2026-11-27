@@ -232,6 +232,12 @@ input[type="checkbox"][role="switch"]:focus-visible { outline: 2px solid var(--a
 .ed-bar .btn { flex: none; }
 .crumbs b { color: var(--fg-2); font-weight: 500; }
 .ed-scroll { flex: 1; overflow: auto; min-height: 0; }
+/* filekinds.js: a file that isn't UTF-8 (shown, not editable here) and a binary file (not shown as text) */
+.enc-note { display: flex; align-items: center; gap: 6px; flex: none; padding: 4px 12px; border-bottom: 1px solid var(--line); background: var(--bg-1); color: var(--warn); font-size: var(--fs-ui); }
+.enc-note svg { width: 13px; height: 13px; flex: none; }
+.bin-file { display: flex; flex-direction: column; align-items: center; gap: 6px; padding-top: 15vh; text-align: center; }
+.bin-file svg { width: 28px; height: 28px; color: var(--faint); }
+.bin-file b { color: var(--fg-2); font-family: var(--mono); font-weight: 500; }
 .code-view { display: grid; grid-template-columns: auto 1fr; font: var(--fs-ui)/20px var(--mono); min-width: max-content; position: relative; }
 .gutter { text-align: right; color: var(--faint); user-select: none; padding: 6px 12px 24px 16px; position: sticky; left: 0; background: var(--bg-2); z-index: 1; }
 .gutter div { cursor: pointer; height: 20px; }
