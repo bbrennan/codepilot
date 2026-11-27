@@ -116,11 +116,19 @@ One branch and PR per numbered task, merged before the next starts. Every sub-ta
     - _Tests: tests/e2e/test_keyboard_access_ui.py (typing "@a" opens a listbox whose current option is selected and is
       the message box's active descendant, with `aria-controls` and `aria-autocomplete`; Down moves it; Escape clears
       it; the same for "/he")_
-- [ ] 5. Announcements (`feature/keyboard-announce`)
-  - [ ] 5.1 Toasts, and a turn that finishes, needs approval or fails
+- [x] 5. Announcements (`feature/keyboard-announce`)
+  - [x] 5.1 Toasts, and a turn that finishes, needs approval or fails
     - `a11y.js` (`announce`, `turnState`), `index.html` (the two live regions), `app.css` (`.sr-only`), `app.js`
-      (`toast`, `updateBusy`, three `render` branches: one call each).
+      (`toast`, `updateBusy`, three `render` branches: one call each, live events only).
     - _Requirements: 5.1, 5.2, 5.3_
-  - [ ] 5.2 Docs
-    - `docs/usage.md` (Keyboard shortcuts: the tree, tabs, menus, F6), `docs/architecture.md` (script list).
+    - _Tests: tests/e2e/test_keyboard_access_ui.py (the regions are a status and an alert, 1px; the transcript isn't
+      live; a streamed reply says "codepilot is working" and then "codepilot finished" once, and none of its words; a
+      waiting command says "Wants to run: ls" at once, as its step reads, never "approval", and once approved the same
+      turn says "working" only once; an error says its message at once and not "finished"; Copied is said politely,
+      an error toast at once, and the same toast twice is said twice; a session drawn again on reload says nothing),
+      tests/e2e/test_commands_ui.py, test_files_ui.py, test_report_ui.py and test_ui.py (five toasts found as `.toast`)_
+  - [x] 5.2 Docs
+    - `docs/usage.md` (Keyboard shortcuts: F6, the tree, tabs, menus and line numbers since task 3; dialogs, Cancel
+      first, and what a screen reader hears), `docs/architecture.md` (`a11y.js` in the script list, and what it does).
     - _Requirements: 1.1, 2.1, 2.5_
+    - _Tests: documentation; the behaviour it describes is tested above_
