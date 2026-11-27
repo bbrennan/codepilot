@@ -4,6 +4,7 @@ Enter or Space; the tree, tabs, menus and dialogs move with the arrows; what hap
 Keyboard only: after open_app nothing is clicked. What a test needs that isn't under test (a view shown, a session
 with changes, a starting point for Tab) is set up through the page's own functions, `page.focus` or the store."""
 
+import pytest
 from uihelpers import open_app
 
 ACTIVE = """() => { const a = document.activeElement;
@@ -217,3 +218,103 @@ def test_a_spec_and_a_steering_doc_open_from_their_lists(page, server, session):
     tab_to(page, "#steeringView .row.steer")
     page.keyboard.press(" ")
     page.wait_for_function("() => (state.active || '').includes('style.md')")
+
+
+# -- the audit (4.5) -------------------------------------------------------------------------------------------------
+
+# Every visible element that looks clickable (a pointer cursor, or grab for a row you can drag) must be focusable
+# itself or sit inside something focusable. A <label> around a switch or checkbox is fine: its control is inside it.
+AUDIT = """(allowed) => {
+  const FOCUSABLE = 'a[href], button, input, select, textarea, summary, [tabindex], [contenteditable]';
+  const found = new Set();
+  for (const el of document.querySelectorAll('body *')) {
+    if (el.closest('.xterm') || !el.getClientRects().length) continue;
+    const cs = getComputedStyle(el);
+    if (!['pointer', 'grab'].includes(cs.cursor) || cs.visibility !== 'visible') continue;
+    if (el.closest(FOCUSABLE) || el.closest('label')?.querySelector('input, select, textarea')) continue;
+    if (allowed.some((s) => el.closest(s))) continue;
+    const up = el.parentElement;
+    // (reported once, as its row)
+    if (up && ['pointer', 'grab'].includes(getComputedStyle(up).cursor) && !up.closest(FOCUSABLE)) continue;
+    const data = [...el.attributes].filter((a) => a.name.startsWith('data-')).map((a) => `[${a.name}]`).join('');
+    found.add(`${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''}${[...el.classList].map((c) => '.' + c).join('')}`
+      + `${data} in #${up?.closest('[id]')?.id}`);
+  }
+  return [...found];
+}"""
+
+# Still unreachable, each until the task that makes it so; a task starts by taking its line out (task 2: the tree and
+# the code view's line numbers; task 3: the tabs).
+NOT_YET = ["#tree .row", "#gutter", "#editorTabs .tab"]
+
+
+def audit(page, screen):
+    # What was just drawn is decorated at the next frame (or the next key, whichever is first): look after one.
+    page.evaluate("() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))")
+    found = page.evaluate(AUDIT, NOT_YET)
+    assert not found, f"{screen}: clickable but not reachable by keyboard: {found}"
+
+
+def test_nothing_you_can_click_is_out_of_reach_of_the_keyboard(page, server, session):
+    server.store.add_proposal(session.id, "Makefile", "echo eval", "echo evaluate", "say more")
+    (server.repo / ".codepilot/steering").mkdir(parents=True)
+    (server.repo / ".codepilot/steering/style.md").write_text("Use tabs.\n")
+    open_app(page)
+    audit(page, "welcome")
+    page.evaluate("openFile('agent/core.py')")
+    page.locator("#gutter").wait_for()
+    audit(page, "a file open")
+    page.evaluate("setView('changes')")
+    page.locator("#gitList .row").first.wait_for()
+    audit(page, "Changes")
+    page.evaluate("setView('search')")
+    page.keyboard.type("return")
+    page.locator(".grep-hit").first.wait_for()
+    audit(page, "Search with hits")
+    send(page, "fix it")
+    wait_idle(page)
+    send(page, "hello")
+    wait_idle(page)
+    page.locator("#transcript .tool, #transcript .card.prop").first.wait_for()
+    audit(page, "a chat with steps and a change")
+    page.evaluate("openReview()")
+    page.locator(".rv-item").nth(1).wait_for()
+    audit(page, "Review")
+    page.evaluate("setView('sessions')")
+    page.locator("#sessionList .session").first.wait_for()
+    audit(page, "Sessions")
+    page.evaluate("setView('steering')")
+    page.locator("#steeringView .row.steer").first.wait_for()
+    audit(page, "Steering")
+
+
+# The ring on a focused row against what's behind it (the row's fill over the surface beneath), 3:1 or more: WCAG's
+# minimum for something that isn't text. Translucent fills (a selected row's) are composited as the page draws them.
+RING = """() => {
+  const el = document.activeElement, cs = getComputedStyle(el);
+  const rgba = (c) => { const v = c.match(/[\\d.]+/g).map(Number); return [v[0], v[1], v[2], v[3] ?? 1]; };
+  let bg = [0, 0, 0, 0];
+  for (let n = el; n && bg[3] < 1; n = n.parentElement) {
+    const [r, g, b, a] = rgba(getComputedStyle(n).backgroundColor);  // under what's collected so far
+    const k = a * (1 - bg[3]);
+    bg = [bg[0] + r * k, bg[1] + g * k, bg[2] + b * k, bg[3] + k];
+  }
+  bg = bg.slice(0, 3).map((c) => c / (bg[3] || 1));
+  const f = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+  const lum = ([r, g, b]) => 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+  const [x, y] = [lum(rgba(cs.outlineColor)), lum(bg)].sort((p, q) => q - p);
+  return { style: cs.outlineStyle, width: parseFloat(cs.outlineWidth), ratio: (x + 0.05) / (y + 0.05) };
+}"""
+
+
+@pytest.mark.parametrize("theme", ["dark", "light"])
+def test_a_focused_row_shows_a_ring_that_meets_contrast_selected_or_not(page, server, session, theme):
+    other = two_sessions(server, session)
+    open_app(page)
+    page.evaluate(f"document.documentElement.dataset.theme = '{theme}'")
+    page.evaluate("setView('sessions')")
+    page.focus("#sessFilter")
+    for row in (f".session.on[data-id='{session.id}']", f".session[data-id='{other.id}']"):
+        tab_to(page, row)
+        ring = page.evaluate(RING)
+        assert ring["style"] == "solid" and ring["width"] >= 2 and ring["ratio"] >= 3, (row, ring)
