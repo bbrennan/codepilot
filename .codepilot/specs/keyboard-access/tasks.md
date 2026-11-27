@@ -3,16 +3,35 @@
 One branch and PR per numbered task, merged before the next starts. Every sub-task is test first, in
 `tests/e2e/test_keyboard_access_ui.py`, driving the keyboard only.
 
-- [ ] 1. Rows and links you can click are reachable (`feature/keyboard-rows`)
-  - [ ] 1.1 `a11y.js` with `ACTIVATABLE`: focusable, named, and Enter or Space activates
-    - `static/a11y.js` (new), `index.html`; no change to render functions.
+- [x] 1. Rows and links you can click are reachable (`feature/keyboard-rows`)
+  - [x] 1.1 `a11y.js` with `ACTIVATABLE`: focusable, named, and Enter or Space activates
+    - `static/a11y.js` (new), `index.html`, `app.css` (a row's own buttons shown on `:focus-within`); no change to
+      render functions.
     - _Requirements: 4.1, 4.2_
-  - [ ] 1.2 The audit test: nothing clickable is unreachable
-    - The six screens in design.md; it lists what it finds by selector, so a failure names the element.
+    - _Tests: tests/e2e/test_keyboard_access_ui.py (Tab reaches a search file row and hit, both buttons, and Enter opens
+      the hit at its line with focus left on it; Space opens a changed file; Enter opens a session and focus is on its
+      row in the redrawn list, never on the body; Enter on a session's Delete deletes it without opening it, focus then
+      on the list's first row; a path in a reply is a link Enter opens; Enter on a proposed change opens it in Review;
+      in Review, Enter selects a row and focus follows the selection through k, never on the body; the welcome page's
+      Go to file and the context meter; a spec and a steering doc open from their lists)_
+  - [x] 1.2 The audit test: nothing clickable is unreachable
+    - Welcome, a file open, Changes, Search with hits, a chat with steps and a change, Review, Sessions, Steering;
+      it lists what it finds by tag, id, classes, `data-*` and container, so a failure names the element. The tree,
+      the line numbers and the tabs are allowed by name until tasks 2 and 3.
     - _Requirements: 4.5_
-  - [ ] 1.3 A message's Edit, Retry and Undo by keyboard
+    - _Tests: tests/e2e/test_keyboard_access_ui.py (on those eight screens nothing with a pointer or grab cursor lacks a
+      focusable self or ancestor, a label around a switch excepted; a focused row's ring is the 2px accent at 3:1 or
+      more against the row, selected or not, in both themes)_
+  - [x] 1.3 A message's Edit, Retry and Undo by keyboard
     - `app.css` (`.msg-actions` shown on hover and focus-within), `app.js` (labels on the three buttons).
     - _Requirements: 4.3_
+    - _Tests: tests/e2e/test_keyboard_access_ui.py (the actions are transparent until Tab reaches Edit, then shown;
+      Edit and Retry are named; Enter on Retry sends the message again)_
+  - [x] 1.4 (added) In a short stacked Review list, j, k and the arrows keep the selected change in view
+    - `app.js` (`renderReviewTab`: one line).
+    - _Requirements: 4.1_
+    - _Tests: tests/e2e/test_keyboard_access_ui.py (at 1024×700 with twelve changes, eleven j presses each leave the
+      selected row inside the list)_
 - [ ] 2. The file tree (`feature/keyboard-tree`)
   - [ ] 2.1 One Tab stop, arrows, Home, End, Enter, Space, typeahead
     - `a11y.js` (`roving`, `treeKeys`, `treeRendered`), `app.js` (`renderTree` ends with one call).
