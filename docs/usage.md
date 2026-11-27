@@ -110,12 +110,28 @@ You can manage files yourself, as in any IDE. Use the title-bar **File** menu, t
   Right-click a folder to create inside it, or empty space to create at the top level. Type `/` in the
   name for subfolders, e.g. `utils/helpers.py`; missing folders are created. Existing files are never
   overwritten.
-- **Edit:** the **Edit** button on an open file, or right-click → **Edit**, opens a plain-text editor. A
-  new file opens in it straight away. **Save** (⌘S) writes the file; a ● on the tab means unsaved changes,
-  and closing the tab asks first. **Done** returns to the highlighted view. If the file changed on disk
-  since you opened it (you elsewhere, a tool, an applied proposal), Save asks before overwriting.
+- **Edit:** the **Edit** button on an open file, or right-click → **Edit**, opens it in a code editor
+  ([CodeMirror](https://codemirror.net), loaded the first time you edit): syntax highlighting for the languages the
+  view highlights, line numbers, the caret's line marked, matching brackets, indentation as you type (four spaces, or
+  a tab in a file indented with tabs; Tab and Shift+Tab indent and dedent the selected lines), its own undo and redo,
+  and several cursors. There's no completion. A new file opens in it straight away. **Save** (⌘S) writes the file; a ●
+  on the tab means unsaved changes, and closing the tab asks first. **Done** returns to the highlighted view, asking
+  first if there are unsaved changes. If the file changed on disk since you opened it (you elsewhere, a tool, an
+  applied proposal), your edits are kept and Save asks before overwriting. The file's line endings are kept.
   Edit and Done keep your place: the editor opens at the line you were reading, and Done returns to the line you
   were editing. Each tab remembers where it was when you switch away and back.
+- **Find and replace** (⌘F, in the editor): **Match case**, **Whole word** and **Regular expression**; Enter and
+  Shift+Enter go to the next and previous match, **Replace** changes the selected match and moves on, **Replace all**
+  changes every one (each is one ⌘Z). Esc closes it and puts you back in the text. **Go to line** is ⌃G. Outside the
+  editor, ⌘F is the browser's own find.
+- **Leaving the editor by keyboard:** Tab indents, so it doesn't move on. F6 goes to the next pane, or press Esc and
+  then Tab (within two seconds) to go to the next control.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/editor-dark.webp">
+  <img alt="Editing agent/core.py: find and replace open at the top of the editor, searching for “sides”, with each match marked, the current one outlined, and the caret's line marked" src="assets/editor-light.webp" width="560">
+</picture>
+
 - **Files that aren't text.** A binary file (one with a zero byte in its first 8,000 bytes, as git decides) opens as
   its name and size, with no text view, **Edit** or **Ask**. A text file that isn't UTF-8 (Latin-1, say) is shown, with
   a line saying it can't be edited here: saving would write it back as UTF-8 and change every character UTF-8 can't
@@ -624,6 +640,10 @@ key.
 | F2 / Delete or ⌘⌫ (Explorer) | Rename / delete the focused file or folder |
 | Shift+F10 or the menu key (Explorer) | The focused row's menu, as a right-click opens it |
 | ⌘S | Save the file you're editing |
+| ⌘F / ⌃G (editor) | Find and replace in the file / go to line |
+| Tab / Shift+Tab (editor) | Indent / dedent; Esc then Tab, or F6, leaves the editor |
+| ⌘Z / ⇧⌘Z (editor) | Undo / redo (on Windows, redo is Ctrl+Y) |
+| ⌥⌘↓ / ⌥⌘↑, ⌘D (editor) | Another cursor below / above, the next match of the selection; Alt+drag selects a column |
 | ↑ / ↓ (message box) | Earlier / later prompts |
 | ⌥W | Close editor tab |
 | Enter / Shift+Enter | Send / new line |

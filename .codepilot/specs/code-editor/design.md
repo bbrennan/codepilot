@@ -41,7 +41,7 @@ to CodeMirror.
 | `codeEditor()` | The handle shown in `#editor`, or null (`folders.js`, the Ctrl+V paste in `app.js`, and the test helpers) |
 | `unmountEditor()` | Removes it; `renderEditor` calls it before `#editor` is drawn again |
 | `handle.text()`, `handle.setText(t)` | The document, always with `\n` line ends (the server restores the file's own). `setText` changes only what differs, so the caret and the scroll stay |
-| `handle.place()`, `handle.show(place)` | `{ topLine, caret }`, read and applied; `topLine` as in `place.js` |
+| `handle.place()` | `{ topLine, caret }`; `topLine` as in `place.js`. (No `show`: the place is applied when the editor mounts, and nothing else moves it) |
 | `handle.readOnly(on)`, `handle.editable()` | The read-only compartment (`folders.js` while the session's folders change) |
 | `handle.insert(t)`, `handle.owns(el)` | Text over the selection as one undoable step, and whether `el` is the text (not a panel): the Mac's Ctrl+V paste in `app.js` (`isTextBox`, `insertAtCaret`) |
 | `handle.focus()`, `handle.destroy()` | |
@@ -57,9 +57,12 @@ character's box, which sits about 3px inside its 20px line, by an amount that de
 Extensions, in one `editorExtensions(tab)` function: line numbers, active-line highlight (line and gutter), special
 characters, history, `drawSelection`, multiple selections, rectangular selection, the drop cursor, indent-on-input,
 bracket matching, `indentUnit` and tab size 4 from `indentUnit(tab.content)` (moved here from `app.js`), the
-language, the highlight style, the theme, an `aria-label` of "Edit <path>" on the text, and one keymap: Tab and
-Shift+Tab, then the history and default keymaps. Search, its keymap and `Ctrl-g` for go-to-line come with task 3. No
-autocompletion and no close-brackets extension.
+language, the highlight style, the theme, an `aria-label` of "Edit <path>" on the text, search (`search({ top: true
+})`, the panel at the top), phrases that give the panel the app's words (sentence case; "Whole word", "Regular
+expression"), and one keymap: Tab and Shift+Tab, `Ctrl-g` for go-to-line, then the search, history and default
+keymaps. `Ctrl-g` comes first: CodeMirror binds go-to-line to `Mod-Alt-g`, and `Mod-g` is find next, which on Windows
+and Linux is Ctrl+G; first, it wins there, and F3 and Enter in the panel still find next. ⌘F and Ctrl+G have their
+default prevented, so the browser's own find doesn't open (2.4). No autocompletion and no close-brackets extension.
 
 **Tab.** Not `indentWithTab`: that binds Tab to `indentMore`, which indents the caret's whole line. With a selection,
 Tab runs `indentMore` (the selected lines); at a caret it inserts the file's unit there, as the textarea did, padding
@@ -89,7 +92,9 @@ ones (checked in the browser, by computed style). Font, 12px/20px line height, 6
 gutter's 16px/12px padding match `.code-view`, so a line is at the same height in the view and the editor (a test
 measures it), which is what makes `topLine` carry over (4.2). The focus ring is drawn by `.code-edit:focus-within::after`
 over the editor: the host's own outline is painted under CodeMirror's layers (its gutter is sticky, on top). The search
-panel is styled with `.field` and `.btn` look-alikes in `app.css` (task 3).
+panel and the go-to-line dialog are styled in the same theme, as `.field` and `.btn.sm` look-alikes from the same
+tokens (`--bg-1` panel, `--hl-line` matches, `--sel` and an `--accent` outline for the current one), not in `app.css`:
+everything inside the editor is styled in one place. The panel wraps inside a 440px editor (1024×700, tested).
 
 ## Changes outside `editor.js`
 
