@@ -201,7 +201,7 @@ def test_workspace_notes_save(page, server, session):
     page.click("[data-view=memory]")
     page.fill("#notesBox", "- tests need make db-up first")
     page.click("#saveNotes")  # straight away: typing before the saved notes load must not be lost
-    page.get_by_text("Notes saved").wait_for()
+    page.locator(".toast", has_text="Notes saved").wait_for()
     assert "make db-up" in server.store.read_notes(str(server.repo))
 
 

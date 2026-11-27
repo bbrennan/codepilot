@@ -1403,6 +1403,7 @@ function render(ev, replay) {
       add(`<div class="wait-row waiting" title="${esc(ev.tools.map((t) => t.command).join("\n\n"))}">${icon("alert")}<span>Waiting for your approval: ${cmdCodes(ev.tools)}</span></div>`);
       state.approval = { tools: ev.tools }; renderReviewBar();
       for (const t of ev.tools) stepWaiting(state.toolEls.get(t.id), t); // steps.js: "Wants to run …"
+      if (!replay) window.a11y?.turnState("approval", ev.tools); // a11y.js: said in the same words
       break;
     }
     case "workspace": setWorkspace(ev.repo, true); loadSessions(); toast(`Opened ${ev.repo}`); break;
@@ -1420,11 +1421,11 @@ function render(ev, replay) {
     case "error": {
       endText(); onStreamSettled();
       const b = add(`<div class="banner error">${esc(ev.message)}</div>`);
-      if (!replay) { activity("error", "error", ev.message); const last = lastTurnBubble(); if (last) b.insertAdjacentHTML("beforeend", ` <button class="btn sm" data-retry-last>Retry</button>`); }
+      if (!replay) { activity("error", "error", ev.message); window.a11y?.turnState("error", ev.message); const last = lastTurnBubble(); if (last) b.insertAdjacentHTML("beforeend", ` <button class="btn sm" data-retry-last>Retry</button>`); }
       break;
     }
     case "spec_reminder": activity("model", "spec", `reminder: task ${ev.task}`); break;
-    case "done": endText(); onStreamSettled(); break;
+    case "done": endText(); onStreamSettled(); if (!replay) window.a11y?.turnState("done"); break;
   }
   if (!replay) scrollEnd();
 }
@@ -1500,6 +1501,7 @@ function updateBusy() {
   $("#sendBtn").hidden = busy; $("#stopBtn").hidden = !busy; $("#steerBtn").hidden = $("#queueBtn").hidden = !busy;
   $("#sbBusy").innerHTML = busy ? '<span class="spinner"></span>working…' : "";
   window.renderPinnedPlan?.(); // plan.js: the plan spins only while a turn runs
+  window.a11y?.turnState(busy ? "busy" : "idle"); // a11y.js: "codepilot is working", once a turn
 }
 // body === null follows a turn that's already running (the page was opened or reloaded while it ran).
 async function streamTo(sid, url, body) {
@@ -2701,6 +2703,7 @@ function toast(msg, isErr, action) {
   const fits = c.width >= 160; // the editor is narrow at ~1000px windows; centring on the window would cover the message box
   box.style.setProperty("--toast-x", fits ? `${Math.round(c.left + c.width / 2)}px` : "50%"); box.style.maxWidth = fits ? `${Math.round(c.width - 24)}px` : "";
   box.appendChild(el); setTimeout(() => el.remove(), action ? 8000 : 2600);
+  window.a11y?.announce(msg, isErr); // a11y.js: errors at once, the rest politely
 }
 
 // ---------------------------------------------------------------- keyboard

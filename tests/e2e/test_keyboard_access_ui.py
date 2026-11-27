@@ -864,3 +864,103 @@ def test_enter_in_a_prompt_opened_by_a_button_does_not_open_it_again(page, serve
     wait_focus(page, "#newFolderBtn")
     page.wait_for_timeout(200)
     assert page.evaluate("() => document.querySelector('#dialog').hidden"), "the prompt opened a second time"
+
+
+# -- task 5: being told (5.1-5.3) -------------------------------------------------------------------------------------
+
+LISTEN = """() => { window.__said = [];
+  for (const id of ['srPolite', 'srNow']) {
+    const el = document.getElementById(id);
+    new MutationObserver(() => { if (el.textContent) window.__said.push([id, el.textContent]); })
+      .observe(el, { childList: true, characterData: true, subtree: true });
+  } }"""
+
+
+def said(page):
+    return [tuple(x) for x in page.evaluate("() => window.__said")]
+
+
+def wait_said(page, region, text):
+    page.wait_for_function("([r, t]) => window.__said.some(([id, s]) => id === r && s === t)", arg=[region, text])
+
+
+def test_a_finished_turn_is_said_once_and_the_reply_is_not_read_word_by_word(page, server, session):
+    open_app(page)
+    assert page.get_attribute("#srPolite", "role") == "status" and page.get_attribute("#srNow", "role") == "alert"
+    assert page.get_attribute("#transcript", "aria-live") is None  # (5.3: nothing streams into a live region)
+    assert page.evaluate("() => ['srPolite', 'srNow'].every((id) => { const r = document.getElementById(id)"
+                         ".getBoundingClientRect(); return r.width <= 1 && r.height <= 1; })")  # heard, not seen
+    page.evaluate(LISTEN)
+    send(page, "slow")  # a reply streamed word by word
+    wait_idle(page)
+    wait_said(page, "srPolite", "codepilot finished")
+    out = said(page)
+    assert out.count(("srPolite", "codepilot finished")) == 1, out
+    assert ("srPolite", "codepilot is working") in out, out
+    assert not any("slowly" in text for _, text in out), out
+
+
+def test_a_command_waiting_for_approval_is_said_in_the_words_on_screen(page, server, session):
+    open_app(page)
+    page.evaluate(LISTEN)
+    send(page, "run ls")
+    page.locator("#reviewBar .rb-approval").wait_for()
+    wait_said(page, "srNow", "Wants to run: ls")
+    assert page.locator("#transcript .tool .tverb", has_text="Wants to run").count() == 1  # what the step says
+    assert not any("approval" in text for _, text in said(page))
+    page.keyboard.press("ControlOrMeta+Enter")  # approved: the same turn goes on
+    wait_said(page, "srPolite", "codepilot finished")
+    assert said(page).count(("srPolite", "codepilot is working")) == 1, said(page)
+
+
+def test_a_turn_that_stops_with_an_error_says_so_at_once_and_not_that_it_finished(page, server, session):
+    open_app(page)
+    page.route("**/chat", lambda route: route.fulfill(
+        status=200, content_type="application/x-ndjson",
+        body='{"type": "error", "message": "The model is overloaded"}\n{"type": "done"}\n'))
+    page.evaluate(LISTEN)
+    send(page, "hello")
+    page.locator(".banner.error").wait_for()
+    wait_said(page, "srNow", "The model is overloaded")
+    page.wait_for_timeout(300)
+    assert ("srPolite", "codepilot finished") not in said(page), said(page)
+
+
+def test_toasts_are_said_errors_at_once_the_rest_politely(page, server, session):
+    page.expected_errors.append("404 (Not Found)")  # (the file asked for is gone)
+    open_app(page)
+    page.evaluate(LISTEN)
+    into_tree(page)
+    page.keyboard.press("End")
+    page.keyboard.press("ControlOrMeta+c")  # "Copied Makefile"
+    wait_said(page, "srPolite", "Copied Makefile")
+    page.keyboard.press("ControlOrMeta+p")  # Go to file, for a file that's gone by the time it opens
+    page.locator("#palette").wait_for()
+    page.keyboard.type("Makefile")
+    page.locator("#paletteList .opt").first.wait_for()
+    (server.repo / "Makefile").unlink()
+    page.keyboard.press("Enter")
+    page.locator(".toast.err").wait_for()
+    wait_said(page, "srNow", page.text_content(".toast.err"))
+
+
+def test_the_same_toast_twice_is_said_twice(page, server, session):
+    open_app(page)
+    page.evaluate(LISTEN)
+    into_tree(page)
+    page.keyboard.press("End")
+    page.keyboard.press("ControlOrMeta+c")
+    wait_said(page, "srPolite", "Copied Makefile")
+    page.keyboard.press("ControlOrMeta+c")
+    page.wait_for_function("() => window.__said.filter(([, s]) => s === 'Copied Makefile').length === 2")
+
+
+def test_a_session_drawn_again_on_reload_says_nothing(page, server, session):
+    open_app(page)
+    send(page, "hello")
+    wait_idle(page)
+    page.add_init_script(LISTEN.replace("() => {", "window.addEventListener('DOMContentLoaded', () => {", 1) + ")")
+    page.reload()
+    page.locator("#transcript .msg.assistant").wait_for()
+    page.wait_for_timeout(500)
+    assert said(page) == []
