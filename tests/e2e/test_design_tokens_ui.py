@@ -1,7 +1,7 @@
 """One design system: every font size and corner radius in the stylesheet comes from a small scale, and keyboard focus
 is always visible. (Before, the stylesheet used 11 font sizes and 10 radii, and showed no focus at all.)"""
 
-from uihelpers import open_app
+from uihelpers import EDITOR, focus_editor, open_app, wait_editor
 
 FONT_SIZES = {10, 11, 12, 13, 15, 20}  # badges · labels · lists and buttons · body · documents and titles · page titles
 RADII = {0, 4, 6, 10, 999}  # tags · buttons and cards · panels and popovers · pills (plus 50% for circles)
@@ -61,7 +61,7 @@ def test_keyboard_focus_is_always_visible(page, server, session):
 
 
 # Is focus visible on this element: a ring in a colour other than its own fill, or a field's accent border?
-VISIBLE = """(el) => { const cs = getComputedStyle(el);
+VISIBLE = """(el, pseudo) => { const cs = getComputedStyle(el, pseudo);
   const probe = document.createElement('i'); probe.style.color = 'var(--accent)'; document.body.append(probe);
   const accent = getComputedStyle(probe).color; probe.remove();
   const ring = cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) >= 2 && cs.outlineColor !== cs.backgroundColor;
@@ -86,10 +86,10 @@ def test_focus_shows_in_the_file_palette_and_the_code_editor(page, server, sessi
     page.keyboard.press("Escape")
     page.locator("#tree [data-file]", has_text="Makefile").click()
     page.locator(".ed-bar button", has_text="Edit").click()
-    editor = page.locator(".code-edit")
-    editor.wait_for()
-    editor.focus()
-    assert editor.evaluate(VISIBLE), "the code editor shows no focus"
+    wait_editor(page)
+    focus_editor(page)
+    # Drawn over the editor (::after), not as the host's outline: the editor's own layers would paint over that.
+    assert page.locator(EDITOR).evaluate(f"(el) => ({VISIBLE})(el, '::after')"), "the code editor shows no focus"
 
 
 # WCAG contrast, computed from the stylesheet as the page resolves it, in one theme. Text tokens against each surface;

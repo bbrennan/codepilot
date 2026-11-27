@@ -2,7 +2,7 @@
 
 import re
 
-from uihelpers import open_app
+from uihelpers import open_app, set_editor_text, wait_editor
 
 
 def menu(page, label):
@@ -50,10 +50,10 @@ def test_create_a_workspace_doc_edit_save_and_the_model_follows_it(page, server,
     page.click("#steerNew")
     menu(page, "This workspace: always on")
     answer(page, "coding-standards")
-    page.locator("#codeEdit").wait_for()  # opens in the editor with a template
+    wait_editor(page)  # opens in the editor with a template
     doc = server.repo / ".codepilot/steering/coding-standards.md"
     assert "inclusion: always" in doc.read_text()
-    page.fill("#codeEdit", "---\ninclusion: always\n---\nAlways answer in British English.")
+    set_editor_text(page, "---\ninclusion: always\n---\nAlways answer in British English.")
     page.keyboard.press(f"{mod(page)}+s")
     page.wait_for_function("() => !document.querySelector('.tab.on').classList.contains('dirty')")
     page.locator("#steeringView .row.steer", has_text="coding-standards").wait_for()
@@ -74,7 +74,7 @@ def test_file_match_doc_from_the_menu(page, server, session):
     page.locator("#dialogTitle", has_text="Which files?").wait_for()
     page.fill("#dialogInput", "agent/**/*.py")
     page.press("#dialogInput", "Enter")
-    page.locator("#codeEdit").wait_for()
+    wait_editor(page)
     assert 'fileMatchPattern: "agent/**/*.py"' in (server.repo / ".codepilot/steering/agent-rules.md").read_text()
 
 
@@ -84,8 +84,8 @@ def test_global_doc_create_and_edit(page, server, session):
     page.click("#steerNew")
     menu(page, "All workspaces: always on")
     answer(page, "security")
-    page.locator("#codeEdit").wait_for()
-    page.fill("#codeEdit", "Never print tokens.")
+    wait_editor(page)
+    set_editor_text(page, "Never print tokens.")
     page.click("#fSave")
     page.wait_for_function("() => !document.querySelector('.tab.on').classList.contains('dirty')")
     assert (server.cfg.home / "steering/security.md").read_text() == "Never print tokens."

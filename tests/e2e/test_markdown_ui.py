@@ -2,7 +2,7 @@
 
 import base64
 
-from uihelpers import open_app
+from uihelpers import editor_text, open_app, set_editor_text
 
 PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9a"
                        "wAAAABJRU5ErkJggg==")
@@ -62,7 +62,7 @@ def test_markdown_opens_as_raw_text_like_vscode(page, server, session):
     assert page.locator("[data-view-mode=preview]").count() == 1  # the Preview button is one click away
 
     page.click("#fEdit")  # the raw text is editable straight away
-    assert page.input_value("#codeEdit").startswith("---\ninclusion: always")
+    assert editor_text(page).startswith("---\ninclusion: always")
 
 
 def test_open_preview_renders_safely(page, server, session):
@@ -98,12 +98,12 @@ def test_source_toggle_and_draft_preview(page, server, session):
     page.locator(".code-view", has_text="# Project guide").wait_for()
 
     page.click("#fEdit")
-    page.locator("#codeEdit").fill("# Draft title\n\nSome **bold** text.")
+    set_editor_text(page, "# Draft title\n\nSome **bold** text.")
     page.click("#fEditPreview")
     page.locator("#docBody h1", has_text="Draft title").wait_for()
     assert page.locator("#docBody strong", has_text="bold").count() == 1
     page.click("#fEditPreview")  # back to editing, the draft is kept
-    assert page.input_value("#codeEdit").startswith("# Draft title")
+    assert editor_text(page).startswith("# Draft title")
 
 
 def test_other_files_have_no_open_preview_item(page, server, session):
@@ -130,8 +130,8 @@ def test_open_preview_on_a_file_being_edited_shows_the_draft_rendered(page, serv
     open_app(page)
     page.click("#tree [data-file='GUIDE.md']")
     page.click("#fEdit")
-    page.locator("#codeEdit").fill("# Unsaved draft\n\nbody")
+    set_editor_text(page, "# Unsaved draft\n\nbody")
     open_preview(page)
     page.locator("#docBody h1", has_text="Unsaved draft").wait_for()
     page.click("#fEditPreview")  # and back to editing keeps the draft
-    assert page.input_value("#codeEdit").startswith("# Unsaved draft")
+    assert editor_text(page).startswith("# Unsaved draft")

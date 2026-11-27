@@ -5,7 +5,7 @@ edit and save; a folder can be removed or made main; a folder that's gone says s
 import shutil
 
 from test_files_ui import menu, mod
-from uihelpers import open_app
+from uihelpers import click_editor, editor_text, open_app, press_in_editor, wait_editor
 
 
 def api_folder(tmp_path):
@@ -58,7 +58,7 @@ def test_a_file_in_an_added_folder_opens_and_saves(page, server, session, tmp_pa
     page.click(f"#tree [data-file='{api}/src/app.py']")
     page.locator("#editor code", has_text="PORT = 8000").wait_for()
     page.click("#fEdit")
-    page.locator("#codeEdit").wait_for()
+    wait_editor(page)
     page.keyboard.type("DEBUG = True\n")  # (at the top)
     page.keyboard.press(f"{mod(page)}+s")
     page.wait_for_function("() => !document.querySelector('.tab.on').classList.contains('dirty')")
@@ -142,7 +142,7 @@ def test_making_a_folder_main_keeps_unsaved_edits(page, server, session, tmp_pat
     page.click("#tree [data-dir='agent']")
     page.click("#tree [data-file='agent/core.py']")
     page.click("#fEdit")
-    page.locator("#codeEdit").wait_for()
+    wait_editor(page)
     page.keyboard.type("# draft\n")
     page.wait_for_function("() => document.querySelector('.tab.on').classList.contains('dirty')")
     page.locator("#tree .row.root", has_text="api").click(button="right")
@@ -178,7 +178,7 @@ def test_new_file_goes_in_the_folder_whose_entry_you_clicked(page, server, sessi
     page.locator("#tree .row.root", has_text="api").click()
     page.click("#newFileBtn")
     answer(page, "todo.md")
-    page.locator("#codeEdit").wait_for()
+    wait_editor(page)
     assert (api / "todo.md").exists() and not (server.repo / "todo.md").exists()
 
 
@@ -313,17 +313,16 @@ def test_nothing_can_be_typed_while_the_main_folder_changes(page, server, sessio
     page.click("#tree [data-dir='agent']")
     page.click("#tree [data-file='agent/core.py']")
     page.click("#fEdit")
-    edit = page.locator("#codeEdit")
-    edit.wait_for()
+    wait_editor(page)
     page.locator("#tree .row.root", has_text="api").click(button="right")
     menu(page, "Make main folder")
     page.wait_for_function("() => true")
     page.wait_for_timeout(200)
     assert held
-    before = edit.input_value()
-    edit.click()
+    before = editor_text(page)
+    click_editor(page)
     page.keyboard.type("lost draft")  # while the change is on its way: nothing is typed
-    assert edit.input_value() == before and page.locator(".tab.dirty").count() == 0
+    assert editor_text(page) == before and page.locator(".tab.dirty").count() == 0
     held[0].continue_()
     page.wait_for_function("() => document.querySelector('#workspaceName').textContent.startsWith('api')")
 
@@ -338,17 +337,16 @@ def test_the_editor_stays_locked_and_one_folder_change_runs_at_a_time(page, serv
     page.click("#tree [data-dir='agent']")
     page.click("#tree [data-file='agent/core.py']")
     page.click("#fEdit")
-    edit = page.locator("#codeEdit")
-    edit.wait_for()
+    wait_editor(page)
     page.locator("#tree .row.root", has_text="api").click(button="right")
     menu(page, "Make main folder")
     page.wait_for_timeout(200)
     assert len(held) == 1
-    before = edit.input_value()
-    edit.press("Tab")  # indenting is typing too
+    before = editor_text(page)
+    press_in_editor(page, "Tab")  # indenting is typing too
     page.locator(".tab.on").click()  # redrawing the tab doesn't unlock it
-    page.locator("#codeEdit").press("x")
-    assert page.locator("#codeEdit").input_value() == before and page.locator(".tab.dirty").count() == 0
+    press_in_editor(page, "x")
+    assert editor_text(page) == before and page.locator(".tab.dirty").count() == 0
     page.locator("#tree .row.root", has_text="api").click(button="right")
     menu(page, "Remove from session")  # a second change while the first is on its way
     page.locator(".toast", has_text="already").wait_for()

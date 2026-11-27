@@ -5,7 +5,7 @@ Keyboard only: after open_app nothing is clicked. What a test needs that isn't u
 with changes, a starting point for Tab) is set up through the page's own functions, `page.focus` or the store."""
 
 import pytest
-from uihelpers import open_app
+from uihelpers import focus_editor, open_app, wait_editor
 
 ACTIVE = """() => { const a = document.activeElement;
   return !a || a === document.body ? 'body' : a.outerHTML.slice(0, 160); }"""
@@ -577,8 +577,8 @@ def test_delete_on_a_tab_with_unsaved_edits_asks_first(page, server, session):
     open_app(page)
     three_tabs(page)
     page.evaluate("editFile('file:tests/test_core.py')")
-    page.locator("#codeEdit").wait_for()
-    page.focus("#codeEdit")
+    wait_editor(page)
+    focus_editor(page)
     page.keyboard.type("# mine\n")
     into_tree(page)
     page.keyboard.press("Tab")

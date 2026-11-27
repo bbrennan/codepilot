@@ -3,7 +3,7 @@
 ## Introduction
 
 Roadmap 4, item 5. From the UI review of 2026-11-26: clicking **Edit** swaps the highlighted view for a plain
-`<textarea>` (`renderEditTab`, app.js:739). While editing there is no syntax highlighting, no line numbers, no
+`<textarea>` (`renderEditTab` in app.js). While editing there is no syntax highlighting, no line numbers, no
 auto-indent, no bracket matching, and no find or replace beyond the browser's own. For the changes codepilot proposes
 that doesn't matter; for the small edits you make yourself between turns it is the weakest part of the IDE.
 

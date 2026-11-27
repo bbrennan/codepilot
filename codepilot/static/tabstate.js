@@ -39,9 +39,9 @@ function tabRecord(tab, unsafe) {
 }
 
 function fileRecord(t) {
-  const editor = state.active === t.id && t.editing && !t.editPreview ? $("#codeEdit") : null;
-  const rec = { path: t.path, view: t.view || null, topLine: t.topLine || 1, scroll: t.scroll || 0, sel: t.sel || null,
-    caret: editor ? editor.selectionStart : t.caret ?? null, editing: !!t.editing, editPreview: !!t.editPreview };
+  const place = t.ed?.place(); // editor.js: the editor this tab is in, if it's shown
+  const rec = { path: t.path, view: t.view || null, topLine: place?.topLine ?? (t.topLine || 1), scroll: t.scroll || 0,
+    sel: t.sel || null, caret: place?.caret ?? t.caret ?? null, editing: !!t.editing, editPreview: !!t.editPreview };
   // Only an edit that differs from the file, and never for one that isn't UTF-8 (it can't be edited here).
   if (t.dirty && t.draft != null && !t.encoding) Object.assign(rec, { draft: t.draft, baseMtime: t.mtime ?? null });
   return rec;

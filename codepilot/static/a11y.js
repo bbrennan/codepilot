@@ -32,7 +32,8 @@ function a11yDecorateIn(root) {
 }
 
 // What was drawn is decorated once a frame (a streamed reply redraws on every word) and before any key is handled,
-// so a key never lands where a row isn't ready yet. Only added nodes are looked at, and never the terminal's.
+// so a key never lands where a row isn't ready yet. Only added nodes are looked at, and never the terminal's or the
+// editor's: both redraw on every key, and nothing in them is a row of ours (the editor itself is one tab stop).
 function a11yFlush() {
   cancelAnimationFrame(a11yState.frame); a11yState.frame = 0;
   for (const root of a11yState.pending) if (root.isConnected) a11yDecorateIn(root);
@@ -40,7 +41,7 @@ function a11yFlush() {
 }
 new MutationObserver((records) => {
   for (const r of records) {
-    if (!r.addedNodes.length || r.target.closest?.(".xterm")) continue;
+    if (!r.addedNodes.length || r.target.closest?.(".xterm, .cm-editor")) continue;
     for (const n of r.addedNodes) if (n.nodeType === 1) a11yState.pending.add(n);
   }
   if (a11yState.pending.size && !a11yState.frame) a11yState.frame = requestAnimationFrame(a11yFlush);
@@ -321,7 +322,7 @@ $("#ctxMenu").addEventListener("keydown", (e) => {
 // Sidebar, editor, bottom panel and chat, those shown, in order (Shift: backwards). Each pane's place to land: the
 // sidebar view's first tab stop, the editor's tab (or its first control with no tabs), the panel's tab, the message box.
 const A11Y_TABBABLE = "a[href], button:not([disabled]), input:not([disabled]):not([type=hidden]), select:not([disabled]),"
-  + " textarea:not([disabled]), summary, [tabindex]:not([tabindex='-1'])";
+  + " textarea:not([disabled]), summary, [contenteditable='true'], [tabindex]:not([tabindex='-1'])";
 const a11yFirst = (box) => [...(box?.querySelectorAll(A11Y_TABBABLE) || [])].find((el) => el.getClientRects().length);
 const A11Y_PANES = [
   { in: ".sidebar", shown: () => layoutShown(ide, "sidebar"),

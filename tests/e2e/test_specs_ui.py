@@ -1,6 +1,6 @@
 """Spec-driven development in the UI: create, review and approve each phase, then run tasks."""
 
-from uihelpers import open_app
+from uihelpers import open_app, wait_editor
 
 
 def answer(page, text):
@@ -79,7 +79,7 @@ def test_ask_for_changes_and_edit(page, server, session):
     page.locator(".msg.user", has_text="About the bug analysis of spec").wait_for()
     wait_idle(page)
     page.click("#spEdit")
-    page.locator("#codeEdit").wait_for()
+    wait_editor(page)
     assert page.locator(".tab.on .label").text_content() == "bugfix.md"
 
 

@@ -374,7 +374,8 @@ async function checkDisk() {
       const f = await api(`/api/sessions/${state.sid}/files?path=${encodeURIComponent(tab.path)}`).catch(() => null);
       if (!f || f.content == null) continue;
       Object.assign(tab, { content: f.content, mtime: f.mtime, encoding: f.encoding }, tab.editing ? { draft: f.content } : {});
-      if (state.active === tab.id) renderEditor(); // (each view keeps the tab's place: place.js, or the preview's scroll)
+      if (tab.ed) tab.ed.setText(f.content); // in the editor, in place: the caret and the scroll stay
+      else if (state.active === tab.id) renderEditor(); // (each view keeps the tab's place: place.js, or the preview's scroll)
     }
     if (treeChanged) { await renderTree(); loadGitSoon(); }
   } catch { /* the next check tries again */ }
@@ -539,6 +540,7 @@ $("#editorTabs").addEventListener("click", (e) => {
 });
 $("#editorTabs").addEventListener("auxclick", (e) => { const t = e.target.closest("[data-tab]"); if (t && e.button === 1) closeTab(t.dataset.tab); });
 function renderEditor() {
+  unmountEditor(); // editor.js: before #editor is drawn again (the tab keeps its place as it goes)
   saveTabsSoon(); // tabstate.js
   renderTabs();
   const tab = state.tabs.find((t) => t.id === state.active);
@@ -753,7 +755,6 @@ function editFile(id) {
   t.editing = true; if (t.draft == null) t.draft = t.content;
   state.active = id; renderEditor();
 }
-function indentUnit(text) { return /^\t/m.test(text) ? "\t" : "    "; }
 function setDirty(tab) {
   const dirty = tab.draft != null && tab.draft !== tab.content;
   if (dirty !== !!tab.dirty) { tab.dirty = dirty; renderTabs(); }
@@ -767,27 +768,22 @@ function renderEditTab(tab) {
       ${isMarkdown(tab.path) ? `<button class="btn" id="fEditPreview" title="See the draft rendered">${icon(tab.editPreview ? "edit" : "eye")}${lbl(tab.editPreview ? "Back to editing" : "Preview")}</button>` : ""}
       <button class="btn primary" id="fSave" title="Save (${keyLabel("mod+s")})">${icon("check")}${lbl("Save")}</button>
       <button class="btn" id="fDone" title="Back to the highlighted view">${icon("x")}${lbl("Done")}</button></div>
-    ${tab.editPreview ? `<div class="ed-scroll doc-scroll"><article class="md-doc" id="docBody">${renderDoc(tab.draft ?? tab.content, dirOf(tab.path))}</article></div>` : `<textarea class="code-edit" id="codeEdit" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" aria-label="Edit ${esc(tab.path)}"></textarea>`}`;
+    ${tab.editPreview ? `<div class="ed-scroll doc-scroll"><article class="md-doc" id="docBody">${renderDoc(tab.draft ?? tab.content, dirOf(tab.path))}</article></div>` : `<div class="code-edit" id="codeEdit"></div>`}`;
   $("#fEditPreview") && ($("#fEditPreview").onclick = () => { tab.editPreview = !tab.editPreview; renderEditor(); });
   $("#fSave").onclick = () => saveFile(tab);
   if (tab.editPreview) { renderMermaid($("#docBody")); $("#fDone").onclick = () => { tab.editPreview = false; renderEditor(); }; return; }
-  const ta = $("#codeEdit");
-  ta.value = tab.draft ?? tab.content;
-  ta.readOnly = !!state.changingFolders; // (folders.js: the session reloads once its folders change)
-  // Caret first, then focus without scrolling to it, then the tab's place (focus would scroll to the caret).
-  const caret = Math.min(tab.caret ?? lineStart(ta.value, tab.topLine || 1), ta.value.length);
-  ta.setSelectionRange(caret, caret); ta.focus({ preventScroll: true }); keepPlace(tab, ta);
-  ta.oninput = () => { tab.draft = ta.value; setDirty(tab); };
-  ta.onblur = () => { tab.caret = ta.selectionStart; };
-  ta.onkeydown = (e) => {
-    if (e.key === "Tab" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
-      e.preventDefault(); if (ta.readOnly) return; // setRangeText would write into a locked editor
-      ta.setRangeText(indentUnit(tab.content), ta.selectionStart, ta.selectionEnd, "end"); ta.oninput();
-    }
-  };
-  $("#fSave").onclick = () => saveFile(tab);
+  // editor.js: loaded on the first Edit. Mounted only if this is still what #editor shows once it has loaded.
+  const host = $("#codeEdit");
+  loadEditor().then(() => {
+    if (!host.isConnected) return;
+    mountEditor(host, tab, { readOnly: !!state.changingFolders, // (folders.js: the session reloads once its folders change)
+      change: (text) => { tab.draft = text; setDirty(tab); } }).focus();
+  }, (err) => {
+    toast(`The editor couldn't load (${err.message}). Try Edit again.`, true);
+    tab.editing = false; if (state.active === tab.id) renderEditor();
+  });
   $("#fDone").onclick = async () => {
-    if (tab.dirty && !(await confirmDialog(`Discard changes to ${tab.title}?`, "Save first to keep them.", "Discard"))) return;
+    if (tab.dirty && !(await confirmDialog(`Discard changes to ${tab.title}?`, "Save first to keep them.", "Discard"))) { tab.ed?.focus(); return; }
     tab.editing = false; tab.draft = null; tab.dirty = false; tab.caret = null; renderEditor(); // next Edit: caret where you read
   };
 }
@@ -1668,7 +1664,7 @@ function pasteFailed(why) {
   toast(`${keyLabel("ctrl+v")} couldn't read the clipboard: ${why}. ${keyLabel("mod+v")} always works.${chromium ? ` To allow ${keyLabel("ctrl+v")}, open ${settings} and add ${location.origin} under "Allowed".` : ""}`, true,
     chromium ? { label: "Copy settings link", run: () => copyText(settings) } : null);
 }
-function insertAtCaret(text, el = input) { el.setRangeText(text, el.selectionStart, el.selectionEnd, "end"); el.dispatchEvent(new Event("input", { bubbles: true })); if (el === input) autosize(); }
+function insertAtCaret(text, el = input) { if (codeEditor()?.owns(el)) return codeEditor().insert(text); el.setRangeText(text, el.selectionStart, el.selectionEnd, "end"); el.dispatchEvent(new Event("input", { bubbles: true })); if (el === input) autosize(); }
 $("#sendBtn").onclick = () => send();
 $("#steerBtn").onclick = () => { if (input.value.trim()) send("now"); else input.focus(); };
 $("#steerBtn").title = `Steer: codepilot reads this at its next step, while it keeps working (${keyLabel("mod+enter")})`;
@@ -2707,8 +2703,8 @@ function toast(msg, isErr, action) {
 }
 
 // ---------------------------------------------------------------- keyboard
-// A text box Ctrl+V pastes into on a Mac (not the terminal, where Ctrl+V means something to the shell).
-const isTextBox = (el) => !el.readOnly && !el.disabled && !el.closest(".xterm")
+// A text box Ctrl+V pastes into on a Mac (not the terminal, where Ctrl+V means something to the shell), or the editor.
+const isTextBox = (el) => codeEditor()?.owns(el) ? codeEditor().editable() : !el.readOnly && !el.disabled && !el.closest(".xterm")
   && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && /^(text|search|url|email|)$/.test(el.type)));
 document.addEventListener("keydown", (e) => {
   const mod = isMac ? e.metaKey : e.ctrlKey;
