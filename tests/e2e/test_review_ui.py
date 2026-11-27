@@ -264,7 +264,9 @@ def test_the_review_headers_buttons_stay_together_on_one_line(page, server, sess
     assert h["n"] == 3 and max(h["tops"]) - min(h["tops"]) < 2 and h["inside"], f"Apply, Reject and Open file split: {h}"
 
 
-def test_a_diff_pane_too_narrow_for_the_buttons_wraps_them_rather_than_cutting_them_off(page, server, session):
-    # A 400px editor leaves the diff pane 120px beside the 280px change list: less than the three buttons need.
+def test_in_a_narrow_editor_the_review_headers_buttons_stay_together_inside_it(page, server, session):
+    # Sizes that would leave a 400px editor get 440 (small-windows), and the change list goes above the diff, so the
+    # diff pane is never the 120px beside the list this once guarded: the buttons keep one line inside the header.
     h = review_header(page, 500, 484)
-    assert abs(h["editor"] - 400) <= 2 and h["n"] == 3 and h["inside"], h
+    assert abs(h["editor"] - 440) <= 2, h
+    assert h["n"] == 3 and max(h["tops"]) - min(h["tops"]) < 2 and h["inside"], h

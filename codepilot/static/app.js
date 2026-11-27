@@ -78,6 +78,9 @@ const ICONS = {
   link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
 };
 const icon = (name, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ICONS.file}</svg>`;
+// A toolbar button's words. In a narrow pane app.css hides them from view (the icon and title stand in) but not from
+// screen readers, so the button keeps its name.
+const lbl = (text) => `<span class="lbl">${text}</span>`;
 function hydrateIcons(root = document) {
   for (const el of $$("[data-icon]", root)) {
     if (el.dataset.iconDone) continue;
@@ -112,7 +115,7 @@ const ide = $("#ide");
 function setView(view, reveal = true) {
   $$("#activitybar button").forEach((b) => b.classList.toggle("on", b.dataset.view === view));
   $$(".sidebar .view").forEach((v) => v.classList.toggle("on", v.dataset.view === view));
-  if (reveal) { ide.classList.remove("no-sidebar"); store("cp-no-sidebar", "0"); }
+  if (reveal) showSidebar();
   store("cp-view", view);
   if (view === "traces") loadTraces();
   if (view === "changes") { renderProposalList(); loadGit(); }
@@ -123,11 +126,15 @@ function setView(view, reveal = true) {
 }
 $("#activitybar").addEventListener("click", (e) => {
   const b = e.target.closest("button"); if (!b) return;
-  if (b.classList.contains("on") && !ide.classList.contains("no-sidebar")) { ide.classList.add("no-sidebar"); store("cp-no-sidebar", "1"); return; }
+  if (b.classList.contains("on") && layoutShown(ide, "sidebar")) { ide.classList.add("no-sidebar"); store("cp-no-sidebar", "1"); return; }
   setView(b.dataset.view);
 });
 const toggle = (cls) => { ide.classList.toggle(cls); store("cp-" + cls, ide.classList.contains(cls) ? "1" : "0"); };
-$("#toggleSidebar").onclick = () => toggle("no-sidebar");
+// Shown by you: it stays until the window is next resized, even where it would step aside for room (layout.js).
+function showSidebar() { layoutUserShowedSidebar(ide); ide.classList.remove("no-sidebar"); store("cp-no-sidebar", "0"); }
+// The toggle (button, ⌘B) goes by what you see: a sidebar that stepped aside for room is shown, not hidden.
+const toggleSidebar = () => (layoutShown(ide, "sidebar") ? toggle("no-sidebar") : showSidebar());
+$("#toggleSidebar").onclick = toggleSidebar;
 $("#togglePanel").onclick = () => toggle("no-panel");
 $("#toggleChat").onclick = () => toggle("no-chat");
 $("#closePanel").onclick = () => toggle("no-panel");
@@ -599,11 +606,11 @@ function renderFileTab(tab) {
   const selLabel = sel ? (sel.a === sel.b ? `line ${sel.a}` : `lines ${sel.a}–${sel.b}`) : "";
   const parts = tab.path.split("/");
   $("#editor").innerHTML = `<div class="ed-bar"><span class="crumbs">${parts.slice(0, -1).map(esc).join(" › ")}${parts.length > 1 ? " › " : ""}<b>${esc(parts.at(-1))}</b></span>
-      <span class="spacer"></span><span class="muted">${selLabel ? selLabel.replace("lines", "L").replace("line", "L") : lines.length === 1 ? "1 line" : lines.length + " lines"}</span>
-      <button class="btn" id="fAdd" title="Reference in chat">${icon("at")}${sel ? "Add lines" : "Add to chat"}</button>
-      <button class="btn" id="fAsk">${icon("sparkle")}Ask</button>
+      <span class="spacer"></span><span class="muted ed-count">${selLabel ? selLabel.replace("lines", "L").replace("line", "L") : lines.length === 1 ? "1 line" : lines.length + " lines"}</span>
+      <button class="btn" id="fAdd" title="Reference in chat">${icon("at")}${lbl(sel ? "Add lines" : "Add to chat")}</button>
+      <button class="btn" id="fAsk" title="Ask codepilot about this file">${icon("sparkle")}${lbl("Ask")}</button>
       ${isMarkdown(tab.path) ? viewSwitch("source") : ""}
-      ${tab.readonly ? `<span class="muted" title="Edit it in its own tool's folder">read-only</span>` : tab.encoding ? "" : `<button class="btn" id="fEdit" title="Edit this file">${icon("edit")}Edit</button>`}
+      ${tab.readonly ? `<span class="muted" title="Edit it in its own tool's folder">read-only</span>` : tab.encoding ? "" : `<button class="btn" id="fEdit" title="Edit this file">${icon("edit")}${lbl("Edit")}</button>`}
       <button class="btn ghost" id="fCopy" title="Copy path (right-click a file for more)">${icon("copy")}</button>
       <button class="btn ghost" id="fReload" title="Reload from disk">${icon("refresh")}</button></div>${encodingNote(tab)}
     <div class="ed-scroll" id="edScroll"><div class="code-view">
@@ -696,7 +703,7 @@ async function renderMermaid(root) {
   }
 }
 function viewSwitch(current) {
-  return `<span class="seg" role="group" aria-label="View"><button class="${current === "preview" ? "on" : ""}" data-view-mode="preview">Preview</button><button class="${current === "source" ? "on" : ""}" data-view-mode="source">Source</button></span>`;
+  return `<span class="seg" role="group" aria-label="View"><button class="${current === "preview" ? "on" : ""}" data-view-mode="preview" title="Preview">${icon("eye")}${lbl("Preview")}</button><button class="${current === "source" ? "on" : ""}" data-view-mode="source" title="Source">${icon("file")}${lbl("Source")}</button></span>`;
 }
 function bindViewSwitch(tab) {
   $$("#editor [data-view-mode]").forEach((b) => (b.onclick = () => { tab.view = b.dataset.viewMode; renderEditor(); }));
@@ -705,8 +712,8 @@ function renderDocTab(tab) {
   const parts = tab.path.split("/");
   $("#editor").innerHTML = `<div class="ed-bar"><span class="crumbs">${parts.slice(0, -1).map(esc).join(" › ")}${parts.length > 1 ? " › " : ""}<b>${esc(parts.at(-1))}</b></span>
       <span class="spacer"></span>${viewSwitch("preview")}
-      ${tab.readonly ? `<span class="muted">read-only</span>` : `<button class="btn" id="fEdit" title="Edit this file">${icon("edit")}Edit</button>`}
-      ${tab.global || tab.readonly ? "" : `<button class="btn" id="fAdd" title="Reference in chat">${icon("at")}Add to chat</button>`}
+      ${tab.readonly ? `<span class="muted">read-only</span>` : `<button class="btn" id="fEdit" title="Edit this file">${icon("edit")}${lbl("Edit")}</button>`}
+      ${tab.global || tab.readonly ? "" : `<button class="btn" id="fAdd" title="Reference in chat">${icon("at")}${lbl("Add to chat")}</button>`}
       <button class="btn ghost" id="fReload" title="Reload from disk">${icon("refresh")}</button></div>
     <div class="ed-scroll doc-scroll" id="edScroll"><article class="md-doc" id="docBody">${renderDoc(tab.content, dirOf(tab.path))}</article></div>`;
   bindViewSwitch(tab);
@@ -719,8 +726,8 @@ function renderDocTab(tab) {
 }
 function renderImageTab(tab) {
   const url = `/api/sessions/${state.sid}/raw?path=${encodeURIComponent(tab.path)}`;
-  $("#editor").innerHTML = `<div class="ed-bar"><span class="crumbs"><b>${esc(tab.path)}</b></span><span class="spacer"></span><span class="muted" id="imgSize"></span>
-      <button class="btn" id="fAdd" title="Attach to your next message">${icon("at")}Add to chat</button></div>
+  $("#editor").innerHTML = `<div class="ed-bar"><span class="crumbs"><b>${esc(tab.path)}</b></span><span class="spacer"></span><span class="muted ed-count" id="imgSize"></span>
+      <button class="btn" id="fAdd" title="Attach to your next message">${icon("at")}${lbl("Add to chat")}</button></div>
     <div class="ed-scroll img-view"><img src="${esc(url)}" alt="${esc(tab.path)}" id="imgView"></div>`;
   $("#imgView").onload = (e) => { $("#imgSize").textContent = `${e.target.naturalWidth} × ${e.target.naturalHeight}`; };
   $("#imgView").onerror = () => { $("#imgSize").textContent = "can't be shown"; };
@@ -752,10 +759,10 @@ function setDirty(tab) {
 function renderEditTab(tab) {
   const parts = tab.path.split("/");
   $("#editor").innerHTML = `<div class="ed-bar"><span class="crumbs">${parts.slice(0, -1).map(esc).join(" › ")}${parts.length > 1 ? " › " : ""}<b>${esc(parts.at(-1))}</b></span>
-      <span class="spacer"></span><span class="muted" id="edState">${tab.dirty ? "Unsaved changes" : "Editing"}</span>
-      ${isMarkdown(tab.path) ? `<button class="btn" id="fEditPreview" title="See the draft rendered">${icon(tab.editPreview ? "edit" : "eye")}${tab.editPreview ? "Back to editing" : "Preview"}</button>` : ""}
-      <button class="btn primary" id="fSave" title="Save (${keyLabel("mod+s")})">${icon("check")}Save</button>
-      <button class="btn" id="fDone" title="Back to the highlighted view">Done</button></div>
+      <span class="spacer"></span><span class="muted ed-count" id="edState">${tab.dirty ? "Unsaved changes" : "Editing"}</span>
+      ${isMarkdown(tab.path) ? `<button class="btn" id="fEditPreview" title="See the draft rendered">${icon(tab.editPreview ? "edit" : "eye")}${lbl(tab.editPreview ? "Back to editing" : "Preview")}</button>` : ""}
+      <button class="btn primary" id="fSave" title="Save (${keyLabel("mod+s")})">${icon("check")}${lbl("Save")}</button>
+      <button class="btn" id="fDone" title="Back to the highlighted view">${icon("x")}${lbl("Done")}</button></div>
     ${tab.editPreview ? `<div class="ed-scroll doc-scroll"><article class="md-doc" id="docBody">${renderDoc(tab.draft ?? tab.content, dirOf(tab.path))}</article></div>` : `<textarea class="code-edit" id="codeEdit" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" aria-label="Edit ${esc(tab.path)}"></textarea>`}`;
   $("#fEditPreview") && ($("#fEditPreview").onclick = () => { tab.editPreview = !tab.editPreview; renderEditor(); });
   $("#fSave").onclick = () => saveFile(tab);
@@ -815,8 +822,8 @@ function renderTraceTab(tab) {
     const tip = `${s.name}\n+${fmtMs(s.start_ms - t0)} · ${fmtMs(s.duration_ms)}${s.status ? "\n" + s.status : ""}\n${JSON.stringify(s.attrs, null, 1)}`;
     return `<div class="tl-row" title="${esc(tip)}"><span class="tl-name ${s.error ? "err" : ""}">${esc(s.name)}</span><div class="tl-track"><div class="tl-bar ${s.error ? "err" : ""}" style="left:${left}%;width:${Math.max(width, 0.5)}%"></div></div><span class="tl-dur">${fmtMs(s.duration_ms)}</span></div>`;
   }).join("");
-  $("#editor").innerHTML = `<div class="ed-bar"><span class="crumbs"><b>${esc(tab.path)}</b></span><span class="spacer"></span><span class="muted">${fmtBytes(d.size)}</span>
-      <button class="btn primary" id="tAsk">${icon("sparkle")}Ask codepilot about this trace</button><button class="btn" id="tRef">${icon("at")}Add to chat</button></div>
+  $("#editor").innerHTML = `<div class="ed-bar"><span class="crumbs"><b>${esc(tab.path)}</b></span><span class="spacer"></span><span class="muted ed-count">${fmtBytes(d.size)}</span>
+      <button class="btn primary" id="tAsk" title="Ask codepilot about this trace">${icon("sparkle")}${lbl("Ask codepilot about this trace")}</button><button class="btn" id="tRef" title="Reference in chat">${icon("at")}${lbl("Add to chat")}</button></div>
     <div class="ed-scroll"><div class="trace-view">
       <div class="stats"><div class="stat"><b>${o.records}</b><span>records</span></div><div class="stat"><b>${spans.length}</b><span>spans</span></div>
         <div class="stat"><b style="color:${o.errors ? "var(--err)" : "inherit"}">${o.errors}</b><span>errors</span></div><div class="stat"><b>${spans.length ? fmtMs(total) : "—"}</b><span>duration</span></div></div>
@@ -2213,7 +2220,7 @@ async function renderSpecTab(tab) {
   const cur = SPEC_PHASES.indexOf(spec.phase);
   const quick = isQuick(spec);
   const view = quick ? quickView(spec, tab.view) : tab.view && SPEC_PHASES.indexOf(tab.view) <= cur ? tab.view : spec.phase;
-  const steps = quick ? quickSteps(spec, view) : SPEC_PHASES.map((ph, i) => `<button class="sp-step ${i < cur ? "done" : i === cur ? "current" : "todo"} ${ph === view ? "on" : ""}" data-sp-view="${ph}" ${i > cur ? "disabled" : ""}>${i < cur ? icon("check") : `<span class="n">${i + 1}</span>`}${esc(phaseLabel(spec, ph))}</button>`).join(`<span class="sp-sep">›</span>`);
+  const steps = quick ? quickSteps(spec, view) : SPEC_PHASES.map((ph, i) => `<button class="sp-step ${i < cur ? "done" : i === cur ? "current" : "todo"} ${ph === view ? "on" : ""}" data-sp-view="${ph}" title="${esc(phaseLabel(spec, ph))}" ${i > cur ? "disabled" : ""}>${i < cur ? icon("check") : `<span class="n">${i + 1}</span>`}${lbl(esc(phaseLabel(spec, ph)))}</button>`).join(`<span class="sp-sep">›</span>`);
   const head = `<div class="ed-bar sp-head"><span class="crumbs"><b>${esc(spec.name)}</b> <span class="muted">${spec.kind === "bugfix" ? "bugfix spec" : "spec"}</span></span><div class="sp-steps">${steps}</div><span class="spacer"></span>${spec.name === state.specs.active ? `<span class="incl">active</span>` : ""}</div>`;
   let body = "";
   if (view === "implement") {
@@ -2700,7 +2707,7 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault(); pasteFromClipboard(e.target); return;
   }
   if (mod && e.key.toLowerCase() === "p") { e.preventDefault(); openPalette(); }
-  else if (mod && e.key.toLowerCase() === "b") { e.preventDefault(); toggle("no-sidebar"); }
+  else if (mod && e.key.toLowerCase() === "b") { e.preventDefault(); toggleSidebar(); }
   else if (mod && e.key.toLowerCase() === "j") { e.preventDefault(); toggle("no-panel"); }
   else if (mod && e.key.toLowerCase() === "l") { e.preventDefault(); ide.classList.remove("no-chat"); input.focus(); }
   else if (e.altKey && e.code === "KeyW") { e.preventDefault(); if (state.active) closeTab(state.active); }

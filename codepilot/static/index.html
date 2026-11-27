@@ -22,7 +22,7 @@
 <div class="ide" id="ide">
   <!-- Title bar -->
   <header class="titlebar">
-    <div class="brand"><span class="logo" data-icon="logo"></span>codepilot</div>
+    <div class="brand"><span class="logo" data-icon="logo"></span><span class="brand-name">codepilot</span></div>
     <button class="workspace-btn" id="workspaceBtn" title="This session's folders"><span data-icon="folder"></span><span id="workspaceName">No folder</span></button>
     <button class="palette-btn" id="paletteBtn" title="Go to file (⌘P)"><span data-icon="search"></span><span>Search files</span><kbd>⌘P</kbd></button>
     <button class="menu-btn" id="fileMenuBtn" title="New file or folder, open, save"><span data-icon="file"></span><span>File</span><span data-icon="chevron" class="caret"></span></button>
@@ -147,9 +147,9 @@
           <select class="field sm term-select" id="termSelect" title="Switch terminal (double-click to rename)" aria-label="Terminals"></select>
           <span class="mono muted term-cwd" id="termCwd"></span>
           <span class="term-status muted" id="termStatus"></span>
-          <button class="btn sm" id="termRestart" hidden>Restart</button>
+          <button class="btn sm" id="termRestart" title="Restart" hidden><span data-icon="refresh"></span><span class="lbl">Restart</span></button>
           <div class="spacer"></div>
-          <button class="btn sm" id="termSendSel" title="Paste the selected terminal text into the chat">Selection → chat</button>
+          <button class="btn sm" id="termSendSel" title="Paste the selected terminal text into the chat"><span data-icon="chat"></span><span class="lbl">Selection → chat</span></button>
           <button class="icon-btn sm" id="termNew" title="New terminal (in the session's folder)" data-icon="plus"></button>
           <button class="icon-btn sm" id="termRename" title="Rename terminal" data-icon="edit"></button>
           <button class="icon-btn sm" id="termKill" title="Kill terminal" data-icon="trash"></button>

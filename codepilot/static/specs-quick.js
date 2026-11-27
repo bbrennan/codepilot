@@ -24,8 +24,8 @@ function quickView(spec, wanted) {
 
 function quickSteps(spec, view) {
   const building = spec.phase === "implement", planning = view !== "implement";
-  return `<button class="sp-step ${building ? "done" : "current"} ${planning ? "on" : ""}" data-sp-view="requirements">${building ? icon("check") : `<span class="n">1</span>`}Plan</button><span class="sp-sep">›</span>`
-    + `<button class="sp-step ${building ? "current" : "todo"} ${planning ? "" : "on"}" data-sp-view="implement" ${building ? "" : "disabled"}><span class="n">2</span>Implement</button>`;
+  return `<button class="sp-step ${building ? "done" : "current"} ${planning ? "on" : ""}" data-sp-view="requirements" title="Plan">${building ? icon("check") : `<span class="n">1</span>`}${lbl("Plan")}</button><span class="sp-sep">›</span>`
+    + `<button class="sp-step ${building ? "current" : "todo"} ${planning ? "" : "on"}" data-sp-view="implement" title="Implement" ${building ? "" : "disabled"}><span class="n">2</span>${lbl("Implement")}</button>`;
 }
 
 const quickDocs = (spec, view) => `<div class="sp-sub">${SPEC_DOCS.map((doc) => `<button class="sp-step ${doc === view ? "on" : ""}" data-sp-view="${doc}">${esc(phaseLabel(spec, doc))}</button>`).join("")}</div>`;

@@ -112,7 +112,8 @@ failing.
 ## Front end
 
 `static/index.html` is the layout. `app.css` holds the theme tokens, with dark and light variants.
-`app.js` is plain DOM with no framework or build step. `layout.js` fits the saved pane sizes to the window; it loads
+`app.js` is plain DOM with no framework or build step. `layout.js` fits the saved pane sizes to the window, keeping the editor 440px wide where it can and having the
+sidebar step aside where it can't keep 400px; it loads
 before `app.js` (which restores the layout before the first paint) and uses none of its helpers. `keys.js` writes
 shortcuts one way per platform (`keyLabel("mod+p")` is ⌘P on a Mac, Ctrl+P elsewhere); it also loads before `app.js`,
 which titles its buttons as it loads. A feature with its own UI gets its own classic script
