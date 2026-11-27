@@ -6,7 +6,7 @@ import json
 import time
 
 from test_files_ui import TOP_LINE, scroll_to_line
-from uihelpers import open_app
+from uihelpers import click_editor, editor_open, editor_text, open_app, set_editor_text, wait_editor
 
 PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9aw"
                        "AAAABJRU5ErkJggg==")
@@ -192,7 +192,7 @@ def edit_core(page, text="# mine\n", settle=True):
     page.click("#tree [data-dir='agent']")
     page.click("#tree [data-file='agent/core.py']")
     page.click("#fEdit")
-    page.locator("#codeEdit").wait_for()
+    wait_editor(page)
     page.keyboard.type(text)  # at the top: the caret starts on the line you were reading
     page.wait_for_function("() => document.querySelector('.tab.on').classList.contains('dirty')")
     if settle:
@@ -209,8 +209,8 @@ def test_an_unsaved_edit_comes_back_after_a_reload_and_saves(page, server, sessi
     edit_core(page)
 
     reload(page)
-    page.locator("#codeEdit").wait_for()
-    assert page.input_value("#codeEdit") == "# mine\n" + core.read_text()
+    wait_editor(page)
+    assert editor_text(page) == "# mine\n" + core.read_text()
     assert page.locator("#editorTabs .tab.on.dirty").count() == 1
     assert page.locator("#edState").text_content() == "Unsaved changes"
     save(page)
@@ -227,8 +227,8 @@ def test_an_edit_to_a_file_changed_on_disk_is_kept_said_once_and_save_asks(page,
     core.write_text("theirs = 1\n")
 
     reload(page)
-    page.locator("#codeEdit").wait_for()
-    assert page.input_value("#codeEdit").startswith("# mine\ndef add")  # your edit, not theirs
+    wait_editor(page)
+    assert editor_text(page).startswith("# mine\ndef add")  # your edit, not theirs
     page.wait_for_function("() => window.__toasts.some((t) => t.includes('changed on disk'))", timeout=5000)
     page.wait_for_timeout(2500)  # past the next look at the disk (every 2 s)
     assert len([t for t in page.evaluate("window.__toasts") if "changed on disk" in t]) == 1
@@ -248,8 +248,8 @@ def test_an_edit_to_a_deleted_file_comes_back_and_save_writes_the_file_again(pag
     core.unlink()
 
     reload(page)
-    page.locator("#codeEdit").wait_for()
-    assert page.input_value("#codeEdit") == "# mine\ndef add(a, b):\n    return a - b\n"
+    wait_editor(page)
+    assert editor_text(page) == "# mine\ndef add(a, b):\n    return a - b\n"
     assert page.locator("#editorTabs .tab.on.dirty").count() == 1
     page.wait_for_timeout(2500)
     gone = [t for t in page.evaluate("window.__toasts") if "core.py" in t]
@@ -265,8 +265,8 @@ def test_a_draft_too_large_to_store_asks_before_the_page_is_left(page, server, s
     open_app(page)
     page.click("#tree [data-file='Makefile']")
     page.click("#fEdit")
-    page.fill("#codeEdit", "x" * 1_200_000)
-    page.click("#codeEdit")  # a real click: Chrome asks only on a page you've used
+    set_editor_text(page, "x" * 1_200_000)
+    click_editor(page)  # a real click: Chrome asks only on a page you've used
     page.wait_for_function("() => document.querySelector('.tab.on').classList.contains('dirty')")
 
     reload(page)
@@ -282,7 +282,7 @@ def test_storage_that_is_full_asks_before_the_page_is_left(page, server, session
     page.on("dialog", lambda d: (dialogs.append(d.type), d.accept()))
     open_app(page)
     edit_core(page)
-    page.click("#codeEdit")
+    click_editor(page)
 
     reload(page)
     assert dialogs == ["beforeunload"]
@@ -293,10 +293,10 @@ def test_a_stored_draft_leaves_without_asking(page, server, session):
     page.on("dialog", lambda d: (dialogs.append(d.type), d.accept()))
     open_app(page)
     edit_core(page)
-    page.click("#codeEdit")
+    click_editor(page)
 
     reload(page)
-    page.locator("#codeEdit").wait_for()
+    wait_editor(page)
     assert dialogs == []
 
 
@@ -310,7 +310,7 @@ def test_a_discarded_edit_stays_discarded(page, server, session):
 
     reload(page)
     page.locator("#editor code", has_text="a - b").wait_for()
-    assert page.locator("#codeEdit").count() == 0
+    assert not editor_open(page)
     assert page.locator("#editorTabs .tab.dirty").count() == 0
 
 
@@ -359,7 +359,7 @@ def test_each_folder_keeps_its_own_tabs_and_drafts(page, server, session, tmp_pa
     wait_tabs(page, 5)
     assert tab_ids(page) == target_tabs
     assert page.evaluate(ACTIVE) == "file:agent/core.py"
-    assert page.input_value("#codeEdit").startswith("# mine\n")
+    assert editor_text(page).startswith("# mine\n")
     assert page.locator("#editorTabs .tab.dirty").count() == 1
 
     switch(page, other.id)

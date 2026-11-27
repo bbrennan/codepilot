@@ -2,7 +2,8 @@
 
 import re
 
-from uihelpers import open_app
+from uihelpers import (EDITOR, editor_caret_line, editor_text, editor_top_line, open_app, press_in_editor,
+                       scroll_editor_to_line, type_in_editor, wait_editor)
 
 def menu(page, label):
     page.locator("#ctxMenu .mi span", has_text=re.compile(f"^{re.escape(label)}$")).click()
@@ -29,7 +30,7 @@ def test_new_file_from_the_file_menu_then_edit_and_save(page, server, session):
     menu(page, "New File…")
     answer(page, "pkg/util.py")
     target = server.repo / "pkg" / "util.py"
-    page.locator("#codeEdit").wait_for()  # opens straight into the editor
+    wait_editor(page)  # opens straight into the editor
     assert target.exists() and target.read_text() == ""
     page.locator("#tree [data-file='pkg/util.py']").wait_for()  # revealed in the explorer
 
@@ -52,7 +53,7 @@ def test_new_folder_goes_in_the_selected_folder(page, server, session):
     page.click("#tree [data-dir='agent/helpers']")
     page.click("#newFileBtn")
     answer(page, "io.py")
-    page.locator("#codeEdit").wait_for()
+    wait_editor(page)
     assert (server.repo / "agent" / "helpers" / "io.py").exists()
 
 
@@ -144,7 +145,7 @@ def test_saving_over_a_change_made_on_disk_asks_first(page, server, session):
     page.click("#tree [data-dir='agent']")
     page.locator("#tree [data-file='agent/core.py']").click(button="right")
     menu(page, "Edit")
-    page.locator("#codeEdit").wait_for()
+    wait_editor(page)
     page.keyboard.type("# mine\n")
     core.write_text("# changed elsewhere\n")
     page.click("#fSave")
@@ -161,7 +162,7 @@ def test_closing_a_tab_with_unsaved_edits_asks(page, server, session):
     open_app(page)
     page.click("#tree [data-file='Makefile']")
     page.click("#fEdit")
-    page.locator("#codeEdit").type("more\n")
+    type_in_editor(page, "more\n")
     page.locator(".tab.on [data-close]").click()
     page.locator("#dialogTitle", has_text="Discard changes").wait_for()
     page.click("#dialogCancel")
@@ -211,17 +212,16 @@ def test_unsaved_edits_are_never_replaced_by_a_change_on_disk(page, server, sess
     page.click("#tree [data-file='agent/core.py']")
     page.locator("#editor code", has_text="a - b").wait_for()
     page.click("#fEdit")
-    page.locator("#codeEdit").wait_for()
-    page.locator("#codeEdit").press("End")
-    page.locator("#codeEdit").type("\n# mine")
+    wait_editor(page)
+    press_in_editor(page, "End")
+    type_in_editor(page, "\n# mine")
     (server.repo / "agent" / "core.py").write_text("theirs = 1\n")
     page.locator(".toast", has_text="changed on disk. Your unsaved edits are kept").wait_for(timeout=5000)
-    assert "# mine" in page.input_value("#codeEdit")
+    assert "# mine" in editor_text(page)
 
 
 # The line at the top of a scroller, from its scroll position: the view and the editor both draw 20px lines.
 TOP_LINE = "(sel) => Math.floor(document.querySelector(sel).scrollTop / 20) + 1"
-CARET_LINE = "() => { const t = document.querySelector('#codeEdit'); return t.value.slice(0, t.selectionStart).split('\\n').length; }"
 
 
 def scroll_to_line(page, sel, n):
@@ -239,17 +239,17 @@ def open_long_file(page, server, name="long.py"):
 def test_edit_and_done_keep_your_place_in_a_file(page, server, session):
     open_long_file(page, server)
     page.click("#fEdit")  # from the top: the editor opens at line 1, caret there too
-    page.locator("#codeEdit").wait_for()
-    assert page.evaluate(TOP_LINE, "#codeEdit") == 1 and page.evaluate(CARET_LINE) == 1
+    wait_editor(page)
+    assert editor_top_line(page) == 1 and editor_caret_line(page) == 1
     page.click("#fDone")
 
     scroll_to_line(page, "#edScroll", 120)
     page.click("#fEdit")  # from line 120: the editor shows line 120, with the caret on it
-    page.locator("#codeEdit").wait_for()
-    assert abs(page.evaluate(TOP_LINE, "#codeEdit") - 120) <= 1
-    assert page.evaluate(CARET_LINE) == 120
+    wait_editor(page)
+    assert abs(editor_top_line(page) - 120) <= 1
+    assert editor_caret_line(page) == 120
 
-    scroll_to_line(page, "#codeEdit", 200)
+    scroll_editor_to_line(page, 200)
     page.click("#fDone")  # Done: the view shows what the editor had at its top
     page.locator("#edScroll").wait_for()
     assert abs(page.evaluate(TOP_LINE, "#edScroll") - 200) <= 1
@@ -266,12 +266,12 @@ def test_a_file_tab_keeps_its_place_when_you_come_back_to_it(page, server, sessi
     assert abs(page.evaluate(TOP_LINE, "#edScroll") - 150) <= 1  # the view
 
     page.click("#fEdit")
-    scroll_to_line(page, "#codeEdit", 80)
+    scroll_editor_to_line(page, 80)
     page.locator("#editorTabs [data-tab='file:agent/core.py']").click()
     page.locator("#editor code", has_text="a - b").wait_for()
     page.locator("#editorTabs [data-tab='file:long.py']").click()
-    page.locator("#codeEdit").wait_for()
-    assert abs(page.evaluate(TOP_LINE, "#codeEdit") - 80) <= 1  # and the editor
+    wait_editor(page)
+    assert abs(editor_top_line(page) - 80) <= 1  # and the editor
 
 
 # Whether the active tab is wholly inside the tab strip's box (not scrolled past either edge).
@@ -322,7 +322,7 @@ def test_a_binary_file_opens_as_a_binary_file_not_as_text(page, server, session)
     page.click("#tree [data-file='data.bin']")
     page.locator("#editor", has_text="Binary file").wait_for()
     assert "1 KB" in page.locator("#editor").text_content() or "1,024" in page.locator("#editor").text_content()
-    assert page.locator("#fEdit, #fAsk, #codeEdit, #editor .code-view").count() == 0  # nothing to edit or read as text
+    assert page.locator(f"#fEdit, #fAsk, {EDITOR}, #editor .code-view").count() == 0  # nothing to edit or read as text
 
 
 def test_a_file_that_isnt_utf8_is_shown_but_not_offered_for_editing(page, server, session):
