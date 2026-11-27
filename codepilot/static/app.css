@@ -286,6 +286,9 @@ kbd { font: var(--fs-sm) var(--mono); padding: 1px 6px; border: 1px solid var(--
 /* The file's name is shown whole; a long one wraps the header onto a second row rather than push the buttons out. */
 .rv-main > .ed-bar { flex-wrap: wrap; height: auto; min-height: 30px; padding-block: 2px; row-gap: 2px; }
 .rv-main .crumbs { flex: 0 1 auto; white-space: normal; overflow-wrap: anywhere; overflow: visible; }
+/* Apply, Reject (or Undo) and Open file wrap as one, under a long path, never one by one; only a diff pane narrower
+   than the three (the change list keeps 280px) wraps them among themselves, rather than cutting them off. */
+.rv-acts { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: none; max-width: 100%; }
 .status { font-size: var(--fs-sm); padding: 1px 7px; border-radius: var(--r-pill); border: 1px solid var(--line-2); text-transform: lowercase; }
 .status.pending { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
 .status.applied { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }

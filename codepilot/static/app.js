@@ -956,7 +956,7 @@ function renderReviewTab(tab) {
       ${list.map((x) => `<div class="rv-item ${x.id === p.id ? "on" : ""}" data-rv="${x.id}">${fileIcon(x.path)}<div class="rv-name"><span>${esc(base(x.path))}</span><span class="muted">${esc(dirOf(x.path))}</span></div>${depMark(x)}${diffStat(x.diff).html}<span class="status ${x.status}">${x.status}</span></div>`).join("")}
       <div class="rv-receipt">${receiptHtml()}</div>
       <div class="hint rv-keys"><kbd>j</kbd>/<kbd>k</kbd> move · <kbd>a</kbd> apply · <kbd>r</kbd> reject</div></div>
-    <div class="rv-main"><div class="ed-bar"><span class="crumbs"><b>${esc(p.path)}</b> <span class="muted">#${p.id}</span></span><span class="muted rv-reason">${esc(p.reason || "")}</span><span class="spacer"></span>${propActions(p)}<button class="icon-btn" id="rvOpen" title="Open file" aria-label="Open file">${icon("file")}</button></div>
+    <div class="rv-main"><div class="ed-bar"><span class="crumbs"><b>${esc(p.path)}</b> <span class="muted">#${p.id}</span></span><span class="muted rv-reason">${esc(p.reason || "")}</span><span class="spacer"></span><span class="rv-acts">${propActions(p)}<button class="icon-btn" id="rvOpen" title="Open file" aria-label="Open file">${icon("file")}</button></span></div>
       ${depAdvice(p)}${receiptFindings(p.path)}<div class="ed-scroll">${diffHtml(p.diff)}</div>
       <div class="rv-ask"><textarea class="field" id="rvAsk" rows="2" placeholder="Ask for a change to this, e.g. &quot;keep the old name as an alias&quot;"></textarea><button class="btn" id="rvAskBtn">${icon("send")}Send</button></div></div></div>`;
   bindReceipt($("#editor"));

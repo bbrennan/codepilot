@@ -50,7 +50,10 @@ PR each, in the order of `tasks.md`.
     size, and offer no Edit, Ask or text view; images open as images, as now.
 5.2 WHEN a text file that isn't valid UTF-8 is opened THEN it SHALL be shown as now, with a line saying why it can't be
     edited here, and no Edit button.
-6.1 The Review header's Apply, Reject (or Undo) and Open file SHALL stay together on one line at every editor width.
+6.1 The Review header's Apply, Reject (or Undo) and Open file SHALL stay together on one line wherever the diff pane can
+    hold them, and in a narrower pane SHALL wrap among themselves rather than be cut off. (Corrected in task 6: the
+    change list keeps 280px, so below an editor of about 460px the diff pane is narrower than the three buttons, 0px at
+    a 280px editor; "one line at every editor width" can't hold there. small-windows covers the narrow Review tab.)
 6.2 A change row's note SHALL show what the checks or the package guard found, and never a `<steering>` block.
 7.1 Text on a solid accent button SHALL have a contrast of at least 4.5:1 in both themes.
 7.2 `--muted`, `--ok`, `--warn`, `--err`, `--info` and `--accent`, used as text, SHALL reach 4.5:1 on `--bg-0` to

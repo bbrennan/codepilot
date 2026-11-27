@@ -63,7 +63,8 @@ the ✕ icon in `--muted`, verb "Didn't run".
 ## 6. Review header and change notes (fix/review-header)
 
 - `renderReviewTab`: wrap `propActions(p)` and `#rvOpen` in `<span class="rv-acts">`; CSS `display: inline-flex; gap:
-  6px; flex: none`. They wrap together under the path when it is long.
+  6px; flex: none`. They wrap together under the path when it is long. (Task 6 added `flex-wrap: wrap; max-width:
+  100%`, so a diff pane narrower than the three wraps them among themselves instead of cutting them off.)
 - `steps.js`: `readerNote(text)` removes `<steering …>…</steering>` blocks and the line "Follow the steering above when
   working on these files."; `changeStepDone` stores `readerNote(m[2])`. The "steering: …" chip already says which docs
   loaded. The agent is untouched: the model still gets the steering.
@@ -103,7 +104,7 @@ One e2e test per criterion group, in the file that owns the area; all fail befor
 | 3 | `test_files_ui.py`: twelve open files at 1024 wide: the active tab's rect is inside the strip's; wheel scrolls it |
 | 4 | `test_commands_ui.py`: "delete build" reads "Wants to run", Deny reads "Didn't run" with no `.st.err`, also after reload; approve reads "Ran" |
 | 5 | `tests/test_files.py` (`textfile.kind`), `tests/test_server.py` (the two answers), `test_files_ui.py` (binary tab has no Edit; Latin-1 file has the note and no Edit) |
-| 6 | `test_review_ui.py` (the three buttons share one line at editor widths 280–660); `test_steering_ui.py` (the note has no `<steering`) |
+| 6 | `test_review_ui.py` (the three buttons share one line at editor widths 460–660, and stay inside the bar at 400: see 6.1); `test_steering_ui.py` (the note has no `<steering`) |
 | 7 | `test_design_tokens_ui.py`: every text token against every surface, both themes |
 | 8 | `test_copy_ui.py`: "1 line"; one notation per platform in the welcome list and menus; "(stopped)" live and reloaded; "Add folder" |
 
