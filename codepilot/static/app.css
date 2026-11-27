@@ -248,6 +248,9 @@ input[type="checkbox"][role="switch"]:focus-visible { outline: 2px solid var(--a
 .gutter div { cursor: pointer; height: 20px; }
 .gutter div:hover { color: var(--fg-2); }
 .gutter div.sel { color: var(--accent); font-weight: 600; }
+/* The line numbers as one tab stop: the line you're on, while they have focus. */
+.gutter:focus-visible { outline-offset: -2px; }
+.gutter:focus .at { color: var(--fg); background: var(--bg-4); border-radius: var(--r-sm); }
 .code-wrap { position: relative; padding: 6px 24px 24px 8px; }
 .code-wrap pre { margin: 0; font: inherit; tab-size: 4; position: relative; z-index: 1; }
 .line-hl { position: absolute; left: 0; right: 0; height: 20px; background: var(--sel); pointer-events: none; }

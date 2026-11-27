@@ -260,9 +260,8 @@ AUDIT = """(allowed) => {
   return [...found];
 }"""
 
-# Still unreachable, each until the task that makes it so; a task starts by taking its line out (task 2: the code
-# view's line numbers; task 3: the tabs).
-NOT_YET = ["#gutter", "#editorTabs .tab"]
+# Still unreachable, each until the task that makes it so; a task starts by taking its line out (task 3: the tabs).
+NOT_YET = ["#editorTabs .tab"]
 
 
 def audit(page, screen):
@@ -488,6 +487,36 @@ def test_in_review_letters_and_arrows_in_the_tree_belong_to_the_tree(page, serve
     page.evaluate("document.activeElement.blur()")  # on the page: Review's keys again
     page.keyboard.press("j")
     page.wait_for_function("(s) => document.querySelector('.rv-item.on').dataset.rv !== s", arg=sel)
+
+
+def wait_sel(page, a, b):
+    page.wait_for_function("([a, b]) => { const s = state.tabs.find((t) => t.id === state.active).sel;"
+                           " return s?.a === a && s?.b === b; }", arg=[a, b])
+
+
+def test_the_line_numbers_are_one_tab_stop_that_selects_lines(page, server, session):
+    (server.repo / "long.py").write_text("".join(f"x_{i} = {i}\n" for i in range(1, 41)))
+    open_app(page)
+    page.evaluate("openFile('long.py')")
+    page.locator("#gutter").wait_for()
+    page.focus("#fReload")
+    tab_to(page, "#gutter")
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press("Enter")  # line 3
+    wait_sel(page, 3, 3)
+    assert focus_is(page, "#gutter")
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press("Shift+Enter")  # to line 5
+    wait_sel(page, 3, 5)
+    page.keyboard.press("End")
+    assert page.evaluate("() => document.querySelector('#gutter').getAttribute('aria-activedescendant')") == "ln-40"
+    page.keyboard.press(" ")
+    wait_sel(page, 40, 40)
+    assert page.evaluate("""() => { const r = document.querySelector('#ln-40').getBoundingClientRect(),
+      s = document.querySelector('#edScroll').getBoundingClientRect();
+      return r.top >= s.top && r.bottom <= s.bottom; }"""), "the line you're on is in view"
 
 
 def test_the_bars_review_button_puts_you_in_the_review_where_a_applies(page, server, session):

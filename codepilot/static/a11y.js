@@ -27,6 +27,8 @@ function a11yDecorate(el) {
 function a11yDecorateIn(root) {
   if (root.matches(A11Y_ACT)) a11yDecorate(root);
   for (const el of root.querySelectorAll(A11Y_ACT)) a11yDecorate(el);
+  const gutter = root.id === "gutter" ? root : root.querySelector("#gutter");
+  if (gutter && !gutter.hasAttribute("tabindex")) a11yGutter(gutter);
 }
 
 // What was drawn is decorated once a frame (a streamed reply redraws on every word) and before any key is handled,
@@ -167,6 +169,37 @@ $("#tree").addEventListener("keydown", (e) => {
   } else return;
   e.preventDefault(); e.stopPropagation();
   if (to) a11yTreePick(to);
+});
+
+// ---- the code view's line numbers
+// One tab stop (a list whose current line is its active descendant): Up, Down, Page Up, Page Down, Home and End move;
+// Enter or Space selects the line as a click does, Shift extends. The line you were on is kept per tab.
+const a11yLines = new Map(); // tab id -> the line the gutter was on
+function a11yGutter(g) {
+  g.tabIndex = 0;
+  g.setAttribute("role", "listbox"); g.setAttribute("aria-label", "Line numbers"); g.setAttribute("aria-multiselectable", "true");
+  const sel = state.tabs.find((t) => t.id === state.active)?.sel;
+  a11yGutterAt(g, a11yLines.get(state.active) || sel?.a || 1, false);
+}
+function a11yGutterAt(g, n, scroll) {
+  n = Math.max(1, Math.min(n, g.children.length));
+  const old = g.querySelector(".at"); if (old) { old.classList.remove("at"); old.removeAttribute("id"); }
+  const el = g.children[n - 1]; if (!el) return;
+  el.classList.add("at"); el.id = "ln-" + n; el.setAttribute("role", "option");
+  el.setAttribute("aria-selected", String(el.classList.contains("sel")));
+  g.setAttribute("aria-activedescendant", el.id);
+  a11yLines.set(state.active, n);
+  if (scroll) el.scrollIntoView({ block: "nearest" });
+}
+document.addEventListener("keydown", (e) => {
+  const g = e.target; if (g.id !== "gutter" || e.altKey || e.metaKey || e.ctrlKey) return;
+  const n = +(g.querySelector(".at")?.dataset.ln || 1), page = Math.max(1, Math.floor(($("#edScroll")?.clientHeight || 400) / 20) - 1);
+  const to = { ArrowDown: n + 1, ArrowUp: n - 1, PageDown: n + page, PageUp: n - page, Home: 1, End: g.children.length }[e.key];
+  if (to && !e.shiftKey) { e.preventDefault(); a11yGutterAt(g, to, true); return; }
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    g.children[n - 1]?.dispatchEvent(new MouseEvent("click", { bubbles: true, shiftKey: e.shiftKey }));
+  }
 });
 
 // What app.js calls. focus(selector): put focus somewhere deliberate, on an element that may not be decorated yet.
