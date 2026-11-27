@@ -525,7 +525,11 @@ a.loc:hover { text-decoration: underline; }
 .composer-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 .composer-box.drop { border-color: var(--accent); border-style: dashed; }
 .composer textarea { width: 100%; border: 0; outline: 0; background: transparent; resize: none; min-height: 22px; max-height: min(220px, 26vh); line-height: 1.5; padding: 0; }
-.composer-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+/* When the row is too narrow, the actions move to a line of their own as a whole, right-aligned: Stop and Send are never
+   the controls cut off (Steer and Queue join them while a turn runs). */
+.composer-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; row-gap: 4px; margin-top: 4px; }
+.composer-opts { display: flex; gap: 8px; flex: 0 1 auto; min-width: 0; }
+.composer-acts { display: flex; align-items: center; gap: 8px; flex: none; margin-left: auto; }
 .chip-btn { width: 24px; height: 24px; border-radius: var(--r-md); border: 1px solid var(--line); background: var(--bg-3); color: var(--muted); display: inline-grid; place-items: center; padding: 0; }
 .chip-btn:hover { color: var(--fg); }
 .chip-btn svg { width: 14px; height: 14px; }
