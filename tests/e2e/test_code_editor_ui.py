@@ -5,7 +5,8 @@ import sys
 
 import pytest
 from test_keyboard_access_ui import audit
-from uihelpers import editor_has_focus, editor_open, editor_text, focus_editor, open_app, type_in_editor, wait_editor
+from uihelpers import (editor_caret_line, editor_has_focus, editor_open, editor_text, editor_top_line, focus_editor,
+                       open_app, type_in_editor, wait_editor)
 
 BUNDLE = "**/static/vendor/codemirror.min.js"
 
@@ -345,3 +346,134 @@ def test_a_line_is_at_the_same_height_in_the_view_and_the_editor(page, server, s
     wait_editor(page)
     page.evaluate("() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))")  # (laid out)
     assert abs(page.evaluate(NUMBER_AT, 120) - in_view) <= 1  # the same line at the same height, not only the same top
+
+
+# -- task 3.1: find and replace, go to line ---------------------------------------------------------------------------
+
+# The find panel by what a person reads on it (its boxes' names, its buttons' words), not by CodeMirror's classes.
+FIND = "#codeEdit input[aria-label='Find']"
+REPLACE = "#codeEdit input[aria-label='Replace']"
+
+
+def find_button(page, label):
+    return page.locator("#codeEdit button", has_text=label).first
+
+
+def type_into(page, sel, text):
+    """Type over what a box of the find panel holds, as a person does (it takes the query as keys come up)."""
+    page.locator(sel).click()
+    page.keyboard.press("ControlOrMeta+a")
+    page.keyboard.type(text)
+
+
+def find_option(page, label):
+    return page.locator("#codeEdit label", has_text=label).locator("input")
+
+
+# Whether the last key pressed had its default prevented (the browser's own find, or Chrome's Ctrl+G, didn't run).
+WATCH_KEYS = """() => { window.__keys = [];
+  addEventListener('keydown', (e) => window.__keys.push([e.key, e.defaultPrevented])); }"""
+
+
+
+
+def selected(page):
+    return page.evaluate("() => getSelection().toString()")
+
+
+def test_mod_f_finds_inside_the_editor_and_enter_goes_to_the_next_and_previous_match(page, server, session):
+    edit(page, server, "calc.py", "total = 1\nx = total\ny = 2\nTotal = total + x\n")
+    page.evaluate(WATCH_KEYS)
+    page.keyboard.press("ControlOrMeta+f")
+    page.locator(FIND).wait_for()
+    assert page.evaluate("() => window.__keys.at(-1)") == ["f", True]  # not the browser's find
+    assert page.evaluate("(s) => document.activeElement === document.querySelector(s)", FIND)
+    page.keyboard.type("total")
+    page.keyboard.press("Enter")  # the match at the caret first, then on
+    assert editor_caret_line(page) == 1
+    page.keyboard.press("Enter")
+    assert editor_caret_line(page) == 2
+    page.keyboard.press("Enter")
+    assert editor_caret_line(page) == 4
+    page.keyboard.press("Shift+Enter")
+    assert editor_caret_line(page) == 2
+    page.keyboard.press("Escape")  # closes, back to the text where the match is
+    page.locator(FIND).wait_for(state="detached")
+    assert editor_has_focus(page) and editor_caret_line(page) == 2
+
+
+def test_match_case_whole_word_and_regular_expression(page, server, session):
+    edit(page, server, "calc.py", "total = 1\ntotals = 2\nTotal = 3\nt0tal = 4\n")
+    page.keyboard.press("ControlOrMeta+f")
+    type_into(page, FIND, "total")
+
+    def lines():
+        page.locator(FIND).press("Enter")
+        first = editor_caret_line(page)
+        seen = [first]
+        for _ in range(4):
+            page.locator(FIND).press("Enter")
+            if editor_caret_line(page) == first:
+                break
+            seen.append(editor_caret_line(page))
+        return sorted(seen)
+
+    assert lines() == [1, 2, 3]  # any case, inside words
+    find_option(page, "match case").check()
+    assert lines() == [1, 2]
+    find_option(page, "whole word").check()
+    assert lines() == [1]
+    find_option(page, "match case").uncheck()
+    find_option(page, "whole word").uncheck()
+    find_option(page, "regular expression").check()
+    type_into(page, FIND, r"t\dtal")
+    assert lines() == [4]
+
+
+def test_replace_and_replace_all_are_one_undo_each(page, server, session):
+    edit(page, server, "calc.py", "a = old\nb = old\nc = old\n")
+    page.keyboard.press("ControlOrMeta+f")
+    type_into(page, FIND, "old")
+    page.locator(FIND).press("Enter")  # on the first match: Replace replaces what's selected, then moves on
+    type_into(page, REPLACE, "new")
+    find_button(page, "replace").click()
+    assert editor_text(page) == "a = new\nb = old\nc = old\n"
+    find_button(page, "replace all").click()
+    assert editor_text(page) == "a = new\nb = new\nc = new\n" and dirty(page)
+    page.keyboard.press("Escape")
+    focus_editor(page)
+    page.keyboard.press("ControlOrMeta+z")  # replace all, at once
+    assert editor_text(page) == "a = new\nb = old\nc = old\n"
+    page.keyboard.press("ControlOrMeta+z")  # the one replace
+    assert editor_text(page) == "a = old\nb = old\nc = old\n" and not dirty(page)
+
+
+def test_ctrl_g_goes_to_a_line(page, server, session):
+    edit(page, server, "long.py", "".join(f"value_{i} = {i}\n" for i in range(1, 301)))
+    page.evaluate(WATCH_KEYS)
+    page.keyboard.press("Control+g")  # as in VS Code, on a Mac too
+    box = page.locator("#codeEdit input").first
+    box.wait_for()
+    assert page.evaluate("() => window.__keys.at(-1)") == ["g", True]  # not the browser's find next
+    page.keyboard.type("240")
+    page.keyboard.press("Enter")
+    page.wait_for_function("() => document.activeElement?.isContentEditable")
+    assert editor_caret_line(page) == 240 and editor_has_focus(page)
+    top = editor_top_line(page)
+    assert top <= 240 < top + 25  # in view
+
+
+@pytest.mark.parametrize("size", [(1024, 700), (1440, 900)])
+def test_the_find_panel_fits_inside_the_editor(page, server, session, size):
+    page.set_viewport_size({"width": size[0], "height": size[1]})
+    edit(page, server, "calc.py", "a = 1\n")
+    page.keyboard.press("ControlOrMeta+f")
+    page.locator(FIND).wait_for()
+    outside = page.evaluate("""() => { const box = document.querySelector('#codeEdit').getBoundingClientRect();
+      return [...document.querySelectorAll('#codeEdit input, #codeEdit button, #codeEdit label')].filter((el) => {
+        const r = el.getBoundingClientRect();
+        return r.width && (r.left < box.left - 0.5 || r.right > box.right + 0.5 || r.top < box.top - 0.5
+          || r.bottom > box.bottom + 0.5); }).map((el) => el.outerHTML.slice(0, 80)); }""")
+    width = page.evaluate("() => document.querySelector('#codeEdit').getBoundingClientRect().width")
+    assert not outside, (width, outside)
+
