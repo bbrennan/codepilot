@@ -248,6 +248,9 @@ input[type="checkbox"][role="switch"]:focus-visible { outline: 2px solid var(--a
 .gutter div { cursor: pointer; height: 20px; }
 .gutter div:hover { color: var(--fg-2); }
 .gutter div.sel { color: var(--accent); font-weight: 600; }
+/* The line numbers as one tab stop: the line you're on, while they have focus. */
+.gutter:focus-visible { outline-offset: -2px; }
+.gutter:focus .at { color: var(--fg); background: var(--bg-4); border-radius: var(--r-sm); }
 .code-wrap { position: relative; padding: 6px 24px 24px 8px; }
 .code-wrap pre { margin: 0; font: inherit; tab-size: 4; position: relative; z-index: 1; }
 .line-hl { position: absolute; left: 0; right: 0; height: 20px; background: var(--sel); pointer-events: none; }
@@ -636,7 +639,10 @@ a.loc:hover { text-decoration: underline; }
 .ctx-menu .mi kbd { margin-left: auto; }
 .ctx-menu .mi svg { width: 14px; height: 14px; color: var(--muted); }
 .ctx-menu .sep { height: 1px; background: var(--line); margin: 4px 6px; }
-.tree .row.picked { outline: 1px solid var(--accent); outline-offset: -1px; }
+/* The picked row (F2's and New File's target): outlined while the tree has focus, a faint fill otherwise. */
+.tree .row.picked:not(.on) { background: var(--bg-3); }
+.tree:focus-within .row.picked { outline: 1px solid var(--accent); outline-offset: -1px; }
+.tree .row.picked:focus-visible { outline-width: 2px; outline-offset: -2px; }
 
 /* ---------- syntax (highlight.js classes) ---------- */
 .hljs-keyword, .hljs-selector-tag, .hljs-built_in, .hljs-meta .hljs-keyword { color: var(--syn-kw); }

@@ -13,7 +13,7 @@ Adding a new kind of row is adding a selector.
 | Focus across redraws | Most of these rows live in lists that redraw when a row is used (Review, Changes, Sessions, Specs), and the focused row goes with the old list, leaving focus on the page body. A `focusin` listener remembers the focused element and how to find it again: its id, or its `data-*` attributes and its parents' up to the nearest id (a Review row: whichever row is selected, so focus follows j and k). When the observer sees the remembered element gone and focus on the body, it focuses the same thing in the new list, or else the first row (never a button, where a second Enter would act on something you didn't aim at) of the same container. A `mousedown` forgets it: a click on something that can't take focus is where you put focus. Measured in Chromium: removing the focused element fires `focusout` first and leaves `document.activeElement` on the body; hiding it does not move focus at all (menus and dialogs give focus back themselves). |
 | Buttons inside rows | A session row's Delete and the `@` and Undo buttons in rows are real buttons inside the row. Enter or Space on one is that button's: the listener acts only when the row itself is the event's target. They are shown on `:focus-within` as well as `:hover`, so Tab reaches them where they are. |
 | `roving(container, opts)` | One Tab stop for a set: the current item has `tabindex="0"`, the rest `-1`; arrows, Home and End move; optional typeahead; `opts.onMove(el)`; re-applies after the container's children change, keeping focus on the item with the same key (`opts.key(el)`). |
-| `treeKeys()` | `roving` on `#tree` plus Left and Right, Enter, Space, F2, Delete, ⌘C and Shift+F10 (1.1–1.5). |
+| The tree | One Tab stop with arrows, Home, End, typing, Left and Right, Enter, Space, F2, Delete, ⌘C and Shift+F10 (1.1–1.5); see The tree. |
 | `menu(m, opener)` | Roles, first-item focus, keys, and focus back to the opener (3.1, 3.2). |
 | `modal(el)` | Dialog role, focus in, Tab trap, focus back (3.3, 3.4). |
 | `announce(text, now)` | Writes to one of two visually hidden live regions (5.1–5.3). |
@@ -21,17 +21,49 @@ Adding a new kind of row is adding a selector.
 
 ## The tree
 
-`#tree` gets `role="tree"` and `aria-label="Files"`. Each `.row` gets `role="treeitem"`, `aria-level` from its
-`--depth` + 1, `aria-expanded` for folders (from the caret's `open` class) and `aria-selected` for the active file's
-row. The focused row is `state.picked`: moving with the arrows sets `state.picked` and `state.pickedDir`, exactly as a
-click does now, so New File, F2 and Delete keep their target. Left and Right call the same expand and collapse the
-click handler uses. `renderTree` ends with one call, `a11y.treeRendered()`, which re-decorates and, if the tree had
-focus before the redraw, focuses the row whose path was focused. `treeFocused` (`app.js`, beside the File menu's wiring) is replaced by
-`$("#tree").contains(document.activeElement)`; its two uses in the `keydown` handler move to `treeKeys`.
+`#tree` gets `role="tree"`, `aria-label="Files"` and `tabindex="-1"` (a click on empty space focuses it, and the keys
+then act on the picked row, as `treeFocused` allowed). Each row (`[data-file]`, `[data-dir]`, and a session folder's
+`.row.root`) gets `role="treeitem"`, `aria-level` from its `--depth` + 1, `aria-expanded` for folders (from the
+caret's `open` class) and `aria-selected` for the picked row (selection follows focus in a tree; the open file's row
+keeps its `on` fill). The `@` button in each row gets `tabindex="-1"`, so the tree stays one Tab stop; Add to chat is
+in the row's menu.
 
-The outline on the picked row (`.tree .row.picked` in `app.css`) becomes the tree's focus ring: drawn while the tree
-has focus (`.tree:focus-within .row.picked`), a faint fill otherwise. That ends the two selection styles the review
-noted (an outline on the last-clicked row and a fill on the open file's).
+The focused row is `state.picked`: moving with the keys sets `state.picked`, `state.pickedDir` and the `picked` class,
+exactly as a click does, so New File, F2 and Delete keep their target. A redraw only moves the tab stop (to the picked
+row, else the open file's, else the first): it never picks a row, which would silently change where New File creates
+things. Right, Left, Enter and Space go through the row's own click, so expanding works the same for a folder and for
+one of the session's folders (`folders.js`). Typing finds the next row whose name starts with what was typed in the
+last 700 ms. Shift+F10 and the menu key dispatch a `contextmenu` event at the row, so the existing menu code opens the
+same menu a right-click does.
+
+`renderTree` ends with one call, `a11y.treeRendered()` (roles, the tab stop). Focus stays on the same path through a
+redraw by the general rule (Focus across redraws), which `treeRendered` runs at once rather than waiting for the
+observer. `treeFocused` and its `mousedown` listener are removed, and so are the global handler's F2, Delete and ⌘C
+branches: the tree's own `keydown` handles them on the focused row. A click on a row now focuses it (rows have a
+`tabindex`), which is what keeps F2 and Delete working after a click.
+
+**⌘C.** The global branch copied the picked path whenever nothing was selected and focus wasn't in a text field,
+wherever focus was (the editor, a button, the page). Requirement 1.4 ties it to the focused row, so it now works only
+in the tree. Elsewhere ⌘C with nothing selected does nothing, as in any other app.
+
+The outline on the picked row (`.tree .row.picked` in `app.css`) is drawn only while the tree has focus
+(`.tree:focus-within .row.picked`; 2px when the keyboard put it there), a faint fill otherwise. That ends the two
+selection styles the review noted (an outline on the last-clicked row and a fill on the open file's).
+
+## Review's keys stay in the Review
+
+`reviewKeys` acted on j, k, a, r and the arrows anywhere outside a text box while the Review tab was active, and a and
+r apply and reject a change. With focus on a tree row, typing to find "a…" would have applied one, and Down would have
+moved the Review list. It now acts only when the key's target is inside `.review` or is the page body (after a click on
+the diff, which can't take focus): never in the tree, a tab strip, a menu or a dialog. One condition in `reviewKeys`.
+
+## The code view's line numbers
+
+The audit found `#gutter`'s numbers, which select lines on click (Shift extends), with no keyboard way. The gutter
+becomes one Tab stop, a `listbox` whose current line is its `aria-activedescendant` (so a 3,000-line file doesn't get
+3,000 tab stops): Up, Down, Page Up, Page Down, Home and End move and scroll it into view; Enter or Space selects the
+line by dispatching the same click, with Shift to extend. The line you were on is kept per tab through the redraw a
+selection causes. `a11y.js` decorates the gutter when it's drawn; `renderFileTab` is unchanged.
 
 ## Tabs, panel tabs, activity bar
 

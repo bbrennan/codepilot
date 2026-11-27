@@ -260,9 +260,8 @@ AUDIT = """(allowed) => {
   return [...found];
 }"""
 
-# Still unreachable, each until the task that makes it so; a task starts by taking its line out (task 2: the tree and
-# the code view's line numbers; task 3: the tabs).
-NOT_YET = ["#tree .row", "#gutter", "#editorTabs .tab"]
+# Still unreachable, each until the task that makes it so; a task starts by taking its line out (task 3: the tabs).
+NOT_YET = ["#editorTabs .tab"]
 
 
 def audit(page, screen):
@@ -335,3 +334,200 @@ def test_a_focused_row_shows_a_ring_that_meets_contrast_selected_or_not(page, se
         tab_to(page, row)
         ring = page.evaluate(RING)
         assert ring["style"] == "solid" and ring["width"] >= 2 and ring["ratio"] >= 3, (row, ring)
+
+
+# -- task 2: the file tree (1.1-1.5), and the code view's line numbers -------------------------------------------------
+
+TREE_ROW = "#tree .row[data-file], #tree .row[data-dir]"
+
+
+def into_tree(page):
+    """Tab into the Explorer's tree from its own toolbar: one press."""
+    page.evaluate("setView('explorer')")
+    page.focus("#collapseTreeBtn")
+    page.keyboard.press("Tab")
+    assert page.evaluate("() => !!document.activeElement.closest('#tree')"), page.evaluate(ACTIVE)
+
+
+def picked(page):
+    return page.evaluate("() => { const r = document.activeElement.closest('#tree .row');"
+                         " return r && (r.dataset.file || r.dataset.dir); }")
+
+
+def test_the_tree_is_one_tab_stop_with_roles_and_levels(page, server, session):
+    open_app(page)
+    into_tree(page)
+    assert page.evaluate("() => [document.querySelector('#tree').getAttribute('role'),"
+                         " document.querySelector('#tree').getAttribute('aria-label')]") == ["tree", "Files"]
+    assert page.evaluate(f"""() => [...document.querySelectorAll("{TREE_ROW}")].filter((r) => r.tabIndex === 0)
+      .length""") == 1
+    assert role(page) == "treeitem" and picked(page) == "agent"
+    assert page.evaluate("() => [document.activeElement.getAttribute('aria-level'),"
+                         " document.activeElement.getAttribute('aria-expanded')]") == ["1", "false"]
+    page.keyboard.press("Tab")
+    assert not page.evaluate("() => !!document.activeElement.closest('#tree')")  # out in one press
+    page.keyboard.press("Shift+Tab")
+    assert picked(page) == "agent"
+
+
+def test_arrows_open_and_close_folders_and_enter_opens_a_file(page, server, session):
+    open_app(page)
+    into_tree(page)
+    page.keyboard.press("ArrowRight")  # opens agent/
+    page.locator("#tree [data-file='agent/core.py']").wait_for()
+    assert picked(page) == "agent"
+    assert page.evaluate("() => document.activeElement.getAttribute('aria-expanded')") == "true"
+    page.keyboard.press("ArrowRight")  # into it
+    assert picked(page) == "agent/core.py"
+    assert page.evaluate("() => document.activeElement.getAttribute('aria-level')") == "2"
+    page.keyboard.press("Enter")
+    page.wait_for_function("() => state.active === 'file:agent/core.py'")
+    assert picked(page) == "agent/core.py"  # focus stays in the tree
+    page.keyboard.press("ArrowLeft")  # to its folder
+    assert picked(page) == "agent"
+    page.keyboard.press("ArrowLeft")  # closes it
+    page.wait_for_function("() => !document.querySelector(\"#tree [data-file='agent/core.py']\")")
+    assert picked(page) == "agent"
+    page.keyboard.press("End")
+    assert picked(page) == "Makefile"
+    page.keyboard.press("Home")
+    assert picked(page) == "agent"
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press(" ")  # Space opens or closes a folder too
+    page.locator("#tree [data-file='tests/test_core.py']").wait_for()
+    assert picked(page) == "tests"
+    page.keyboard.press("ArrowDown")
+    assert picked(page) == "tests/test_core.py"
+    page.keyboard.press("ArrowUp")
+    assert picked(page) == "tests"
+
+
+def test_typing_moves_to_the_next_row_starting_with_the_letters(page, server, session):
+    (server.repo / "README.md").write_text("# Read me\n")
+    (server.repo / "requirements.txt").write_text("")
+    open_app(page)
+    into_tree(page)
+    page.keyboard.type("re")
+    assert picked(page) == "README.md"
+    page.wait_for_timeout(800)  # a pause starts a new search
+    page.keyboard.type("r")
+    assert picked(page) == "requirements.txt"
+
+
+def test_f2_renames_and_delete_deletes_the_focused_row(page, server, session):
+    open_app(page)
+    into_tree(page)
+    page.keyboard.press("End")
+    assert picked(page) == "Makefile"
+    page.keyboard.press("F2")
+    page.locator("#dialog").wait_for()
+    assert page.input_value("#dialogInput") == "Makefile"
+    page.keyboard.press("Escape")
+    page.wait_for_function("() => document.querySelector('#dialog').hidden")
+    page.reload()  # (focus coming back from a dialog is task 4's; here, start again)
+    page.locator("#tree .row").first.wait_for()
+    into_tree(page)
+    page.keyboard.press("End")
+    page.keyboard.press("Delete")
+    page.locator("#dialog").wait_for()
+    assert "Makefile" in page.text_content("#dialogTitle")
+
+
+def test_mod_c_copies_the_focused_rows_path_and_only_there(page, server, session):
+    open_app(page)
+    into_tree(page)
+    page.keyboard.press("End")
+    page.keyboard.press("ControlOrMeta+c")
+    page.wait_for_function("async () => (await navigator.clipboard.readText()) === 'Makefile'")
+    page.evaluate("navigator.clipboard.writeText('before')")
+    page.focus("#toggleChat")  # focus anywhere else, nothing selected
+    page.keyboard.press("ControlOrMeta+c")
+    page.wait_for_timeout(300)
+    assert page.evaluate("navigator.clipboard.readText()") == "before"
+
+
+def test_shift_f10_opens_the_focused_rows_menu(page, server, session):
+    open_app(page)
+    into_tree(page)
+    page.keyboard.press("End")
+    page.keyboard.press("Shift+F10")
+    page.locator("#ctxMenu .mi", has_text="Rename…").wait_for()
+    box = page.evaluate("() => { const m = document.querySelector('#ctxMenu').getBoundingClientRect(),"
+                        " r = document.querySelector(\"#tree [data-file='Makefile']\").getBoundingClientRect();"
+                        " return m.top >= r.top && m.left >= r.left && m.left < r.right; }")
+    assert box, "the menu opens at the row"
+
+
+def test_focus_stays_on_the_same_path_when_the_tree_redraws(page, server, session):
+    open_app(page)
+    into_tree(page)
+    page.keyboard.press("End")
+    watch_body_focus(page)
+    (server.repo / "Aardvark.txt").write_text("first\n")  # appears above, from outside codepilot
+    page.locator("#tree [data-file='Aardvark.txt']").wait_for()
+    assert picked(page) == "Makefile", page.evaluate(ACTIVE)
+    assert body_focus(page) == []
+
+
+
+def test_in_review_letters_and_arrows_in_the_tree_belong_to_the_tree(page, server, session):
+    server.store.add_proposal(session.id, "agent/core.py", "a - b", "a + b", "fix the sign")
+    server.store.add_proposal(session.id, "Makefile", "echo eval", "echo evaluate", "say more")
+    open_app(page)
+    page.evaluate("openReview()")
+    page.locator(".rv-item").nth(1).wait_for()
+    sel = page.evaluate("() => document.querySelector('.rv-item.on').dataset.rv")
+    into_tree(page)
+    page.keyboard.type("a")
+    page.keyboard.type("r")
+    page.keyboard.press("ArrowDown")
+    page.wait_for_timeout(300)
+    assert page.evaluate("() => [...state.proposals.values()].map((p) => p.status)") == ["pending", "pending"]
+    assert page.evaluate("() => document.querySelector('.rv-item.on').dataset.rv") == sel
+    page.evaluate("document.activeElement.blur()")  # on the page: Review's keys again
+    page.keyboard.press("j")
+    page.wait_for_function("(s) => document.querySelector('.rv-item.on').dataset.rv !== s", arg=sel)
+
+
+def wait_sel(page, a, b):
+    page.wait_for_function("([a, b]) => { const s = state.tabs.find((t) => t.id === state.active).sel;"
+                           " return s?.a === a && s?.b === b; }", arg=[a, b])
+
+
+def test_the_line_numbers_are_one_tab_stop_that_selects_lines(page, server, session):
+    (server.repo / "long.py").write_text("".join(f"x_{i} = {i}\n" for i in range(1, 41)))
+    open_app(page)
+    page.evaluate("openFile('long.py')")
+    page.locator("#gutter").wait_for()
+    page.focus("#fReload")
+    tab_to(page, "#gutter")
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press("Enter")  # line 3
+    wait_sel(page, 3, 3)
+    assert focus_is(page, "#gutter")
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press("Shift+Enter")  # to line 5
+    wait_sel(page, 3, 5)
+    page.keyboard.press("End")
+    assert page.evaluate("() => document.querySelector('#gutter').getAttribute('aria-activedescendant')") == "ln-40"
+    page.keyboard.press(" ")
+    wait_sel(page, 40, 40)
+    assert page.evaluate("""() => { const r = document.querySelector('#ln-40').getBoundingClientRect(),
+      s = document.querySelector('#edScroll').getBoundingClientRect();
+      return r.top >= s.top && r.bottom <= s.bottom; }"""), "the line you're on is in view"
+
+
+def test_the_bars_review_button_puts_you_in_the_review_where_a_applies(page, server, session):
+    open_app(page)
+    send(page, "fix two")
+    page.locator("#rbReview").wait_for()
+    wait_idle(page)
+    page.focus("#input")
+    tab_to(page, "#rbReview", key="Shift+Tab")
+    page.keyboard.press("Enter")
+    page.locator(".rv-item.on").wait_for()
+    assert focus_is(page, ".rv-item.on"), page.evaluate(ACTIVE)
+    page.keyboard.press("a")
+    page.wait_for_function("() => [...state.proposals.values()].some((p) => p.status === 'applied')")

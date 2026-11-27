@@ -406,6 +406,7 @@ async function renderTree() {
   await walkFolders(walk, rows); // folders.js: each of the session's folders
   el.innerHTML = rows.join("") || `<div class="empty-state">Empty folder.</div>`;
   saveTabsSoon(); // tabstate.js: the open folders
+  a11y.treeRendered(); // a11y.js: roles, the tab stop, focus kept on the same path
 }
 $("#tree").addEventListener("click", (e) => {
   const picked = e.target.closest("[data-file],[data-dir]");
@@ -885,7 +886,7 @@ function renderReviewBar() {
   bar.innerHTML = html; bar.hidden = !html; bindReceipt(bar);
   if (ap) { $("#rbApprove").onclick = () => decideApproval(true); $("#rbDeny").onclick = () => decideApproval(false); }
   if (pend.length) {
-    $("#rbReview").onclick = () => openReview(pend[0].id);
+    $("#rbReview").onclick = () => { openReview(pend[0].id); a11y.focus(".rv-item.on"); }; // (where j, k, a and r act)
     $("#rbApplyAll").onclick = () => bulkProposals("apply");
     $("#rbRejectAll").onclick = () => bulkProposals("reject");
   }
@@ -980,7 +981,9 @@ function renderReviewTab(tab) {
 }
 function reviewKeys(e) {
   const tab = state.tabs.find((t) => t.id === "review");
-  if (!tab || state.active !== "review" || e.target.closest("input,textarea,select") || e.metaKey || e.ctrlKey || e.altKey) return false;
+  // Only from the Review itself or the page: in the tree, a tab strip, a menu or a dialog, these keys are theirs.
+  const where = e.target === document.body || e.target.closest(".review");
+  if (!tab || state.active !== "review" || !where || e.target.closest("input,textarea,select") || e.metaKey || e.ctrlKey || e.altKey) return false;
   const list = reviewList(), i = list.findIndex((p) => p.id === tab.sel), p = list[i];
   if (e.key === "j" || e.key === "ArrowDown") { tab.sel = list[Math.min(i + 1, list.length - 1)]?.id; renderReviewTab(tab); return true; }
   if (e.key === "k" || e.key === "ArrowUp") { tab.sel = list[Math.max(i - 1, 0)]?.id; renderReviewTab(tab); return true; }
@@ -2156,9 +2159,6 @@ function fileMenuItems() {
 $("#fileMenuBtn").onclick = (e) => menuBelow(e.currentTarget, fileMenuItems());
 $("#newFileBtn").onclick = () => newItem("file");
 $("#newFolderBtn").onclick = () => newItem("folder");
-// Keyboard, VS Code style, only while the explorer has focus: F2 renames, Delete (or ⌘⌫) deletes.
-let treeFocused = false;
-document.addEventListener("mousedown", (e) => { treeFocused = !!e.target.closest("#tree"); }, true);
 
 // ---------------------------------------------------------------- specs (spec-driven development)
 const SPEC_PHASES = ["requirements", "design", "tasks", "implement"];
@@ -2716,10 +2716,7 @@ document.addEventListener("keydown", (e) => {
   else if (mod && e.key === "." && state.streams.has(state.sid)) { e.preventDefault(); $("#stopBtn").click(); }
   else if (reviewKeys(e)) e.preventDefault();
   else if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); const t = activeFileTab(); if (t?.editing) saveFile(t); }
-  else if (treeFocused && state.picked && !e.target.closest("input,textarea") && e.key === "F2") { e.preventDefault(); renamePath(state.picked); }
-  else if (treeFocused && state.picked && !e.target.closest("input,textarea") && (e.key === "Delete" || (mod && e.key === "Backspace"))) { e.preventDefault(); deletePath(state.picked, state.pickedDir); }
   else if (e.ctrlKey && e.key === "`") { e.preventDefault(); const on = !$(".panel-body[data-ptab=terminal]").hidden && !ide.classList.contains("no-panel"); if (on) toggle("no-panel"); else showPanelTab("terminal"); }
-  else if (mod && e.key.toLowerCase() === "c" && state.picked && !String(getSelection()) && !e.target.closest("input,textarea")) { e.preventDefault(); copyText(state.picked); }
   else if (e.key === "Escape") { closePalette(); hideMentions(); $("#ctxMenu").hidden = true; }
 });
 
