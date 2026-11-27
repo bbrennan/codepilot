@@ -217,3 +217,58 @@ def test_unsaved_edits_are_never_replaced_by_a_change_on_disk(page, server, sess
     (server.repo / "agent" / "core.py").write_text("theirs = 1\n")
     page.get_by_text("changed on disk. Your unsaved edits are kept").wait_for(timeout=5000)
     assert "# mine" in page.input_value("#codeEdit")
+
+
+# The line at the top of a scroller, from its scroll position: the view and the editor both draw 20px lines.
+TOP_LINE = "(sel) => Math.floor(document.querySelector(sel).scrollTop / 20) + 1"
+CARET_LINE = "() => { const t = document.querySelector('#codeEdit'); return t.value.slice(0, t.selectionStart).split('\\n').length; }"
+
+
+def scroll_to_line(page, sel, n):
+    page.evaluate("([sel, n]) => { const el = document.querySelector(sel); el.scrollTop = (n - 1) * 20; "
+                  "el.dispatchEvent(new Event('scroll')); }", [sel, n])
+
+
+def open_long_file(page, server, name="long.py"):
+    (server.repo / name).write_text("".join(f"value_{i} = {i}\n" for i in range(1, 301)))
+    open_app(page)
+    page.click(f"#tree [data-file='{name}']")
+    page.locator("#editor code", has_text="value_300").wait_for()
+
+
+def test_edit_and_done_keep_your_place_in_a_file(page, server, session):
+    open_long_file(page, server)
+    page.click("#fEdit")  # from the top: the editor opens at line 1, caret there too
+    page.locator("#codeEdit").wait_for()
+    assert page.evaluate(TOP_LINE, "#codeEdit") == 1 and page.evaluate(CARET_LINE) == 1
+    page.click("#fDone")
+
+    scroll_to_line(page, "#edScroll", 120)
+    page.click("#fEdit")  # from line 120: the editor shows line 120, with the caret on it
+    page.locator("#codeEdit").wait_for()
+    assert abs(page.evaluate(TOP_LINE, "#codeEdit") - 120) <= 1
+    assert page.evaluate(CARET_LINE) == 120
+
+    scroll_to_line(page, "#codeEdit", 200)
+    page.click("#fDone")  # Done: the view shows what the editor had at its top
+    page.locator("#edScroll").wait_for()
+    assert abs(page.evaluate(TOP_LINE, "#edScroll") - 200) <= 1
+
+
+def test_a_file_tab_keeps_its_place_when_you_come_back_to_it(page, server, session):
+    open_long_file(page, server)
+    scroll_to_line(page, "#edScroll", 150)
+    page.click("#tree [data-dir='agent']")
+    page.click("#tree [data-file='agent/core.py']")
+    page.locator("#editor code", has_text="a - b").wait_for()
+    page.locator("#editorTabs [data-tab='file:long.py']").click()
+    page.locator("#editor code", has_text="value_300").wait_for()
+    assert abs(page.evaluate(TOP_LINE, "#edScroll") - 150) <= 1  # the view
+
+    page.click("#fEdit")
+    scroll_to_line(page, "#codeEdit", 80)
+    page.locator("#editorTabs [data-tab='file:agent/core.py']").click()
+    page.locator("#editor code", has_text="a - b").wait_for()
+    page.locator("#editorTabs [data-tab='file:long.py']").click()
+    page.locator("#codeEdit").wait_for()
+    assert abs(page.evaluate(TOP_LINE, "#codeEdit") - 80) <= 1  # and the editor

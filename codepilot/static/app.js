@@ -363,7 +363,7 @@ async function checkDisk() {
       const f = await api(`/api/sessions/${state.sid}/files?path=${encodeURIComponent(tab.path)}`).catch(() => null);
       if (!f || f.content == null) continue;
       Object.assign(tab, { content: f.content, mtime: f.mtime }, tab.editing ? { draft: f.content } : {});
-      if (state.active === tab.id) { const sc = $("#editor .ed-scroll")?.scrollTop; renderEditor(); const el = $("#editor .ed-scroll"); if (el && sc) el.scrollTop = sc; }
+      if (state.active === tab.id) renderEditor(); // (each view keeps the tab's place: place.js, or the preview's scroll)
     }
     if (treeChanged) { await renderTree(); loadGitSoon(); }
   } catch { /* the next check tries again */ }
@@ -561,7 +561,7 @@ async function openFile(path, line, view) { // view: "preview" opens Markdown re
   if (!state.sid || !state.workspace) return toast("Open a folder first.", true);
   const id = "file:" + path;
   const existing = state.tabs.find((t) => t.id === id);
-  if (existing && existing.content != null) { if (view) { existing.view = view; if (view === "preview" && existing.editing) existing.editPreview = true; } existing.flash = line || null; if (line) existing.sel = null; state.active = id; renderEditor(); return; }
+  if (existing && existing.content != null) { if (view) { existing.view = view; if (view === "preview" && existing.editing) existing.editPreview = true; } existing.flash = line || null; if (line) { existing.sel = null; existing.topLine = jumpTop(line); } state.active = id; renderEditor(); return; }
   if (/\.(png|jpe?g|gif|webp|svg|ico|bmp|avif)$/i.test(path)) { // images: show the image, not its bytes
     openTab({ id, kind: "image", path, title: base(path), tip: path });
     return;
@@ -569,7 +569,7 @@ async function openFile(path, line, view) { // view: "preview" opens Markdown re
   try {
     const d = await api(`/api/sessions/${state.sid}/files?path=${encodeURIComponent(path)}`);
     if (d.entries) { state.expanded.add(path); setView("explorer"); renderTree(); return; }
-    openTab({ id, kind: "file", path: d.path, title: base(d.path), tip: d.path, content: d.content, mtime: d.mtime, flash: line || null, sel: null, ...(view ? { view } : {}) });
+    openTab({ id, kind: "file", path: d.path, title: base(d.path), tip: d.path, content: d.content, mtime: d.mtime, flash: line || null, topLine: line ? jumpTop(line) : 1, sel: null, ...(view ? { view } : {}) });
   } catch (err) { toast(err.message, true); }
 }
 function highlight(text, path) {
@@ -601,7 +601,8 @@ function renderFileTab(tab) {
   const wrap = $("#codeWrap");
   const addHl = (a, b, cls) => wrap.insertAdjacentHTML("afterbegin", `<div class="line-hl ${cls}" style="top:${6 + (a - 1) * 20}px;height:${(b - a + 1) * 20}px"></div>`);
   if (sel) addHl(sel.a, sel.b, "");
-  if (tab.flash) { addHl(tab.flash, tab.flash, "flash"); requestAnimationFrame(() => { $("#edScroll").scrollTop = Math.max(0, (tab.flash - 8) * 20); }); }
+  if (tab.flash) addHl(tab.flash, tab.flash, "flash");
+  keepPlace(tab, $("#edScroll")); // place.js: where this tab was, in the view or the editor
   $("#gutter").onclick = (e) => {
     const ln = +e.target.dataset.ln; if (!ln) return;
     if (e.shiftKey && tab.sel) tab.sel = { a: Math.min(tab.sel.a, ln), b: Math.max(tab.sel.b, ln) };
@@ -751,11 +752,11 @@ function renderEditTab(tab) {
   const ta = $("#codeEdit");
   ta.value = tab.draft ?? tab.content;
   ta.readOnly = !!state.changingFolders; // (folders.js: the session reloads once its folders change)
-  const caret = Math.min(tab.caret ?? 0, ta.value.length);
-  ta.focus(); ta.setSelectionRange(caret, caret);
-  if (tab.scroll) ta.scrollTop = tab.scroll;
+  // Caret first, then focus without scrolling to it, then the tab's place (focus would scroll to the caret).
+  const caret = Math.min(tab.caret ?? lineStart(ta.value, tab.topLine || 1), ta.value.length);
+  ta.setSelectionRange(caret, caret); ta.focus({ preventScroll: true }); keepPlace(tab, ta);
   ta.oninput = () => { tab.draft = ta.value; setDirty(tab); };
-  ta.onblur = () => { tab.caret = ta.selectionStart; tab.scroll = ta.scrollTop; };
+  ta.onblur = () => { tab.caret = ta.selectionStart; };
   ta.onkeydown = (e) => {
     if (e.key === "Tab" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
       e.preventDefault(); if (ta.readOnly) return; // setRangeText would write into a locked editor
@@ -765,7 +766,7 @@ function renderEditTab(tab) {
   $("#fSave").onclick = () => saveFile(tab);
   $("#fDone").onclick = async () => {
     if (tab.dirty && !(await confirmDialog(`Discard changes to ${tab.title}?`, "Save first to keep them.", "Discard"))) return;
-    tab.editing = false; tab.draft = null; tab.dirty = false; renderEditor();
+    tab.editing = false; tab.draft = null; tab.dirty = false; tab.caret = null; renderEditor(); // next Edit: caret where you read
   };
 }
 async function saveFile(tab, force = false) {
