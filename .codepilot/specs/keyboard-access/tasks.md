@@ -32,14 +32,31 @@ One branch and PR per numbered task, merged before the next starts. Every sub-ta
     - _Requirements: 4.1_
     - _Tests: tests/e2e/test_keyboard_access_ui.py (at 1024×700 with twelve changes, eleven j presses each leave the
       selected row inside the list)_
-- [ ] 2. The file tree (`feature/keyboard-tree`)
-  - [ ] 2.1 One Tab stop, arrows, Home, End, Enter, Space, typeahead
-    - `a11y.js` (`roving`, `treeKeys`, `treeRendered`), `app.js` (`renderTree` ends with one call).
+- [x] 2. The file tree (`feature/keyboard-tree`)
+  - [x] 2.1 One Tab stop, arrows, Home, End, Enter, Space, typeahead
+    - `a11y.js` (the tree's roles, tab stop and keys, `treeRendered`), `app.js` (`renderTree` ends with one call).
     - _Requirements: 1.1, 1.2, 1.3_
-  - [ ] 2.2 F2, Delete, ⌘C and the context menu on the focused row; focus survives a redraw
-    - `app.js` (remove `treeFocused`; its two `keydown` branches move to `treeKeys`), `app.css` (the picked row's
-      outline only while the tree has focus).
+    - _Tests: tests/e2e/test_keyboard_access_ui.py (one Tab in from the Explorer's toolbar lands on the first row, a
+      `treeitem` at level 1, closed; the tree has one tab stop and one Tab leaves it; Right opens agent/, Right again
+      goes into it at level 2, Enter opens core.py with focus left in the tree, Left goes to the folder and Left again
+      closes it; End, Home, Down, Up; Space opens a folder; typing "re" finds README.md, and after a pause "r" finds the
+      next "r")_
+  - [x] 2.2 F2, Delete, ⌘C and the context menu on the focused row; focus survives a redraw
+    - `a11y.js` (the tree's own `keydown`), `app.js` (`treeFocused` and the global F2, Delete and ⌘C branches removed;
+      `reviewKeys` acts only from the Review or the page; the bar's Review button puts focus on the selected change),
+      `app.css` (the picked row's outline only while the tree has focus).
     - _Requirements: 1.4, 1.5_
+    - _Tests: tests/e2e/test_keyboard_access_ui.py (F2 on the focused row asks to rename it, Delete to delete it; ⌘C
+      copies its path and does nothing with focus elsewhere; Shift+F10 opens its menu at the row; a file created on disk
+      redraws the tree and focus stays on the same path, never on the body; with Review active and focus in the tree,
+      "a", "r" and Down change nothing in Review, and j works again from the page; Enter on the bar's Review button puts
+      focus on the selected change, where "a" applies it)_
+  - [x] 2.3 (added: the audit found it) The code view's line numbers by keyboard
+    - `a11y.js` (the gutter as a listbox with an active line), `app.css` (the line you're on).
+    - _Requirements: 4.5_
+    - _Tests: tests/e2e/test_keyboard_access_ui.py (the line numbers are one tab stop; Down twice and Enter selects
+      line 3 with focus kept, Shift+Enter extends to 5, End goes to line 40 and Space selects it, scrolled into view;
+      the audit no longer allows the tree or the line numbers)_
 - [ ] 3. Tabs, menus and regions (`feature/keyboard-tabs-menus`)
   - [ ] 3.1 Editor tabs and panel tabs as tab lists; the close button's name
     - `a11y.js` (`tabsRendered`), `app.js` (`renderTabs`: one attribute, one call; `showPanelTab`: one call).
