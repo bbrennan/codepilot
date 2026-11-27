@@ -62,17 +62,29 @@ One branch and PR per numbered task. After ui-review-fixes task 2 (`place.js`) a
       tokens in dark and light, and change with the theme toggle while the editor is open; line 120 is at the same
       height in the view and the editor, within 1px); tests/e2e/test_design_tokens_ui.py (the editor's focus ring, drawn
       over it)_
-- [ ] 3. Find, replace, go to line, and the rest (`feature/code-editor-find`)
-  - [ ] 3.1 Find and replace in the editor; go to line
+- [x] 3. Find, replace, go to line, and the rest (`feature/code-editor-find`)
+  - [x] 3.1 Find and replace in the editor; go to line
     - Test first (Playwright): ⌘F, options, next and previous, replace, replace all and one undo; Ctrl+G.
-    - `static/editor.js` (search extension, keys), `app.css`.
+    - `static/editor.js` (search extension, phrases, `Ctrl-g`, the panel's look in the theme; not `app.css`).
     - _Requirements: 2.1, 2.2, 2.3, 2.4_
-  - [ ] 3.2 Place, drafts, read-only and large files
+    - _Tests: tests/e2e/test_code_editor_ui.py (⌘F opens find in the editor with its default prevented and focus in the
+      Find box; Enter and Shift+Enter go to the next and previous match; Esc closes it with focus back in the text at
+      the match; Match case, Whole word and Regular expression each narrow the matches; Replace and Replace all are one
+      ⌘Z each; Ctrl+G, its default prevented, goes to line 240 with it in view and focus in the text; every control of
+      the panel is inside the editor at 1024×700 and 1440×900)_
+  - [x] 3.2 Place, drafts, read-only and large files
     - Test first (Playwright): the place and draft tests through the editor; read-only while folders change; 2 MB.
-    - `static/editor.js` (`place`, `show`, the read-only compartment). (`tabstate.js` already reads `tab.ed.place()`:
-      2.2 needed it.)
+    - `static/editor.js`: `place` and the read-only compartment came with 2.2, which the moved place, draft and
+      read-only tests needed; `show` went unused and was removed. (`tabstate.js` already reads `tab.ed.place()`.) These
+      tests first failed only because they reach their line with Ctrl+G (3.1); what they check held from 2.2.
     - _Requirements: 3.4, 4.2, 4.3, 4.4_
-  - [ ] 3.3 Docs and screenshots
-    - `docs/usage.md` (Files and folders: editing, find and replace, keys), `docs/assets` (the editor, light and dark),
-      `README.md` if it describes editing. `untested: documentation only`.
+    - _Tests: tests/e2e/test_code_editor_ui.py (a tab switch keeps the editor's caret line and top line; a reload brings
+      back the caret and the draft; with the folders changing, find works but offers no Replace and changes nothing; a
+      2 MB file mounts within a second, timed in the page around the mount to the frame after layout (about 30 ms on
+      the dev Mac), draws its middle within 250 ms of a scroll, and takes typing at its end); the moved place and draft
+      tests in test_files_ui.py and test_restore_tabs_ui.py, and the read-only ones in test_multi_folder_ui.py_
+  - [x] 3.3 Docs and screenshots
+    - `docs/usage.md` (Files and folders: editing, find and replace, leaving the editor by keyboard; Keyboard
+      shortcuts), `docs/assets/editor-light.webp` and `editor-dark.webp`, `README.md` (its editing line).
     - _Requirements: 2.1, 2.3_
+    - _Tests: none (documentation only)_

@@ -117,7 +117,8 @@ sidebar step aside where it can't keep 400px; it loads
 before `app.js` (which restores the layout before the first paint) and uses none of its helpers. `keys.js` writes
 shortcuts one way per platform (`keyLabel("mod+p")` is ⌘P on a Mac, Ctrl+P elsewhere); it also loads before `app.js`,
 which titles its buttons as it loads. A feature with its own UI gets its own classic script
-(`sessions.js`, `folders.js`, `checkpoints.js`, `verify.js`, `steps.js`, `taskcard.js`, `progress.js`, `plan.js`, `specrun.js`, `policy.js`, `deps.js`, `cost.js`, `specs-quick.js`, `diff.js`, `place.js`, `filekinds.js`, `tabstate.js`, `a11y.js`), loaded after `app.js` and using its helpers, so `app.js` only wires it in. `tabstate.js` keeps each folder's open tabs, their place and unsaved edits in `localStorage` and reopens them
+(`sessions.js`, `folders.js`, `checkpoints.js`, `verify.js`, `steps.js`, `taskcard.js`, `progress.js`, `plan.js`, `specrun.js`, `policy.js`, `deps.js`, `cost.js`, `specs-quick.js`, `diff.js`, `place.js`, `editor.js`, `filekinds.js`, `tabstate.js`, `a11y.js`), loaded after `app.js` and using its helpers, so `app.js` only wires it in. `editor.js` is Edit mode: the only script that touches CodeMirror (`window.CM`), loaded on the first Edit; `app.js`
+mounts it in `#codeEdit` and talks to the handle it returns (text, place, read-only, paste). `tabstate.js` keeps each folder's open tabs, their place and unsaved edits in `localStorage` and reopens them
 after a reload or a switch back to that folder. `a11y.js` loads last and makes everything work by keyboard
 without changing how `app.js` draws: it decorates what was drawn (tab stops and roles, by selector, once a frame), owns
 the keys of the tree, tab strips, menus, dialogs and F6, keeps focus on the same row when a list redraws, and speaks

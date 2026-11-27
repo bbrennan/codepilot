@@ -92,19 +92,13 @@ function mountEditor(host, tab, opts) {
   });
   // The top line by place.js's own arithmetic, as the view does it (a 20px line, 6px above the first), once the first
   // layout has measured the lines. Not scrollIntoView: that lines up a character's box, a few px inside its line.
-  const scrollToLine = (n) => view.requestMeasure({ read: () => null, write: () => showLine(view.scrollDOM, n) });
-  scrollToLine(tab.topLine);
+  view.requestMeasure({ read: () => null, write: () => showLine(view.scrollDOM, tab.topLine) });
   view.scrollDOM.addEventListener("scroll", () => { tab.topLine = topLine(view.scrollDOM); });
   const handle = editorShown = tab.ed = {
     tab,
     text: () => view.state.doc.toString(),
     setText: (t) => view.dispatch({ changes: editorDiff(view.state.doc, t) }),
     place: () => ({ topLine: topLine(view.scrollDOM), caret: view.state.selection.main.head }),
-    show(p) {
-      const d = view.state.doc;
-      view.dispatch({ selection: { anchor: Math.min(p.caret ?? editorLinePos(d, p.topLine), d.length) } });
-      scrollToLine(p.topLine);
-    },
     readOnly: (on) => view.dispatch({ effects: ro.reconfigure(CM.EditorState.readOnly.of(on)) }),
     // Text from outside (a Mac's Ctrl+V, app.js), over the selection, as one undoable step.
     insert(t) {
@@ -146,9 +140,16 @@ function editorExtensions(tab) {
     CM.indentUnit.of(indentUnit(tab.content)), CM.EditorState.tabSize.of(4),
     lang ? CM.languages[lang]() : [],
     CM.syntaxHighlighting(editorHighlightStyle()), editorTheme(),
+    // Find and replace at the top, as in the app's other editors; its words as the rest of the app says them.
+    CM.search({ top: true }),
+    CM.EditorState.phrases.of({ next: "Next", previous: "Previous", all: "All", replace: "Replace",
+      "replace all": "Replace all", "match case": "Match case", "by word": "Whole word", regexp: "Regular expression",
+      close: "Close", go: "Go" }),
     CM.keymap.of(editorOwnKeys([
       { key: "Tab", run: editorTab, shift: CM.indentLess },
-      ...CM.historyKeymap, ...CM.defaultKeymap,
+      // Ctrl+G: go to line, as in VS Code on every platform. First, so it beats Mod-g (find next) where Mod is Ctrl.
+      { key: "Ctrl-g", run: CM.gotoLine, preventDefault: true },
+      ...CM.searchKeymap, ...CM.historyKeymap, ...CM.defaultKeymap,
     ])),
     CM.EditorView.contentAttributes.of({ "aria-label": `Edit ${tab.path}`, spellcheck: "false", autocorrect: "off",
       autocapitalize: "off" }),
@@ -200,5 +201,25 @@ function editorTheme() {
       outline: "1px solid var(--line-2)" },
     ".cm-nonmatchingBracket": { color: "var(--err)" },
     ".cm-specialChar": { color: "var(--err)" },
+    // Find and replace, and go to line: the app's .field and .btn.sm (app.css), wrapping in a narrow editor.
+    ".cm-panels": { backgroundColor: "var(--bg-1)", color: "var(--fg)" },
+    ".cm-panels-top": { borderBottom: "1px solid var(--line)" },
+    ".cm-panels-bottom": { borderTop: "1px solid var(--line)" }, // (go to line)
+    ".cm-panel.cm-search, .cm-dialog": { padding: "4px 28px 4px 8px", fontSize: "var(--fs-ui)" },
+    ".cm-panel.cm-search input, .cm-panel.cm-search button, .cm-panel.cm-search label": { margin: "2px 6px 2px 0" },
+    ".cm-panel.cm-search label, .cm-dialog label": { fontSize: "var(--fs-ui)", color: "var(--fg-2)" },
+    ".cm-panel input[type=checkbox]": { accentColor: "var(--accent)", verticalAlign: "-2px" },
+    ".cm-textfield": { height: "24px", padding: "2px 6px", border: "1px solid var(--line)", borderRadius: "var(--r-md)",
+      backgroundColor: "var(--bg-2)", color: "var(--fg)", font: "inherit", fontSize: "var(--fs-ui)", outline: "none",
+      verticalAlign: "middle" },
+    ".cm-textfield:focus": { borderColor: "var(--accent)", boxShadow: "0 0 0 2px var(--accent-soft)" },
+    ".cm-button": { height: "24px", padding: "0 8px", border: "1px solid var(--line-2)", borderRadius: "var(--r-md)",
+      backgroundImage: "none", backgroundColor: "var(--bg-3)", color: "var(--fg)", fontSize: "var(--fs-ui)" },
+    ".cm-button:hover": { borderColor: "var(--faint)" },
+    ".cm-button:active": { backgroundImage: "none", backgroundColor: "var(--bg-4)" },
+    ".cm-panel.cm-search [name=close], .cm-dialog-close": { top: "6px", right: "8px", color: "var(--muted)",
+      fontSize: "16px", lineHeight: "1", cursor: "pointer" },
+    ".cm-searchMatch": { backgroundColor: "var(--hl-line)" },
+    ".cm-searchMatch.cm-searchMatch-selected": { backgroundColor: "var(--sel)", outline: "1px solid var(--accent)" },
   });
 }
