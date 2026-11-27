@@ -100,8 +100,14 @@ function deniedResult(el, ev) {
 function changeStepDone(el, ev) {
   const m = ev.name === "propose_edit" && !ev.is_error && /^(?:Proposed|Applied) change #(\d+)[^\n]*\n?([\s\S]*)/.exec(ev.output);
   if (!m) return;
-  el.dataset.change = m[1]; el.dataset.note = m[2].trim();
+  el.dataset.change = m[1]; el.dataset.note = readerNote(m[2]);
   foldChangeStep(m[1]);
+}
+// What a result says to you: without the steering docs added for the model (agent.py's _exec), which the "steering: …"
+// chip already names.
+function readerNote(text) {
+  return String(text).replace(/<steering\b[^>]*>[\s\S]*?<\/steering>/g, "")
+    .replace(/^Follow the steering above when working on these files\.$/m, "").trim();
 }
 function foldChangeStep(id) {
   const step = document.querySelector(`${CHAT_AND_PROGRESS} details.tool[data-change="${id}"]`);

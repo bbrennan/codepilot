@@ -37,11 +37,14 @@ named in design.md, watch it fail for the reason in bugfix.md, then fix.
   - _Tests: tests/test_files.py::test_a_file_is_binary_not_utf8_or_text,
     tests/test_server.py::test_opening_a_binary_file_says_so_and_sends_no_text, tests/e2e/test_files_ui.py (a binary file
     opens as a binary file; a file that isn't UTF-8 is shown but not offered for editing)_
-- [ ] 6. The Review header holds together, and change notes show no prompt text (`fix/review-header`)
+- [x] 6. The Review header holds together, and change notes show no prompt text (`fix/review-header`)
   - Test first (Playwright): the header's buttons share a line from 280px to 660px; a change made in a file with
     file-matched steering shows no `<steering` in its row.
   - `app.js` (`renderReviewTab` markup), `app.css`, `steps.js` (`readerNote`).
   - _Requirements: 6.1, 6.2_
+  - _Tests: tests/e2e/test_review_ui.py (the header's buttons stay together on one line at editor widths 460–660; a
+    diff pane too narrow for them wraps them rather than cutting them off), tests/e2e/test_steering_ui.py (a change row
+    never shows the steering sent to the model)_
 - [ ] 7. Text tokens meet contrast in both themes (`fix/contrast`)
   - Test first (Playwright): compute WCAG contrast for each text token on each surface from the computed styles.
   - `app.css` (token values, `--accent-fill`); look at the terminal, the diff and the status chips in both themes with

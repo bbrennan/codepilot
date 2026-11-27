@@ -1,5 +1,6 @@
 """Reviewing changes and approving commands: the bar above the composer and the Review tab."""
 
+import pytest
 from uihelpers import open_app
 
 
@@ -236,3 +237,34 @@ def test_an_approved_command_reads_as_any_step_that_ran(page, server, session):
     wait_idle(page)
     step = page.evaluate(STEP)
     assert step["verb"] == "Ran" and not step["waiting"] and not step["err"], step
+
+
+# Apply, Reject and Open file in the Review tab's header: where they are, the bar's edges, and the editor's width.
+HEADER = """() => {
+  const bar = document.querySelector('.rv-main > .ed-bar'), b = bar.getBoundingClientRect();
+  const btns = [...bar.querySelectorAll('[data-apply], [data-reject], #rvOpen')].map((x) => x.getBoundingClientRect());
+  return { n: btns.length, tops: btns.map((r) => r.top), inside: btns.every((r) => r.left >= b.left - 0.5 && r.right <= b.right + 0.5),
+           editor: document.querySelector('.center').getBoundingClientRect().width };
+}"""
+
+
+def review_header(page, sidebar, chat):
+    page.add_init_script(f"localStorage.setItem('cp--sidebar-w', '{sidebar}px'); localStorage.setItem('cp--chat-w', '{chat}px')")
+    open_app(page)
+    send(page, "fix two things")
+    page.locator("#rbReview").click()
+    page.locator(".rv-main > .ed-bar [data-apply]").wait_for()
+    return page.evaluate(HEADER)
+
+
+@pytest.mark.parametrize("sidebar, chat, editor_w", [(484, 440, 460), (424, 440, 520), (284, 440, 660)])
+def test_the_review_headers_buttons_stay_together_on_one_line(page, server, session, sidebar, chat, editor_w):
+    h = review_header(page, sidebar, chat)
+    assert abs(h["editor"] - editor_w) <= 2, h  # the pane sizes took
+    assert h["n"] == 3 and max(h["tops"]) - min(h["tops"]) < 2 and h["inside"], f"Apply, Reject and Open file split: {h}"
+
+
+def test_a_diff_pane_too_narrow_for_the_buttons_wraps_them_rather_than_cutting_them_off(page, server, session):
+    # A 400px editor leaves the diff pane 120px beside the 280px change list: less than the three buttons need.
+    h = review_header(page, 500, 484)
+    assert abs(h["editor"] - 400) <= 2 and h["n"] == 3 and h["inside"], h

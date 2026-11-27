@@ -132,3 +132,17 @@ def test_view_shows_what_always_on_steering_costs_per_message(page, server, sess
     assert "tok" not in page.locator("#steeringView .row.steer", has_text="manual").text_content()
     total = page.locator("#steerCost").text_content()
     assert "≈300 tokens" in total and "estimate" in total
+
+
+def test_a_change_row_shows_what_the_checks_found_and_never_the_steering_sent_to_the_model(page, server, session):
+    write(server.repo / ".codepilot/steering/python.md",
+          '---\ninclusion: fileMatch\nfileMatchPattern: "agent/**/*.py"\n---\nUse type hints.')
+    open_app(page)
+    page.fill("#input", "fix the add bug")
+    page.press("#input", "Enter")
+    card = page.locator("#transcript .card.prop").first
+    card.wait_for()
+    page.wait_for_function("() => document.querySelector('#stopBtn').hidden")
+    shown = card.text_content()
+    assert "<steering" not in shown and "Follow the steering above" not in shown, shown
+    assert "<steering" in str(server.llm.calls[-1]["messages"])  # the model still got it
