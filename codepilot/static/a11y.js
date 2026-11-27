@@ -151,7 +151,13 @@ $("#tree").addEventListener("keydown", (e) => {
     if (a11yIsFolder(row) && open) row.click();
     else to = rows.slice(0, i).reverse().find((r) => a11yLevel(r) < a11yLevel(row));
   } else if ((e.key === "Enter" || e.key === " ") && plain && !e.shiftKey) row.click();
-  else if (e.key.length === 1 && plain && e.key !== " ") { // typing finds the next row whose name starts so
+  else if (e.key === "F2" && plain && path != null) renamePath(path);
+  else if ((e.key === "Delete" || (mod && e.key === "Backspace")) && path != null) deletePath(path, row.dataset.dir != null);
+  else if (mod && e.key.toLowerCase() === "c" && path != null && !String(getSelection())) copyText(path);
+  else if ((e.key === "F10" && e.shiftKey) || e.key === "ContextMenu") {
+    const r = row.getBoundingClientRect();
+    row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + 16, clientY: r.bottom }));
+  } else if (e.key.length === 1 && plain && e.key !== " ") { // typing finds the next row whose name starts so
     const now = performance.now();
     a11yFind.text = now - a11yFind.at > 700 ? e.key.toLowerCase() : a11yFind.text + e.key.toLowerCase();
     a11yFind.at = now;
@@ -163,5 +169,9 @@ $("#tree").addEventListener("keydown", (e) => {
   if (to) a11yTreePick(to);
 });
 
-// What app.js calls.
-const a11y = { treeRendered: a11yTreeRendered };
+// What app.js calls. focus(selector): put focus somewhere deliberate, on an element that may not be decorated yet.
+function a11yFocus(sel) {
+  const el = document.querySelector(sel); if (!el) return;
+  a11yDecorateIn(el); el.focus({ preventScroll: true });
+}
+const a11y = { treeRendered: a11yTreeRendered, focus: a11yFocus };

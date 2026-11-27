@@ -636,7 +636,10 @@ a.loc:hover { text-decoration: underline; }
 .ctx-menu .mi kbd { margin-left: auto; }
 .ctx-menu .mi svg { width: 14px; height: 14px; color: var(--muted); }
 .ctx-menu .sep { height: 1px; background: var(--line); margin: 4px 6px; }
-.tree .row.picked { outline: 1px solid var(--accent); outline-offset: -1px; }
+/* The picked row (F2's and New File's target): outlined while the tree has focus, a faint fill otherwise. */
+.tree .row.picked:not(.on) { background: var(--bg-3); }
+.tree:focus-within .row.picked { outline: 1px solid var(--accent); outline-offset: -1px; }
+.tree .row.picked:focus-visible { outline-width: 2px; outline-offset: -2px; }
 
 /* ---------- syntax (highlight.js classes) ---------- */
 .hljs-keyword, .hljs-selector-tag, .hljs-built_in, .hljs-meta .hljs-keyword { color: var(--syn-kw); }

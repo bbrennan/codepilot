@@ -413,3 +413,92 @@ def test_typing_moves_to_the_next_row_starting_with_the_letters(page, server, se
     page.wait_for_timeout(800)  # a pause starts a new search
     page.keyboard.type("r")
     assert picked(page) == "requirements.txt"
+
+
+def test_f2_renames_and_delete_deletes_the_focused_row(page, server, session):
+    open_app(page)
+    into_tree(page)
+    page.keyboard.press("End")
+    assert picked(page) == "Makefile"
+    page.keyboard.press("F2")
+    page.locator("#dialog").wait_for()
+    assert page.input_value("#dialogInput") == "Makefile"
+    page.keyboard.press("Escape")
+    page.wait_for_function("() => document.querySelector('#dialog').hidden")
+    page.reload()  # (focus coming back from a dialog is task 4's; here, start again)
+    page.locator("#tree .row").first.wait_for()
+    into_tree(page)
+    page.keyboard.press("End")
+    page.keyboard.press("Delete")
+    page.locator("#dialog").wait_for()
+    assert "Makefile" in page.text_content("#dialogTitle")
+
+
+def test_mod_c_copies_the_focused_rows_path_and_only_there(page, server, session):
+    open_app(page)
+    into_tree(page)
+    page.keyboard.press("End")
+    page.keyboard.press("ControlOrMeta+c")
+    page.wait_for_function("async () => (await navigator.clipboard.readText()) === 'Makefile'")
+    page.evaluate("navigator.clipboard.writeText('before')")
+    page.focus("#toggleChat")  # focus anywhere else, nothing selected
+    page.keyboard.press("ControlOrMeta+c")
+    page.wait_for_timeout(300)
+    assert page.evaluate("navigator.clipboard.readText()") == "before"
+
+
+def test_shift_f10_opens_the_focused_rows_menu(page, server, session):
+    open_app(page)
+    into_tree(page)
+    page.keyboard.press("End")
+    page.keyboard.press("Shift+F10")
+    page.locator("#ctxMenu .mi", has_text="Rename…").wait_for()
+    box = page.evaluate("() => { const m = document.querySelector('#ctxMenu').getBoundingClientRect(),"
+                        " r = document.querySelector(\"#tree [data-file='Makefile']\").getBoundingClientRect();"
+                        " return m.top >= r.top && m.left >= r.left && m.left < r.right; }")
+    assert box, "the menu opens at the row"
+
+
+def test_focus_stays_on_the_same_path_when_the_tree_redraws(page, server, session):
+    open_app(page)
+    into_tree(page)
+    page.keyboard.press("End")
+    watch_body_focus(page)
+    (server.repo / "Aardvark.txt").write_text("first\n")  # appears above, from outside codepilot
+    page.locator("#tree [data-file='Aardvark.txt']").wait_for()
+    assert picked(page) == "Makefile", page.evaluate(ACTIVE)
+    assert body_focus(page) == []
+
+
+
+def test_in_review_letters_and_arrows_in_the_tree_belong_to_the_tree(page, server, session):
+    server.store.add_proposal(session.id, "agent/core.py", "a - b", "a + b", "fix the sign")
+    server.store.add_proposal(session.id, "Makefile", "echo eval", "echo evaluate", "say more")
+    open_app(page)
+    page.evaluate("openReview()")
+    page.locator(".rv-item").nth(1).wait_for()
+    sel = page.evaluate("() => document.querySelector('.rv-item.on').dataset.rv")
+    into_tree(page)
+    page.keyboard.type("a")
+    page.keyboard.type("r")
+    page.keyboard.press("ArrowDown")
+    page.wait_for_timeout(300)
+    assert page.evaluate("() => [...state.proposals.values()].map((p) => p.status)") == ["pending", "pending"]
+    assert page.evaluate("() => document.querySelector('.rv-item.on').dataset.rv") == sel
+    page.evaluate("document.activeElement.blur()")  # on the page: Review's keys again
+    page.keyboard.press("j")
+    page.wait_for_function("(s) => document.querySelector('.rv-item.on').dataset.rv !== s", arg=sel)
+
+
+def test_the_bars_review_button_puts_you_in_the_review_where_a_applies(page, server, session):
+    open_app(page)
+    send(page, "fix two")
+    page.locator("#rbReview").wait_for()
+    wait_idle(page)
+    page.focus("#input")
+    tab_to(page, "#rbReview", key="Shift+Tab")
+    page.keyboard.press("Enter")
+    page.locator(".rv-item.on").wait_for()
+    assert focus_is(page, ".rv-item.on"), page.evaluate(ACTIVE)
+    page.keyboard.press("a")
+    page.wait_for_function("() => [...state.proposals.values()].some((p) => p.status === 'applied')")
