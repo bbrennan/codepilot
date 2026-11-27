@@ -12,12 +12,13 @@ Adding a new kind of row is adding a selector.
 | The observer | A `MutationObserver` on `document.body` that looks only at added nodes, skips records inside `.xterm` (the terminal redraws its rows many times a second), and decorates what was added once per frame. A streamed reply redraws its message on every word, so doing the work per mutation would be per word. Pending work is also flushed by a capturing `keydown` listener, so a key never lands on a row that isn't ready yet. |
 | Focus across redraws | Most of these rows live in lists that redraw when a row is used (Review, Changes, Sessions, Specs), and the focused row goes with the old list, leaving focus on the page body. A `focusin` listener remembers the focused element and how to find it again: its id, or its `data-*` attributes and its parents' up to the nearest id (a Review row: whichever row is selected, so focus follows j and k). When the observer sees the remembered element gone and focus on the body, it focuses the same thing in the new list, or else the first row (never a button, where a second Enter would act on something you didn't aim at) of the same container. A `mousedown` forgets it: a click on something that can't take focus is where you put focus. Measured in Chromium: removing the focused element fires `focusout` first and leaves `document.activeElement` on the body; hiding it does not move focus at all (menus and dialogs give focus back themselves). |
 | Buttons inside rows | A session row's Delete and the `@` and Undo buttons in rows are real buttons inside the row. Enter or Space on one is that button's: the listener acts only when the row itself is the event's target. They are shown on `:focus-within` as well as `:hover`, so Tab reaches them where they are. |
-| `roving(container, opts)` | One Tab stop for a set: the current item has `tabindex="0"`, the rest `-1`; arrows, Home and End move; optional typeahead; `opts.onMove(el)`; re-applies after the container's children change, keeping focus on the item with the same key (`opts.key(el)`). |
 | The tree | One Tab stop with arrows, Home, End, typing, Left and Right, Enter, Space, F2, Delete, ⌘C and Shift+F10 (1.1–1.5); see The tree. |
-| `menu(m, opener)` | Roles, first-item focus, keys, and focus back to the opener (3.1, 3.2). |
+| Tab strips | The editor's and the panel's tabs: one Tab stop each, arrows move and show, Delete closes (2.1–2.3). |
+| `viewChanged()` | The activity bar's pressed state and the Changes count in its name (2.3, 2.4). |
+| `menu(m)` | Roles, first-item focus, keys, and focus back to the opener (3.1, 3.2). |
 | `modal(el)` | Dialog role, focus in, Tab trap, focus back (3.3, 3.4). |
 | `announce(text, now)` | Writes to one of two visually hidden live regions (5.1–5.3). |
-| `regions()` | F6 and Shift+F6 (2.5). |
+| F6 | The next and previous pane, those shown (2.5). |
 
 ## The tree
 
@@ -67,23 +68,47 @@ selection causes. `a11y.js` decorates the gutter when it's drawn; `renderFileTab
 
 ## Tabs, panel tabs, activity bar
 
-- `#editorTabs`: `role="tablist"`; `.tab`: `role="tab"`, `aria-selected`, `aria-controls="editor"`; `#editor`:
-  `role="tabpanel"`. `roving` with Left and Right; moving activates (sets `state.active` and calls `renderEditor`).
-  Delete calls `closeTab`. `renderTabs` writes `aria-label="Close ${title}"` on the close button (a one-attribute
-  template change) and ends with `a11y.tabsRendered()`.
-- `.panel-tabs`: the same roles on `[data-ptab]` and the panel bodies; `showPanelTab` is the activation.
-- `#activitybar` buttons: `aria-pressed` true for the shown view while the sidebar is open. `setView` and the badge
-  renderers call `a11y.viewChanged()`, which also sets each button's `aria-label` from its base name and badge:
-  "Changes, 2 waiting for review", "Progress, 1 of 2 done". Badges get `aria-hidden="true"`.
-- `#chatTitleBtn`: `aria-label="Switch session: ${title}"`, so it no longer shares the name "New session" with the
-  plus button beside it.
+- `#editorTabs`: `role="tablist"` (`aria-label="Open files"`); `.tab`: `role="tab"`, `aria-selected`,
+  `aria-controls="editor"`, `tabindex` 0 on the shown tab and -1 on the rest; `#editor`: `role="tabpanel"`. Left,
+  Right, Home and End move and activate (set `state.active`, call `renderEditor`, then focus the new tab: the redraw
+  replaces the strip). Delete calls `closeTab`; focus then lands on the tab shown next (the redraw rule prefers a
+  list's own tab stop when the focused tab is gone). Close buttons are `tabindex="-1"` (Delete does it) and named
+  "Close <title>" in `renderTabs`'s template. `renderTabs` ends with `a11y.tabsRendered()`.
+- **A click on a tab doesn't take focus.** Before, a click on a tab (a `div`) left focus on the page, and Review's
+  j and k worked after clicking its tab. A tab with a `tabindex` would keep focus after a click, and Review's keys
+  don't act from a tab strip. So a left mousedown on a tab is prevented and the focused element blurred: exactly the
+  old behaviour, with focus on a tab only from the keyboard.
+- **Reopening tabs on load (#125) doesn't move focus:** `tabsRendered` only moves focus when the strip had it and the
+  redraw took it away.
+- `.panel-tabs` holds the three tabs and the Clear and Close buttons, which can't be inside a tablist. The tabs get
+  their own `<div class="ptabs" role="tablist" aria-label="Panel">` in `index.html`, each tab an id and
+  `aria-controls`, each body `role="tabpanel"` and `aria-labelledby`. `.panel-tabs > button` rules in `app.css` move to
+  `.ptabs > button`, and one layout test's selector follows. `showPanelTab` ends with `a11y.panelTabsShown()`
+  (`aria-selected`, the tab stop); Left and Right call `showPanelTab`.
+- `#activitybar` buttons: `aria-pressed` true for the view shown. Shown means the sidebar is shown, which since #126
+  is `layoutShown(ide, "sidebar")` in `layout.js` (it also steps aside for room as `auto-no-sidebar`), not a check of
+  `no-sidebar`. `setView` and `renderProposalList` call `a11y.viewChanged()`, and an observer on `#ide`'s class calls
+  it when the sidebar is hidden or shown by any route. The Changes button's name carries its count ("Changes, 2
+  waiting for review"). Progress already names its own (`progress.js`, since #101), so `progress.js` is untouched.
+  Badges get `aria-hidden="true"` in `index.html`.
+- `#chatTitleBtn`: `aria-label="Switch session: <title>"`, so it no longer shares the name "New session" with the
+  plus button beside it. Three places in `app.js` write the title, so `a11y.js` watches `#chatTitle` instead of adding
+  three calls.
+- `app.js` calls `window.a11y?.…`, as `updateBusy` calls `window.renderPinnedPlan?.()`: `a11y.js` loads last, and
+  code after an `await` in `init` can draw before it has run. On load it catches up (tabs, tree, panel tabs, views).
 
 ## Menus and dialogs
 
-- `showMenu` (`app.js`, under "copy paths & context menu") ends with `a11y.menu($("#ctxMenu"), document.activeElement)`: `role="menu"`, items
-  `role="menuitem"` and `tabindex="-1"`, separators `role="separator"`. Escape and item activation restore focus to the
-  opener; a mouse click elsewhere doesn't (focus goes where the click went). Buttons that open menus (`#fileMenuBtn`,
-  `#terminalMenuBtn`, `#workspaceBtn`, `#helpBtn`, `#termMore`) get `aria-haspopup="menu"` and `aria-expanded`.
+- `showMenu` (`app.js`, under "copy paths & context menu") ends with `a11y.menu($("#ctxMenu"))`: `role="menu"`, items
+  `role="menuitem"` and `tabindex="-1"`, separators `role="separator"`, focus on the first item. Up and Down go round
+  the ends; Home, End and a letter move; Enter or Space runs an item; Escape or Tab closes. The opener isn't
+  `document.activeElement` at that moment (a right-click may not have focused anything): it's the last element focused
+  outside any overlay (menu, dialog, the session switcher), tracked by the `focusin` listener. When the menu hides, an
+  observer on its `hidden` gives focus back to the opener, or the same thing redrawn, if focus is still in the menu or
+  on the body; an item that put focus somewhere itself (a dialog) keeps it, and a click elsewhere puts focus where it
+  went. (Hiding doesn't move focus in Chromium, so this must be done; see task 1's measurement.) Buttons that open
+  menus get `aria-haspopup="menu"` and `aria-expanded` in `index.html`: `#workspaceBtn`, `#fileMenuBtn`,
+  `#terminalMenuBtn`, `#helpBtn`, `#termMore` and `#newSteeringBtn`.
 - The four overlays (`#palette`, `#dialog`, `#folderDialog`, `#reportDialog`) all toggle `hidden`. `a11y.js` observes
   that attribute: on show, `modal(el)` sets `role="dialog"`, `aria-modal="true"`, `aria-labelledby` (the title element;
   `aria-label` for the palette), remembers `document.activeElement`, moves focus in if the dialog's own code hasn't,
@@ -116,8 +141,12 @@ approval: <command>", "codepilot stopped with an error" or "codepilot finished".
 ## Regions
 
 `index.html`: `aria-label`s on the landmarks ("Views", "Sidebar", "Editor", "Panel", "Chat", "Status"). F6 focuses, in
-order and skipping hidden ones: the sidebar view's first Tab stop, the active editor tab, the panel's current tab, and
-`#input`.
+order and skipping hidden ones: the sidebar view's first Tab stop, the active editor tab (the editor's first control
+with no tabs), the panel's current tab, and `#input`. Hidden is asked the way the layout knows it: the sidebar and chat
+through `layoutShown`, the panel by `no-panel`. Shift+F6 goes the other way; from outside the four (the title bar,
+the activity bar) F6 goes to the first and Shift+F6 to the last.
+
+No tooltip gains a shortcut here. Any that do later are written through `keyLabel` in `keys.js` (#123).
 
 ## Tests
 

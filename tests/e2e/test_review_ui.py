@@ -270,3 +270,17 @@ def test_in_a_narrow_editor_the_review_headers_buttons_stay_together_inside_it(p
     h = review_header(page, 500, 484)
     assert abs(h["editor"] - 440) <= 2, h
     assert h["n"] == 3 and max(h["tops"]) - min(h["tops"]) < 2 and h["inside"], h
+
+
+def test_after_a_click_on_the_review_tab_j_still_moves_the_list(page, server, session):
+    """Tabs take focus from the keyboard, not from a click: Review's keys act from the Review or the page, so a tab
+    that kept focus after a click would swallow them."""
+    server.store.add_proposal(session.id, "agent/core.py", "a - b", "a + b", "fix the sign")
+    server.store.add_proposal(session.id, "Makefile", "echo eval", "echo evaluate", "say more")
+    open_app(page)
+    page.evaluate("openReview()")
+    page.click("#tree [data-file='Makefile']")
+    page.locator("#editorTabs [data-tab='review']").click()
+    first = page.locator(".rv-item.on").get_attribute("data-rv")
+    page.keyboard.press("j")
+    page.wait_for_function(f"() => document.querySelector('.rv-item.on').dataset.rv !== '{first}'")

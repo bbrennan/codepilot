@@ -123,15 +123,17 @@
     <div class="resizer h" id="panelResizer"></div>
     <section class="panel" id="panel">
       <div class="panel-tabs">
-        <button data-ptab="activity" class="on">Activity <span class="count" id="actCount">0</span></button>
-        <button data-ptab="output">Output</button>
-        <button data-ptab="terminal" id="terminalTabBtn">Terminal <span class="count" id="termCount" hidden>0</span></button>
+        <div class="ptabs" role="tablist" aria-label="Panel">
+          <button data-ptab="activity" class="on" role="tab" id="ptabActivity" aria-controls="activity">Activity <span class="count" id="actCount">0</span></button>
+          <button data-ptab="output" role="tab" id="ptabOutput" aria-controls="panelOutput">Output</button>
+          <button data-ptab="terminal" id="terminalTabBtn" role="tab" aria-controls="panelTerminal">Terminal <span class="count" id="termCount" hidden>0</span></button>
+        </div>
         <div class="spacer"></div>
         <button class="icon-btn sm" id="clearActivity" title="Clear" data-icon="trash"></button>
         <button class="icon-btn sm" id="closePanel" title="Close panel" data-icon="x"></button>
       </div>
-      <div class="panel-body" data-ptab="activity" id="activity"></div>
-      <div class="panel-body" data-ptab="output" hidden>
+      <div class="panel-body" data-ptab="activity" id="activity" role="tabpanel" aria-labelledby="ptabActivity"></div>
+      <div class="panel-body" data-ptab="output" id="panelOutput" role="tabpanel" aria-labelledby="ptabOutput" hidden>
         <div class="run-bar">
           <button class="btn" id="runTestsBtn"><span data-icon="play"></span>Run tests</button>
           <button class="btn" id="runChecksBtn" title="Linters, type checkers, security scanners"><span data-icon="check"></span>Run checks</button>
@@ -142,7 +144,7 @@
         </div>
         <div id="output" class="output"></div>
       </div>
-      <div class="panel-body term-body" data-ptab="terminal" hidden>
+      <div class="panel-body term-body" data-ptab="terminal" id="panelTerminal" role="tabpanel" aria-labelledby="terminalTabBtn" hidden>
         <div class="term-bar">
           <select class="field sm term-select" id="termSelect" title="Switch terminal (double-click to rename)" aria-label="Terminals"></select>
           <span class="mono muted term-cwd" id="termCwd"></span>

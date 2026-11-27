@@ -88,7 +88,8 @@ function a11yKeepFocus() {
   if (!shown(el)) {
     const box = last.box && document.querySelector(last.box);
     if (box) a11yDecorateIn(box); // (a row, never a button: a second Enter mustn't do something you didn't aim at)
-    el = box && [...box.querySelectorAll(A11Y_ROWS)].find(shown);
+    const rows = box ? [...box.querySelectorAll(A11Y_ROWS)].filter(shown) : [];
+    el = rows.find((r) => r.tabIndex === 0 && r.matches("[role=tab], [role=treeitem]")) || rows[0]; // (a list's own stop)
   }
   if (!el) return;
   a11yDecorateIn(el);
@@ -202,9 +203,62 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+// ---- tab strips: the editor's tabs and the bottom panel's (2.1–2.3)
+// One tab stop each, on the tab that's shown; Left and Right (Home, End) move and show; Delete closes an editor tab
+// (closeTab asks first when it has unsaved edits). Each close button is named, and out of the Tab order.
+function a11yTabsRendered() {
+  const strip = $("#editorTabs"), tabs = [...strip.querySelectorAll(".tab")];
+  strip.setAttribute("role", "tablist"); strip.setAttribute("aria-label", "Open files");
+  $("#editor").setAttribute("role", "tabpanel");
+  for (const t of tabs) {
+    const on = t.classList.contains("on");
+    t.setAttribute("role", "tab"); t.setAttribute("aria-selected", String(on)); t.setAttribute("aria-controls", "editor");
+    t.tabIndex = on ? 0 : -1;
+    t.querySelector("[data-close]")?.setAttribute("tabindex", "-1");
+  }
+  if (tabs.length && !tabs.some((t) => t.tabIndex === 0)) tabs[0].tabIndex = 0;
+  a11yKeepFocus();
+}
+function a11yPanelTabsShown() {
+  for (const b of $$(".panel-tabs [data-ptab]")) {
+    const on = b.classList.contains("on");
+    b.setAttribute("aria-selected", String(on)); b.tabIndex = on ? 0 : -1;
+  }
+}
+a11yPanelTabsShown();
+// Which tab of a strip a key moves to, or null.
+function a11yStep(e, list, i) {
+  if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return null;
+  return { ArrowLeft: list[i - 1], ArrowRight: list[i + 1], Home: list[0], End: list.at(-1) }[e.key] || null;
+}
+$("#editorTabs").addEventListener("keydown", (e) => {
+  const tab = e.target.closest(".tab"); if (!tab || e.target.closest("button")) return;
+  const tabs = [...$$("#editorTabs .tab")], to = a11yStep(e, tabs, tabs.indexOf(tab));
+  if (to) {
+    e.preventDefault();
+    state.active = to.dataset.tab; renderEditor();
+    a11yFocus(`#editorTabs .tab[data-tab="${CSS.escape(to.dataset.tab)}"]`);
+  } else if (e.key === "Delete" && !e.altKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); closeTab(tab.dataset.tab); }
+});
+// A click on a tab leaves focus on the page, as a click on one always did, so Review's keys work after it; only the
+// keyboard puts focus on a tab.
+$("#editorTabs").addEventListener("mousedown", (e) => {
+  if (!e.target.closest(".tab") || e.button !== 0) return;
+  e.preventDefault(); document.activeElement?.blur();
+});
+$(".panel-tabs").addEventListener("keydown", (e) => {
+  const b = e.target.closest("[data-ptab]"); if (!b) return;
+  const tabs = [...$$(".panel-tabs [data-ptab]")], to = a11yStep(e, tabs, tabs.indexOf(b));
+  if (to) { e.preventDefault(); showPanelTab(to.dataset.ptab); to.focus(); }
+});
+
 // What app.js calls. focus(selector): put focus somewhere deliberate, on an element that may not be decorated yet.
 function a11yFocus(sel) {
   const el = document.querySelector(sel); if (!el) return;
   a11yDecorateIn(el); el.focus({ preventScroll: true });
 }
-const a11y = { treeRendered: a11yTreeRendered, focus: a11yFocus };
+// (window.a11y?.…: app.js may draw before this script has loaded, and this catches up below.)
+window.a11y = { treeRendered: a11yTreeRendered, tabsRendered: a11yTabsRendered, panelTabsShown: a11yPanelTabsShown,
+  focus: a11yFocus };
+a11yTabsRendered();
+if ($("#tree .row")) a11yTreeRendered();

@@ -165,6 +165,7 @@ function showPanelTab(name) {
   ide.classList.remove("no-panel"); store("cp-no-panel", "0");
   store("cp-ptab", name);
   if (name === "terminal") requestAnimationFrame(openTerminal);
+  window.a11y?.panelTabsShown(); // a11y.js
 }
 $("#clearActivity").onclick = () => { $("#activity").innerHTML = ""; state.activity = 0; $("#actCount").textContent = "0"; };
 
@@ -406,7 +407,7 @@ async function renderTree() {
   await walkFolders(walk, rows); // folders.js: each of the session's folders
   el.innerHTML = rows.join("") || `<div class="empty-state">Empty folder.</div>`;
   saveTabsSoon(); // tabstate.js: the open folders
-  a11y.treeRendered(); // a11y.js: roles, the tab stop, focus kept on the same path
+  window.a11y?.treeRendered(); // a11y.js: roles, the tab stop, focus kept on the same path
 }
 $("#tree").addEventListener("click", (e) => {
   const picked = e.target.closest("[data-file],[data-dir]");
@@ -522,8 +523,9 @@ async function closeTab(id) {
 function renderTabs() {
   $("#editorTabs").innerHTML = state.tabs.map((t) => `<div class="tab ${t.id === state.active ? "on" : ""} ${t.dirty ? "dirty" : ""}" data-tab="${esc(t.id)}" title="${esc((t.tip || t.title) + (t.dirty ? " (unsaved)" : ""))}">
     <span class="ticon">${t.kind === "file" ? fileIcon(t.path) : icon(t.icon || "file")}</span><span class="label">${esc(t.title)}</span>
-    <button class="icon-btn sm close" data-close="${esc(t.id)}">${icon("x")}</button></div>`).join("");
+    <button class="icon-btn sm close" data-close="${esc(t.id)}" aria-label="Close ${esc(t.title)}">${icon("x")}</button></div>`).join("");
   $("#editorTabs .tab.on")?.scrollIntoView({ block: "nearest", inline: "nearest" }); // the tab you're on is never out of sight
+  window.a11y?.tabsRendered(); // a11y.js: a tab list, one Tab stop, focus kept on its tab
 }
 // A mouse wheel scrolls the tab strip sideways (a trackpad's sideways swipe already does).
 $("#editorTabs").addEventListener("wheel", (e) => {
@@ -886,7 +888,7 @@ function renderReviewBar() {
   bar.innerHTML = html; bar.hidden = !html; bindReceipt(bar);
   if (ap) { $("#rbApprove").onclick = () => decideApproval(true); $("#rbDeny").onclick = () => decideApproval(false); }
   if (pend.length) {
-    $("#rbReview").onclick = () => { openReview(pend[0].id); a11y.focus(".rv-item.on"); }; // (where j, k, a and r act)
+    $("#rbReview").onclick = () => { openReview(pend[0].id); window.a11y?.focus(".rv-item.on"); }; // (where j, k, a and r act)
     $("#rbApplyAll").onclick = () => bulkProposals("apply");
     $("#rbRejectAll").onclick = () => bulkProposals("reject");
   }
