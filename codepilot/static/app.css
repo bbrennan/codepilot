@@ -178,7 +178,7 @@ input[type="checkbox"][role="switch"]:focus-visible { outline: 2px solid var(--a
 .row .name { overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
 .row .meta { color: var(--faint); font-size: var(--fs-sm); }
 .row .hover-act { display: none; margin: -4px 0; } /* no taller than the row, so hovering never moves the rows below */
-.row:hover .hover-act { display: inline-grid; }
+.row:hover .hover-act, .row:focus-within .hover-act { display: inline-grid; }
 
 /* sessions */
 .sess-search { padding: 8px 10px 4px; }
@@ -192,7 +192,7 @@ input[type="checkbox"][role="switch"]:focus-visible { outline: 2px solid var(--a
 .session .t { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 24px; color: var(--fg); }
 .session .r { font-size: var(--fs-sm); color: var(--muted); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; gap: 6px; align-items: center; }
 .session .del { position: absolute; right: 6px; top: 7px; display: none; }
-.session:hover .del { display: inline-grid; }
+.session:hover .del, .session:focus-within .del { display: inline-grid; }
 .spinner { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--accent); border-right-color: transparent; animation: spin .8s linear infinite; display: inline-block; flex: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
