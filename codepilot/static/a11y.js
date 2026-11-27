@@ -410,6 +410,23 @@ $("#fdList").addEventListener("keydown", (e) => {
   to.focus(); to.scrollIntoView({ block: "nearest" });
 });
 
+// ---- the @, / and # suggestion lists (4.4)
+// The session switcher's pattern (sessions.js): a listbox of options with ids, and the current one as the text box's
+// active descendant, so focus stays in the message box while the list says which option Enter takes.
+function a11ySuggestions() {
+  const pop = $("#mentionPop"), box = $("#input");
+  pop.setAttribute("role", "listbox"); pop.setAttribute("aria-label", "Suggestions");
+  box.setAttribute("aria-controls", "mentionPop"); box.setAttribute("aria-autocomplete", "list");
+  [...pop.querySelectorAll(".opt")].forEach((o, i) => {
+    o.id = "mention-opt-" + i; o.setAttribute("role", "option");
+    o.setAttribute("aria-selected", String(o.classList.contains("on")));
+  });
+  const on = !pop.hidden && pop.querySelector(".opt.on");
+  if (on) box.setAttribute("aria-activedescendant", on.id); else box.removeAttribute("aria-activedescendant");
+}
+new MutationObserver(a11ySuggestions).observe($("#mentionPop"), { childList: true, attributes: true, attributeFilter: ["hidden"] });
+a11ySuggestions();
+
 // What app.js calls. focus(selector): put focus somewhere deliberate, on an element that may not be decorated yet.
 function a11yFocus(sel) {
   const el = document.querySelector(sel); if (!el) return;

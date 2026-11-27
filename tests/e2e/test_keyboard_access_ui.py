@@ -826,6 +826,31 @@ def test_a_confirmation_that_cant_be_undone_starts_on_cancel(page, server, sessi
     page.wait_for_function("() => !document.querySelector(\"#tree [data-file='Makefile']\")")
 
 
+def test_the_suggestion_lists_say_which_option_is_current(page, server, session):
+    open_app(page)
+    page.focus("#input")
+    page.keyboard.type("look at @a")
+    page.locator("#mentionPop .opt").first.wait_for()
+    lists = """() => { const pop = document.querySelector('#mentionPop'), on = pop.querySelector('.opt.on');
+      return { role: pop.getAttribute('role'), option: on?.getAttribute('role'),
+               selected: on?.getAttribute('aria-selected'), active: input.getAttribute('aria-activedescendant'),
+               id: on?.id, controls: input.getAttribute('aria-controls'),
+               auto: input.getAttribute('aria-autocomplete') }; }"""
+    st = page.evaluate(lists)
+    assert st["role"] == "listbox" and st["option"] == "option" and st["selected"] == "true", st
+    assert st["active"] == st["id"] and st["id"] and st["controls"] == "mentionPop" and st["auto"] == "list", st
+    page.keyboard.press("ArrowDown")
+    page.wait_for_function(f"() => input.getAttribute('aria-activedescendant') !== '{st['active']}' && input"
+                           ".getAttribute('aria-activedescendant') === document.querySelector('#mentionPop .on').id")
+    page.keyboard.press("Escape")
+    page.wait_for_function("() => !input.hasAttribute('aria-activedescendant')")
+    page.fill("#input", "")
+    page.keyboard.type("/he")
+    page.locator("#mentionPop .opt").first.wait_for()
+    page.wait_for_function("() => input.getAttribute('aria-activedescendant')"
+                           " === document.querySelector('#mentionPop .opt.on')?.id")
+
+
 def test_enter_in_a_prompt_opened_by_a_button_does_not_open_it_again(page, server, session):
     """Focus goes back to New Folder after the key that closed the prompt, not during it: during it, the same Enter
     went on to click the button and opened a second prompt."""
