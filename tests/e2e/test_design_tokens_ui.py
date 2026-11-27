@@ -90,3 +90,51 @@ def test_focus_shows_in_the_file_palette_and_the_code_editor(page, server, sessi
     editor.wait_for()
     editor.focus()
     assert editor.evaluate(VISIBLE), "the code editor shows no focus"
+
+
+# WCAG contrast, computed from the stylesheet as the page resolves it, in one theme. Text tokens against each surface;
+# the text of every solid accent fill (any rule with color: var(--accent-fg), and its :hover) against that fill.
+CONTRAST = """(theme) => {
+  document.documentElement.dataset.theme = theme;
+  const rgb = (value, prop = 'color') => { const p = document.createElement('i'); p.style[prop] = value; document.body.append(p);
+    const c = getComputedStyle(p)[prop]; p.remove(); return c.match(/[\\d.]+/g).slice(0, 3).map(Number); };
+  const lum = ([r, g, b]) => { const f = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+  const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+  const low = [];
+  const check = (fg, bg, min, fgVal = `var(${fg})`, bgVal = `var(${bg})`) => {
+    const r = ratio(rgb(fgVal), rgb(bgVal, 'backgroundColor'));
+    if (r < min) low.push(`${fg} on ${bg}: ${r.toFixed(2)} < ${min}`);
+  };
+  const surfaces = ['--bg-0', '--bg-1', '--bg-2', '--bg-3', '--bg-4'];
+  for (const t of ['--muted', '--ok', '--warn', '--err', '--info', '--accent']) for (const s of surfaces) check(t, s, 4.5);
+  for (const s of surfaces.slice(0, 4)) check('--faint', s, 3);
+  const sheet = [...document.styleSheets].find((s) => (s.href || '').endsWith('/static/app.css'));
+  const fills = new Map();  // selector -> its background, for rules that put --accent-fg text on a fill
+  const rules = []; const walk = (rs) => { for (const r of rs) { if (r.cssRules) walk(r.cssRules); if (r.style) rules.push(r); } };
+  walk(sheet.cssRules);
+  const bgOf = (r) => r.style.backgroundColor || r.style.background;  // (a var() in the shorthand leaves the longhand empty)
+  for (const r of rules) if (/var\\(--accent-fg\\)/.test(r.style.color) && bgOf(r)) fills.set(r.selectorText, bgOf(r));
+  for (const r of rules) { const base = (r.selectorText || '').replace(/:hover$/, '');
+    if (base !== r.selectorText && fills.has(base) && bgOf(r)) fills.set(r.selectorText, bgOf(r)); }
+  for (const [sel, bg] of fills) check(`--accent-fg (${sel})`, bg, 4.5, 'var(--accent-fg)', bg);
+  delete document.documentElement.dataset.theme;
+  return { low, fills: [...fills.keys()] };
+}"""
+
+
+def test_text_tokens_meet_contrast_in_both_themes(page, server, session):
+    open_app(page)
+    for theme in ("dark", "light"):
+        found = page.evaluate(CONTRAST, theme)
+        assert {".btn.primary", ".btn.primary:hover", ".send", ".send:hover"} <= set(found["fills"]), found["fills"]
+        assert not found["low"], f"{theme}: " + "; ".join(found["low"])
+
+
+def test_the_two_light_theme_blocks_stay_identical(page, server, session):
+    open_app(page)
+    blocks = page.evaluate("""() => { const sheet = [...document.styleSheets].find((s) => (s.href || '').endsWith('/static/app.css'));
+      const out = {}; const walk = (rs) => { for (const r of rs) { if (r.cssRules) walk(r.cssRules);
+        if (r.selectorText === ':root:not([data-theme="dark"])' || r.selectorText === ':root[data-theme="light"]') out[r.selectorText] = r.style.cssText; } };
+      walk(sheet.cssRules); return out; }""")
+    assert len(blocks) == 2 and len(set(blocks.values())) == 1, blocks
