@@ -183,6 +183,7 @@ def assert_stacked(page, stacked):
 def test_in_a_laptop_window_the_review_list_sits_above_the_diff(page, server, session):
     page.set_viewport_size({"width": 1024, "height": 700})
     open_app(page)
+    page.click("#togglePanel")  # the bottom panel open too: the Review has the least height
     open_review_with_two_changes(page)
     assert_stacked(page, True)
     first = page.locator(".rv-item.on").get_attribute("data-rv")

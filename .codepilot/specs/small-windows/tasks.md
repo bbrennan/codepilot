@@ -34,9 +34,12 @@ One branch, `feature/small-windows`, one PR. After ui-review-fixes task 1.
     the sidebar by the button, ⌘B, the active or another activity icon wins through opening a file until a resize;
     hiding it yourself is saved and kept; hiding it at 1280 gives the chat what leaves the editor 440, 788px, where
     it used to give the chat its full 820)_
-- [ ] 4. The Review tab stacks its change list above the diff in a narrow editor
+- [x] 4. The Review tab stacks its change list above the diff in a narrow editor
   - Test first (Playwright): at 1024×700 with two changes waiting ("fix two"), the list is above the diff and shorter
     than it, Apply, Reject and Open file are inside the header, and j/k move through the list; just above and at the
     set width, beside and above.
   - `app.css` (an `editor` container query on `.review`).
   - _Requirements: 1.5_
+  - _Tests: tests/e2e/test_narrow_panes_ui.py (at 1024×700 with the bottom panel open and two changes waiting, the
+    list is above the diff and shorter than it, Apply, Reject and Open file are inside the header and hit-testable,
+    and j and k move the selection; with a 641px editor the list is beside the diff, with 640 above it)_

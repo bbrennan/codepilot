@@ -789,6 +789,14 @@ details.card.prop[open] > summary { border-bottom: 1px solid var(--line); }
 .rv-reason { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .rv-ask { display: flex; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--line); align-items: flex-end; }
 .rv-ask textarea { flex: 1; resize: vertical; font: inherit; }
+/* In a narrow editor the change list goes above the diff (side by side it would leave the diff under 360px, less than
+   its header's path and buttons need), and takes at most 30% of the height: the diff gets the larger share even with
+   the bottom panel open, after its header and the ask box. */
+@container editor (max-width: 640px) {
+  .review { display: flex; flex-direction: column; }
+  .rv-list { flex: 0 1 auto; max-height: 30%; border-right: 0; border-bottom: 1px solid var(--line); }
+  .rv-main { flex: 1; }
+}
 .allow-chip { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--line-2); border-radius: var(--r-md); padding: 0 0 0 6px; margin: 2px 4px 2px 0; }
 .allow-chip .icon-btn { width: 20px; height: 20px; }
 /* specs */

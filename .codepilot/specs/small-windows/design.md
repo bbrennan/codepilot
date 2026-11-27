@@ -94,7 +94,7 @@ relies on ui-review-fixes task 1 (the busy row wraps). At 900px the sidebar step
 ## The Review tab in a narrow editor (1.5)
 
 `.review` is a two-column grid whose change list takes up to 280px, so in a 440px editor the diff got about 160px.
-`@container editor (max-width: 640px)`: `.review` becomes a column; `.rv-list` is at most 40% of its height (it
+`@container editor (max-width: 640px)`: `.review` becomes a column; `.rv-list` is at most 30% of its height (40% left the diff shorter than the list with the bottom panel open) (it
 scrolls), with a bottom border instead of a right one; `.rv-main` takes the rest. At 640px side by side the diff would
 get 360px, about what its header needs to keep the path, the reason and Apply, Reject and Open file on one row.
 j/k and the header are unchanged.
