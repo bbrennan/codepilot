@@ -125,12 +125,29 @@ function mountEditor(host, tab, opts) {
 function unmountEditor() { editorShown?.destroy(); }
 
 // ---- what the editor does
+// The read view's languages (app.js LANGS) by extension, as CM.languages names; null: plain text, on purpose.
+const LANG_FOR = {
+  py: "python", js: "javascript", mjs: "javascript", jsx: "jsx", ts: "typescript", tsx: "tsx", json: "json",
+  jsonl: "json", md: "markdown", yml: "yaml", yaml: "yaml", toml: "toml", ini: "properties", cfg: "properties",
+  sh: "shell", bash: "shell", zsh: "shell", go: "go", rs: "rust", java: "java", kt: "kotlin", rb: "ruby", css: "css",
+  scss: "scss", html: "html", xml: "xml", sql: "sql", c: "cpp", h: "cpp", cpp: "cpp", cs: "csharp", php: "php",
+  swift: "swift", dockerfile: "dockerfile",
+  makefile: null, txt: null, log: null, // (CodeMirror has no Makefile mode)
+};
+
 function editorExtensions(tab) {
+  const lang = LANG_FOR[extOf(tab.path)];
   return [
-    CM.drawSelection(), CM.EditorState.allowMultipleSelections.of(true),
+    CM.lineNumbers(), CM.highlightActiveLineGutter(), CM.highlightActiveLine(), CM.highlightSpecialChars(),
+    CM.history(), CM.drawSelection(), CM.dropCursor(), CM.EditorState.allowMultipleSelections.of(true),
+    CM.rectangularSelection(), CM.crosshairCursor(), CM.indentOnInput(), CM.bracketMatching(),
     CM.indentUnit.of(indentUnit(tab.content)), CM.EditorState.tabSize.of(4),
-    editorTheme(),
-    CM.keymap.of(editorOwnKeys([{ key: "Tab", run: editorTab, shift: CM.indentLess }, ...CM.defaultKeymap])),
+    lang ? CM.languages[lang]() : [],
+    CM.syntaxHighlighting(editorHighlightStyle()), editorTheme(),
+    CM.keymap.of(editorOwnKeys([
+      { key: "Tab", run: editorTab, shift: CM.indentLess },
+      ...CM.historyKeymap, ...CM.defaultKeymap,
+    ])),
     CM.EditorView.contentAttributes.of({ "aria-label": `Edit ${tab.path}`, spellcheck: "false", autocorrect: "off",
       autocapitalize: "off" }),
   ];
@@ -138,6 +155,26 @@ function editorExtensions(tab) {
 
 // The file's indent unit: a tab if any line starts with one, else four spaces.
 function indentUnit(text) { return /^\t/m.test(text) ? "\t" : "    "; }
+
+// Lezer's tags in the read view's colours (app.css: .hljs-*), so a file looks the same in the view and the editor.
+function editorHighlightStyle() {
+  const t = CM.tags, syn = (name) => `var(--syn-${name})`;
+  return CM.HighlightStyle.define([
+    { tag: [t.keyword, t.controlKeyword, t.operatorKeyword, t.definitionKeyword, t.moduleKeyword, t.modifier],
+      color: syn("kw") },
+    { tag: [t.string, t.special(t.string), t.regexp, t.character, t.inserted], color: syn("str") },
+    { tag: [t.number, t.integer, t.float, t.bool, t.null, t.atom], color: syn("num") },
+    { tag: [t.function(t.variableName), t.function(t.propertyName), t.macroName, t.heading], color: syn("fn") },
+    { tag: [t.comment, t.lineComment, t.blockComment, t.docComment, t.meta], color: syn("com"), fontStyle: "italic" },
+    { tag: [t.typeName, t.className, t.namespace], color: syn("type") },
+    { tag: [t.attributeName, t.propertyName, t.labelName], color: syn("attr") },
+    { tag: [t.tagName, t.special(t.variableName), t.deleted], color: syn("var") },
+    { tag: [t.heading, t.strong], fontWeight: "600" },
+    { tag: t.emphasis, fontStyle: "italic" },
+    { tag: t.link, textDecoration: "underline" },
+    { tag: t.invalid, color: "var(--err)" },
+  ]);
+}
 
 // ---- the look: the app's tokens only, so the theme toggle needs no call in here (4.1). A line is 20px with 6px above
 // the first, as in .code-view (app.css), so a line is at the same height in the view and the editor, and the top line

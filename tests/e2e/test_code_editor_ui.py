@@ -175,3 +175,119 @@ def test_the_editor_is_one_tab_stop_named_for_its_file_and_nothing_in_it_is_out_
     assert editor_has_focus(page)
     audit(page, "the editor")
 
+
+# -- task 2.3: languages, line numbers, indentation, brackets, history -------------------------------------------------
+
+
+def edit(page, server, name, text):
+    (server.repo / name).write_text(text)
+    open_app(page)
+    page.evaluate("(p) => openFile(p)", name)
+    page.locator("#fEdit").click()
+    wait_editor(page)
+
+
+# Highlighting is the one thing looked at in CodeMirror's own DOM: the coloured spans in the text.
+SPANS = "() => document.querySelectorAll('#codeEdit [contenteditable] span').length"
+
+# What's drawn at a point of the editor, by geometry: the text at (x, y) from its top-left corner.
+AT = """([x, y]) => { const r = document.querySelector('#codeEdit').getBoundingClientRect();
+  return document.elementFromPoint(r.left + x, r.top + y)?.textContent; }"""
+# The background of the text's row at y (the line under the point, past the line numbers).
+ROW_BG = """(y) => { const r = document.querySelector('#codeEdit').getBoundingClientRect();
+  let el = document.elementFromPoint(r.right - 40, r.top + y);
+  while (el && getComputedStyle(el).backgroundColor === 'rgba(0, 0, 0, 0)') el = el.parentElement;
+  return el && getComputedStyle(el).backgroundColor; }"""
+
+
+@pytest.mark.parametrize("name, text", [
+    ("calc.py", "def total(xs):\n    return sum(xs)  # all of them\n"),
+    ("view.tsx", "const n: number = 1;\nexport const V = () => <div>{n}</div>;\n"),
+])
+def test_code_is_highlighted_as_the_read_view_highlights_it(page, server, session, name, text):
+    edit(page, server, name, text)
+    assert page.evaluate(SPANS) > 3
+
+
+def test_plain_text_is_not_highlighted(page, server, session):
+    edit(page, server, "notes.txt", "def total(xs): return 1  # not code\n")
+    assert page.evaluate(SPANS) == 0
+
+
+def test_every_language_the_read_view_knows_has_an_answer_in_the_editor(page, server, session):
+    open_app(page)
+    edit_core(page)  # (the bundle loaded)
+    missing = page.evaluate("() => Object.keys(LANGS).filter((ext) => !(ext in LANG_FOR))")
+    unknown = page.evaluate("() => Object.values(LANG_FOR).filter((name) => name && !CM.languages[name])")
+    assert missing == [] and unknown == [], (missing, unknown)
+
+
+def test_line_numbers_and_the_caret_line_are_shown(page, server, session):
+    edit(page, server, "calc.py", "".join(f"x{i} = {i}\n" for i in range(1, 11)))
+    assert page.evaluate(AT, [10, 16]) == "1" and page.evaluate(AT, [10, 36]) == "2"  # 6px, then 20px a line
+    caret_row, other_row = page.evaluate(ROW_BG, 16), page.evaluate(ROW_BG, 56)
+    assert caret_row != other_row  # the caret's line is marked
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press("ArrowDown")
+    assert page.evaluate(ROW_BG, 56) == caret_row and page.evaluate(ROW_BG, 16) == other_row
+
+
+def test_enter_keeps_the_indent_and_indents_after_a_block_opens(page, server, session):
+    edit(page, server, "calc.py", "def total(xs):\n")
+    page.keyboard.press("End")
+    page.keyboard.press("Enter")
+    page.keyboard.type("return 1")
+    assert editor_text(page) == "def total(xs):\n    return 1\n"
+
+
+def test_enter_after_a_tab_indented_line_indents_with_a_tab(page, server, session):
+    edit(page, server, "tabs.py", "if x:\n\ty = 1\n")
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press("End")
+    page.keyboard.press("Enter")
+    page.keyboard.type("z = 2")
+    assert editor_text(page) == "if x:\n\ty = 1\n\tz = 2\n"
+
+
+def test_tab_and_shift_tab_indent_and_dedent_the_selected_lines(page, server, session):
+    edit(page, server, "calc.py", "a = 1\nb = 2\nc = 3\nd = 4\n")
+    page.keyboard.press("Shift+ArrowDown")
+    page.keyboard.press("Shift+ArrowDown")
+    page.keyboard.press("Shift+End")  # lines 1-3
+    page.keyboard.press("Tab")
+    assert editor_text(page) == "    a = 1\n    b = 2\n    c = 3\nd = 4\n"
+    page.keyboard.press("Shift+Tab")
+    assert editor_text(page) == "a = 1\nb = 2\nc = 3\nd = 4\n"
+
+
+def test_a_tab_indented_file_indents_with_tabs(page, server, session):
+    edit(page, server, "tabs.py", "if x:\n\ty = 1\n")
+    page.keyboard.press("Shift+ArrowDown")
+    page.keyboard.press("Tab")
+    assert editor_text(page) == "\tif x:\n\ty = 1\n"
+
+
+def test_undo_and_redo_are_the_editors_own(page, server, session):
+    edit(page, server, "calc.py", "a = 1\n")
+    page.keyboard.type("b = 2")  # one step (a new line starts another, as in other editors)
+    page.keyboard.press("ControlOrMeta+z")
+    assert editor_text(page) == "a = 1\n" and not dirty(page)
+    page.keyboard.press("ControlOrMeta+Shift+z")
+    assert editor_text(page) == "b = 2a = 1\n" and dirty(page)
+
+
+def test_a_bracket_shows_its_match(page, server, session):
+    edit(page, server, "calc.py", "total(a, (b + c))\n")
+    page.keyboard.press("ArrowRight")
+    for _ in range(5):
+        page.keyboard.press("ArrowRight")  # after "total("
+    matched = page.evaluate("() => [...document.querySelectorAll('#codeEdit .cm-matchingBracket')].map((e) => e.textContent)")
+    assert matched == ["(", ")"], matched
+
+
+def test_several_cursors_type_at_once(page, server, session):
+    edit(page, server, "calc.py", "a = 1\nb = 2\n")
+    page.keyboard.press("Alt+ControlOrMeta+ArrowDown" if sys.platform == "darwin" else "Control+Alt+ArrowDown")
+    page.keyboard.type("# ")
+    assert editor_text(page) == "# a = 1\n# b = 2\n"
+
