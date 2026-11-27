@@ -316,6 +316,31 @@ $("#ctxMenu").addEventListener("keydown", (e) => {
   e.preventDefault(); to.focus({ preventScroll: true });
 });
 
+// ---- F6: the next pane (2.5)
+// Sidebar, editor, bottom panel and chat, those shown, in order (Shift: backwards). Each pane's place to land: the
+// sidebar view's first tab stop, the editor's tab (or its first control with no tabs), the panel's tab, the message box.
+const A11Y_TABBABLE = "a[href], button:not([disabled]), input:not([disabled]):not([type=hidden]), select:not([disabled]),"
+  + " textarea:not([disabled]), summary, [tabindex]:not([tabindex='-1'])";
+const a11yFirst = (box) => [...(box?.querySelectorAll(A11Y_TABBABLE) || [])].find((el) => el.getClientRects().length);
+const A11Y_PANES = [
+  { in: ".sidebar", shown: () => layoutShown(ide, "sidebar"),
+    land: () => a11yFirst($(".sidebar .view.on .view-body")) || a11yFirst($(".sidebar .view.on")) },
+  { in: ".center > :not(.panel)", shown: () => true,
+    land: () => $("#editorTabs .tab[tabindex='0']") || a11yFirst($("#editor")) },
+  { in: ".panel", shown: () => !ide.classList.contains("no-panel"), land: () => $(".panel-tabs [data-ptab].on") },
+  { in: ".chat", shown: () => layoutShown(ide, "chat"), land: () => $("#input") },
+];
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "F6" || e.altKey || e.ctrlKey || e.metaKey) return;
+  const at = A11Y_PANES.findIndex((p) => document.activeElement?.closest(p.in));
+  const n = A11Y_PANES.length, step = e.shiftKey ? -1 : 1;
+  for (let k = 1; k <= n; k++) {
+    const p = A11Y_PANES[((at < 0 ? (e.shiftKey ? 0 : -1) : at) + step * k + n * 2) % n];
+    const el = p.shown() && p.land();
+    if (el) { e.preventDefault(); a11yDecorateIn(el); el.focus(); return; }
+  }
+});
+
 // What app.js calls. focus(selector): put focus somewhere deliberate, on an element that may not be decorated yet.
 function a11yFocus(sel) {
   const el = document.querySelector(sel); if (!el) return;

@@ -675,3 +675,28 @@ def test_a_rows_menu_runs_an_item_and_focus_goes_back_to_the_row(page, server, s
     page.wait_for_function("async () => (await navigator.clipboard.readText()) === 'Makefile'")
     assert page.evaluate("() => document.querySelector('#ctxMenu').hidden")
     assert picked(page) == "Makefile"
+
+
+def test_f6_moves_between_the_panes_that_are_shown(page, server, session):
+    open_app(page)
+    page.evaluate("openFile('Makefile')")
+    page.wait_for_function("() => state.active === 'file:Makefile'")
+    page.focus("#input")
+    page.keyboard.press("F6")  # chat → sidebar
+    assert page.evaluate("() => !!document.activeElement.closest('#tree')"), page.evaluate(ACTIVE)
+    page.keyboard.press("F6")  # → editor: the tab you're on
+    assert focus_is(page, "#editorTabs [data-tab='file:Makefile']")
+    page.keyboard.press("F6")  # the panel is closed: → chat
+    assert focus_is(page, "#input")
+    page.keyboard.press("Shift+F6")
+    assert focus_is(page, "#editorTabs [data-tab='file:Makefile']")
+    page.keyboard.press("ControlOrMeta+j")  # the panel open
+    page.keyboard.press("F6")
+    assert focus_is(page, ".panel-tabs [data-ptab].on")
+    page.keyboard.press("ControlOrMeta+b")  # the sidebar hidden: skipped
+    page.focus("#input")
+    page.keyboard.press("F6")
+    assert focus_is(page, "#editorTabs [data-tab='file:Makefile']")
+    labels = page.evaluate("() => ['#activitybar', '#sidebar', '.center', '#panel', '#chat', '.statusbar']"
+                           ".map((s) => document.querySelector(s).getAttribute('aria-label'))")
+    assert labels == ["Views", "Sidebar", "Editor", "Panel", "Chat", "Status"]
