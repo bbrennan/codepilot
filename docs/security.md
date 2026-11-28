@@ -81,6 +81,22 @@ go through proposals. The server still checks every path:
   that changed on disk since you opened it, unless you confirm.
 - Like every write, these requests need the CSRF header that other websites can't send.
 
+## Commit and Discard (the Changes view)
+
+Committing and discarding are your actions, made by clicking; they're never offered to the assistant, and its `git`
+tool still only reads (nothing it can call imports the code that commits, and a test says so).
+- Like every write, they need the app's own header, which other websites can't send, and they act only on the
+  session's own folders: the main folder or one you added, by its full path. Every path must be one git itself lists
+  as changed in that repository, and is read as a name, never a pattern (`a*.txt` is that file only).
+- A commit never pushes, amends, skips your hooks (`--no-verify`) or changes branch. It uses your message as typed and
+  your git identity, and adds nothing to the message. A hook that runs past two minutes is stopped, and the lock it
+  left is removed so your next git command works. If git refuses, the index is put back as it was.
+- Both are refused while codepilot is working in that repository (in any session on it, or with a command waiting for
+  approval), so they can't land between two writes of one change.
+- Discard moves what it throws away into `~/.codepilot/trash` (moved, not read: a symlink is moved as a link, never
+  followed), through the same path checks as Delete, and Undo never overwrites a file that changed since.
+- The list's background status never takes git's optional locks, so it can't get in the way of a command you type.
+
 ## Markdown previews
 
 Documents are rendered with marked and sanitised with DOMPurify, which removes scripts, event handlers,
@@ -117,7 +133,7 @@ codepilot's page. Mermaid runs in its strict security mode.
 | Change files | Only through proposals you Apply (unless you enable `CODEPILOT_AUTO_APPLY`); every change can be undone |
 | Run commands | Every `run_command` needs your approval and shows the exact command. Tests and checks need approval unless you tick auto-run |
 | Verify pending changes | Runs the workspace's test command and analysers on a temporary copy with the changes applied (as you, like `run_tests`). Needs approval or a click on **Verify**, unless you tick auto-run. The workspace is never written |
-| git | The git tool only reads (`branch`, `stash`, `remote` and `reflog` only in their reading forms). Commits, pushes and branch changes happen only through `run_command`, which always asks |
+| git | The git tool only reads (`branch`, `stash`, `remote` and `reflog` only in their reading forms). Commits, pushes and branch changes happen only through `run_command`, which always asks. The Changes view's Commit and Discard are yours and can't be called by it |
 | Commands | Run without a terminal: stdin is closed, editors, pagers and credential prompts are off (`GIT_EDITOR=:`, `GIT_TERMINAL_PROMPT=0`, `GH_PROMPT_DISABLED=1`), and a timeout stops the command's whole process group |
 | GitHub | Reads freely; writes need approval; account, secret and admin commands are refused |
 | Open another folder | Needs approval |
