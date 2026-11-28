@@ -997,16 +997,17 @@ function reviewKeys(e) {
   return false;
 }
 
-async function openGitDiff() {
+async function openGitDiff(path) { // path: a file to scroll to (gitview.js: a deleted one); none from the list's own row
   const g = await api(`/api/sessions/${state.sid}/git`).catch(() => null);
   if (!g || !g.git) return toast("Not a git repository.", true);
-  openTab({ id: "gitdiff", kind: "gitdiff", icon: "branch", title: "Working tree", data: g });
+  openTab({ id: "gitdiff", kind: "gitdiff", icon: "branch", title: "Working tree", data: g, path: path || null });
 }
 function renderGitDiffTab(tab) {
   const g = tab.data;
   $("#editor").innerHTML = `<div class="ed-bar"><span class="crumbs">${icon("branch")} <b>${esc(g.branch)}</b> · uncommitted changes</span><span class="spacer"></span><button class="btn ghost" id="gReload">${icon("refresh")}</button></div>
-    <div class="ed-scroll">${g.diff.trim() ? diffHtml(g.diff) : `<div class="empty-state">No unstaged changes.</div>`}</div>`;
+    <div class="ed-scroll">${g.diff.trim() ? diffHtml(g.diff) : `<div class="empty-state">No changes to tracked files since the last commit.</div>`}</div>`;
   $("#gReload").onclick = async () => { tab.data = await api(`/api/sessions/${state.sid}/git`); renderEditor(); };
+  if (tab.path) [...$$("#editor .f")].find((f) => f.textContent === tab.path)?.scrollIntoView({ block: "start" });
 }
 
 // ---------------------------------------------------------------- search view
@@ -1060,19 +1061,12 @@ function renderProposalList() {
 }
 $("#proposalList").addEventListener("click", (e) => { const r = e.target.closest("[data-prop-open]"); if (r) openProposal(r.dataset.propOpen); });
 async function loadGit() {
-  if (!state.sid || !state.workspace) { $("#gitList").innerHTML = ""; $("#sbBranch").innerHTML = ""; $("#gitBranch").textContent = ""; return; }
+  if (!state.sid || !state.workspace) { $("#gitList").innerHTML = ""; $("#sbBranch").innerHTML = ""; $("#gitBranch").textContent = ""; renderGitView(null); return; }
   const g = await api(`/api/sessions/${state.sid}/git`).catch(() => null);
-  if (!g || !g.git) { $("#gitList").innerHTML = `<div class="hint" style="padding:0 14px">Not a git repository.</div>`; $("#sbBranch").innerHTML = ""; addedGit(g?.folders); return; }
-  $("#gitBranch").textContent = "· " + g.branch;
-  $("#sbBranch").innerHTML = `${icon("branch")}${esc(g.branch)}`;
-  const lines = g.status.split("\n").filter(Boolean);
-  $("#gitList").innerHTML = (lines.length ? `<div class="row" id="openGitDiff">${icon("diff")}<span class="name">View working tree diff</span></div>` : "")
-    + lines.map((l) => { const code = l.slice(0, 2).trim(), path = l.slice(3); return `<div class="row" data-gitfile="${esc(path)}">${fileIcon(path)}<span class="name">${esc(path)}</span><span class="meta mono">${esc(code)}</span></div>`; }).join("")
-    || `<div class="hint" style="padding:0 14px">Clean working tree.</div>`;
-  $("#openGitDiff") && ($("#openGitDiff").onclick = openGitDiff);
-  addedGit(g.folders); // folders.js: each added folder's changes under its own heading
+  $("#gitBranch").textContent = g?.git ? "· " + g.branch : "";
+  $("#sbBranch").innerHTML = g?.git ? `${icon("branch")}${esc(g.branch)}` : "";
+  renderGitView(g); // gitview.js: each repository's list, and the Explorer's marks
 }
-$("#gitList").addEventListener("click", (e) => { const r = e.target.closest("[data-gitfile]"); if (r && !r.dataset.gitfile.endsWith("/")) openFile(r.dataset.gitfile); });
 $("#refreshGitBtn").onclick = loadGit;
 document.addEventListener("click", async (e) => {
   const ap = e.target.closest("[data-apply],[data-reject],[data-revert]"); if (!ap) return;

@@ -185,6 +185,22 @@ input[type="checkbox"][role="switch"]:focus-visible { outline: 2px solid var(--a
 .row .meta { color: var(--faint); font-size: var(--fs-sm); }
 .row .hover-act { display: none; margin: -4px 0; } /* no taller than the row, so hovering never moves the rows below */
 .row:hover .hover-act, .row:focus-within .hover-act { display: inline-grid; }
+/* git (gitview.js): a letter per changed file and a dot per folder holding one, in the Explorer and Changes. The letter
+   is what tells them apart; the colour only helps. */
+.gmark { flex: none; min-width: 1.2ch; text-align: center; font: 650 var(--fs-sm) var(--mono); }
+.gmark[data-kind="modified"], [data-git="modified"] > .name, [data-git="modified"] .gname .name { color: var(--warn); }
+.gmark[data-kind="untracked"], .gmark[data-kind="added"], [data-git="untracked"] > .name, [data-git="added"] > .name,
+  [data-git="untracked"] .gname .name, [data-git="added"] .gname .name { color: var(--ok); }
+.gmark[data-kind="renamed"], [data-git="renamed"] > .name, [data-git="renamed"] .gname .name { color: var(--info); }
+.gmark[data-kind="deleted"], .gmark[data-kind="conflict"], [data-git="deleted"] .gname .name,
+  [data-git="conflict"] > .name, [data-git="conflict"] .gname .name { color: var(--err); }
+[data-git="deleted"] .gname .name { text-decoration: line-through; }
+.gmark.dot { color: var(--warn); font-size: 8px; }
+/* A Changes row holds controls, so the row isn't the button: its name is (one Tab stop each). */
+.row.git-row { cursor: default; padding-left: 10px; }
+.gname { all: unset; display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; cursor: pointer; border-radius: 4px; }
+.gname:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.git-more { padding: 0 14px; }
 
 /* sessions */
 .sess-search { padding: 8px 10px 4px; }

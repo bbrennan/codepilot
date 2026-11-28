@@ -6,7 +6,7 @@
 // Click-only elements: each gets a tab stop and a role, and Enter or Space clicks it (a link: Enter only). One that
 // already has a tabindex has keys of its own (the plan line, Progress markers) and is left alone.
 const A11Y_BUTTONS = [
-  ".session", ".grep-file > .row", ".grep-hit", "#proposalList .row", "#gitList .row", ".rv-item", "#specsView .row",
+  ".session", ".grep-file > .row", ".grep-hit", "#proposalList .row", "#gitList #openGitDiff", ".rv-item", "#specsView .row",
   "#steeringView .row", "#traceList .row", ".welcome .link", "#sbContext", "[data-spec-open]", "#fdPlaces .row",
 ];
 const A11Y_LINKS = ["a.loc", ".msg.user .ref", ".attached span"];

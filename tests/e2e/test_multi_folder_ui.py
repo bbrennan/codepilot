@@ -234,7 +234,7 @@ def test_the_changes_view_lists_an_added_folders_git_changes(page, server, sessi
     head = page.locator("#gitList .group-head", has_text="api")
     head.wait_for()
     assert "trunk" in head.text_content()
-    page.locator(f"#gitList [data-gitfile='{api}/src/']").wait_for()  # untracked: git shows the folder
+    page.locator(f"#gitList [data-gitfile='{api}/src/app.py']").wait_for()  # untracked: each file, not git's `src/`
 
 
 # -- from the release review ----------------------------------------------------------------------------------------

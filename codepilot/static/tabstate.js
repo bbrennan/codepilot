@@ -26,7 +26,7 @@ const TAB_KINDS = {
   spec: { record: (t) => ({ name: t.name, view: t.view || null }), reopen: reopenSpec },
   // The Review tab is the session's: it comes back only when the session has changes to show.
   review: { record: (t) => ({ sel: t.sel || null }), reopen: (r) => state.proposals.size && openReview(r.sel) },
-  gitdiff: { record: () => ({}), reopen: () => openGitDiff() },
+  gitdiff: { record: (t) => ({ path: t.path || null }), reopen: (r) => openGitDiff(r.path) },
 };
 
 function tabRecord(tab, unsafe) {

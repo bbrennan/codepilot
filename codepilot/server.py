@@ -32,8 +32,8 @@ from starlette.websockets import WebSocket
 from starlette.routing import Mount, Route, WebSocketRoute
 
 from .http_input import HANDLERS, json_body
-from . import (checkpoints, checks, diagnostics, folders, github, gitwork, images, mentions, models, modes, plans, skills,
-               spec_runs, specs, steering, textfile, traces, uploads, verification, version)
+from . import (checkpoints, checks, diagnostics, folders, github, gitwork, images, mentions, models, modes, plans,
+               skills, spec_runs, specs, steering, textfile, traces, uploads, verification, version)
 from .agent import Agent, history_events
 from .config import TIER_CHOICES, TIERS, Config
 from .static_files import RevalidatedStaticFiles
@@ -1146,10 +1146,13 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         if not gitwork.is_repo(ctx.root):
             return JSONResponse({"git": False, "folders": added})
         return JSONResponse({"git": True, "branch": branch_of(ctx.root), "folders": added, **changed(ctx.root),
-                             "status": run("status", "--short"),
                              # The page reads names from a/ and b/: settings like diff.noprefix mustn't change them.
+                             # Against the last commit, staged or not (there's no staging area here): a `git rm`'d
+                             # file is in it too. Before the first commit there's nothing to compare with but the index.
                              "diff": run("-c", "diff.noprefix=false", "-c", "diff.mnemonicPrefix=false", "diff",
-                                         "--src-prefix=a/", "--dst-prefix=b/")[:MAX_VIEW_BYTES]})
+                                         "--src-prefix=a/", "--dst-prefix=b/",
+                                         *(["HEAD"] if run("rev-parse", "--verify", "-q", "HEAD") else []))
+                             [:MAX_VIEW_BYTES]})
 
     async def notes(request: Request) -> Response:
         sess = store.get_session(request.path_params["sid"])
