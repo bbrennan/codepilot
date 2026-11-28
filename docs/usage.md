@@ -44,6 +44,15 @@
   [the terminal](#the-terminal)).
 - **Title bar:** the open folder, file search (⌘P), the **Terminal** menu, and buttons to show or hide the
   sidebar, bottom panel and chat, and to switch theme.
+- **⌘P goes anywhere.** With nothing typed it lists the files you were last in, the one before this one on top, so
+  ⌘P then Enter switches between two files (each folder has its own list). Type a name to find a file, and the
+  sessions whose title or folder matches under **Sessions**. `name:12` opens a file at line 12; `:12` goes to line 12
+  in the file shown, also while you edit it (the caret moves there and your unsaved text stays). Start with `>`, or
+  press ⇧⌘P, for **commands**: the pane toggles and theme, each sidebar view, new session, file, folder or terminal,
+  add a folder, save, close the tab or the other tabs, run tests or checks, stop, review or apply changes, compact,
+  each mode and model tier, report a problem, restart the server. Type any words of a command's name, in any order
+  ("tog side"); its shortcut is shown beside it, and one that can't run now (Save with nothing being edited, Stop
+  with nothing running) isn't listed.
 - **Status bar:** provider and region, git branch, detected test command, GitHub login, how full the
   session's memory is, and tokens used.
 
@@ -631,7 +640,8 @@ key.
 | Keys | Action |
 |---|---|
 | ⌃` | Toggle the terminal panel (the title-bar **Terminal** menu does everything without shortcuts) |
-| ⌘P | Go to file |
+| ⌘P | Go to a file (the recent ones first), `name:line`, `:line` or a session |
+| ⇧⌘P | Commands (⌘P, then `>`) |
 | ⌘B | Toggle sidebar |
 | ⌘J | Toggle bottom panel |
 | ⌘L | Focus chat |
@@ -661,10 +671,11 @@ stop move with the arrow keys:
 | Explorer | ↑ ↓ move, Home / End first / last, → opens a folder or goes into it, ← closes it or goes to its folder, Enter or Space opens, typing jumps to a name |
 | Editor and panel tabs | ← → show the next tab, Home / End the first / last; Delete closes an editor tab (asking first if it has unsaved edits) |
 | Menus | Opening one puts focus on its first item; ↑ ↓, Home / End and a letter move; Enter runs; Esc closes and returns focus |
+| ⌘P | Focus stays in its box: ↑ ↓ move through the list, Enter opens or runs the one you're on, Esc closes |
 | Line numbers in a file | ↑ ↓, Page Up / Down, Home / End move; Enter or Space selects the line, Shift+Enter extends the selection |
 | Review | j / k or ↓ / ↑ move, a applies, r rejects: from the Review itself or with nothing focused, never while you're in the Explorer, a tab strip, a menu or a dialog |
 
-Dialogs (prompts, confirmations, Open folder, Report a problem, Go to file) keep Tab inside them, close with Esc, and
+Dialogs (prompts, confirmations, Open folder, Report a problem, Go to file or command) keep Tab inside them, close with Esc, and
 give focus back to what opened them. A confirmation for something that can't be undone (Delete, Discard) starts on
 **Cancel**, so Enter cancels; Tab to the red button to confirm.
 

@@ -593,6 +593,13 @@ a.loc:hover { text-decoration: underline; }
 #paletteList .opt .n { font-weight: 550; }
 #paletteList .opt .dir { color: var(--muted); font: var(--fs-sm) var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #paletteList .opt.on, #paletteList .opt:hover { background: var(--accent-soft); }
+#paletteList .opt .n { flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#paletteList .opt .desc { color: var(--muted); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#paletteList .opt .dir, #paletteList .opt .desc { flex: 0 100 auto; min-width: 0; } /* (they give way before the title) */
+#paletteList .opt svg, #paletteList .opt .ficon { flex: none; }
+#paletteList .opt kbd { margin-left: auto; flex: none; }
+#paletteList .pal-head { padding: 8px 10px 4px; color: var(--muted); font-size: var(--fs-sm); font-weight: 600; }
+#paletteList .pal-hint { padding: 8px 10px; margin: 0; }
 .dialog { padding: 14px; }
 .dialog-title { font-weight: 650; margin-bottom: 8px; }
 .dialog input { border: 1px solid var(--line-2); border-radius: var(--r-md); font: var(--fs-body) var(--mono); padding: 7px 10px; }

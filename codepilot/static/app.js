@@ -555,6 +555,7 @@ function renderEditor() {
   else if (tab.kind === "binary") renderBinaryTab(tab); // filekinds.js
   else if (tab.kind === "spec") renderSpecTab(tab);
   $$("#tree .row[data-file]").forEach((r) => r.classList.toggle("on", "file:" + r.dataset.file === state.active));
+  noteRecent(tab); // palette.js: the files ⌘P starts from
 }
 function welcomeHtml() {
   const recent = (state.sessionList || []).slice(0, 5).map((s) => `<div class="link" data-open-session="${s.id}">${icon("history")}${esc(s.title || "New session")} <span class="muted">${esc(s.repo ? base(s.repo) : "")}</span></div>`).join("");
@@ -575,7 +576,7 @@ function welcomeHtml() {
 function bindWelcome() {
   $("#wOpen") && ($("#wOpen").onclick = openFolder);
   $("#wNew") && ($("#wNew").onclick = () => newSession());
-  $("#wFind") && ($("#wFind").onclick = openPalette);
+  $("#wFind") && ($("#wFind").onclick = () => openPalette()); // (palette.js loads after this file)
   $$("[data-open-session]").forEach((el) => (el.onclick = () => openSession(el.dataset.openSession)));
 }
 
@@ -2508,6 +2509,9 @@ function termView(id) {
     const fit = new FitAddon.FitAddon();
     xterm.loadAddon(fit);
     xterm.open(el);
+    // ⇧⌘P (commands, palette.js) is the app's here too: elsewhere than a Mac the terminal would send it as Ctrl+P.
+    xterm.attachCustomKeyEventHandler((e) =>
+      !(e.shiftKey && (isMac ? e.metaKey : e.ctrlKey) && e.key.toLowerCase() === "p"));
     v = { id, el, xterm, fit, ws: null };
     xterm.onData((data) => {
       if (termInfo(id) && !termInfo(id).alive) return killTerminal(id); // "press any key to close"
@@ -2632,32 +2636,7 @@ function onWorkspaceChangedForTerminal() {
     v.xterm.write(`\r\n\x1b[2m[codepilot] workspace is now ${tilde(state.workspace)}; use + for a terminal there]\x1b[0m\r\n`);
 }
 
-// ---------------------------------------------------------------- palette & dialog & toast
-let pal = { items: [], idx: 0 };
-function openPalette() {
-  if (!state.sid || !state.workspace) return toast("Open a folder first.", true);
-  $("#palette").hidden = false; $("#paletteInput").value = ""; $("#paletteInput").focus(); palSearch("");
-}
-const palSearch = debounce(async (q) => {
-  const d = await api(`/api/sessions/${state.sid}/find?q=${encodeURIComponent(q)}`).catch(() => ({ files: [] }));
-  pal.items = d.files; pal.idx = 0; renderPalette();
-}, 80);
-function renderPalette() {
-  $("#paletteList").innerHTML = pal.items.map((f, i) => `<div class="opt ${i === pal.idx ? "on" : ""}" data-i="${i}">${fileIcon(f)}<span class="n">${esc(base(f))}</span><span class="dir">${esc(dirOf(shownPath(f)))}</span></div>`).join("") || `<div class="hint" style="padding:8px 10px">No matching files.</div>`;
-  $("#paletteList .opt.on")?.scrollIntoView({ block: "nearest" });
-}
-function closePalette() { $("#palette").hidden = true; }
-$("#paletteInput").addEventListener("input", (e) => palSearch(e.target.value));
-$("#paletteInput").addEventListener("keydown", (e) => {
-  if (e.key === "ArrowDown") { e.preventDefault(); pal.idx = Math.min(pal.idx + 1, pal.items.length - 1); renderPalette(); }
-  else if (e.key === "ArrowUp") { e.preventDefault(); pal.idx = Math.max(pal.idx - 1, 0); renderPalette(); }
-  else if (e.key === "Enter") { const f = pal.items[pal.idx]; if (f) { closePalette(); openFile(f); } }
-  else if (e.key === "Escape") closePalette();
-});
-$("#paletteList").addEventListener("click", (e) => { const o = e.target.closest("[data-i]"); if (o) { closePalette(); openFile(pal.items[+o.dataset.i]); } });
-$("#palette").addEventListener("mousedown", (e) => { if (e.target.id === "palette") closePalette(); });
-$("#paletteBtn").onclick = openPalette;
-
+// ---------------------------------------------------------------- dialog & toast
 function promptDialog(title, value, hint, opts = {}) {
   return new Promise((resolve) => {
     $("#dialogTitle").textContent = title; $("#dialogInput").value = value || ""; $("#dialogHint").textContent = hint || "";
@@ -2711,7 +2690,8 @@ document.addEventListener("keydown", (e) => {
   if (isMac && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "v" && isTextBox(e.target)) {
     e.preventDefault(); pasteFromClipboard(e.target); return;
   }
-  if (mod && e.key.toLowerCase() === "p") { e.preventDefault(); openPalette(); }
+  if (mod && e.shiftKey && e.key.toLowerCase() === "p") { e.preventDefault(); openPalette(">"); } // (commands)
+  else if (mod && e.key.toLowerCase() === "p") { e.preventDefault(); openPalette(); }
   else if (mod && e.key.toLowerCase() === "b") { e.preventDefault(); toggleSidebar(); }
   else if (mod && e.key.toLowerCase() === "j") { e.preventDefault(); toggle("no-panel"); }
   else if (mod && e.key.toLowerCase() === "l") { e.preventDefault(); ide.classList.remove("no-chat"); input.focus(); }
