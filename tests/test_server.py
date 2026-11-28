@@ -344,6 +344,22 @@ def test_commit_is_refused_while_any_session_on_that_repository_is_working(cfg, 
     assert r.status_code == 200
 
 
+def test_commit_is_refused_while_a_turn_on_that_repository_waits_for_approval(cfg, store, git_repo):
+    """A turn paused for an approval hasn't finished: the agent may be between two writes of one change."""
+    client = _git_client(cfg, store)
+    paused = client.post("/api/sessions", json={"repo": str(git_repo)}, headers=H).json()["id"]
+    other = client.post("/api/sessions", json={"repo": str(git_repo)}, headers=H).json()["id"]
+    (git_repo / "Makefile").write_text("changed\n")
+    assert client.get(f"/api/sessions/{other}/git").json()["working"] is False
+    store.update_session(paused, pending={"awaiting": ["t1"]})
+    assert client.get(f"/api/sessions/{other}/git").json()["working"] is True  # (the page says why up front)
+    r = client.post(f"/api/sessions/{other}/git/commit", json={"message": "x", "paths": ["Makefile"]}, headers=H)
+    assert r.status_code == 409 and "working" in r.json()["error"]
+    store.update_session(paused, pending=None)
+    r = client.post(f"/api/sessions/{other}/git/commit", json={"message": "x", "paths": ["Makefile"]}, headers=H)
+    assert r.status_code == 200
+
+
 def test_commit_refuses_a_blank_message_and_nothing_ticked(cfg, store, git_repo):
     client = _git_client(cfg, store)
     sid = client.post("/api/sessions", json={"repo": str(git_repo)}, headers=H).json()["id"]

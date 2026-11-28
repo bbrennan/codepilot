@@ -1144,12 +1144,14 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         def git_of(folder: Path) -> dict:  # an added folder: its branch and changed files, under its own heading
             if not gitwork.is_repo(folder):
                 return {"path": str(folder), "git": False}
-            return {"path": str(folder), "git": True, "branch": branch_of(folder), **changed(folder)}
+            return {"path": str(folder), "git": True, "branch": branch_of(folder), "working": working_in(folder),
+                    **changed(folder)}
 
         added = [git_of(f) for f in ctx.folders if f.is_dir()]
         if not gitwork.is_repo(ctx.root):
             return JSONResponse({"git": False, "folders": added})
         return JSONResponse({"git": True, "branch": branch_of(ctx.root), "folders": added, **changed(ctx.root),
+                             "working": working_in(ctx.root),
                              # The page reads names from a/ and b/: settings like diff.noprefix mustn't change them.
                              # Against the last commit, staged or not (there's no staging area here): a `git rm`'d
                              # file is in it too. Before the first commit there's nothing to compare with but the index.
@@ -1159,6 +1161,13 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                              [:MAX_VIEW_BYTES]})
 
     # -- the user's own git actions (gitwork.py): never offered to the model ------------------------------------------
+
+    def working_in(repo: Path) -> bool:
+        """Is a turn running, or paused for an approval, in a session whose folders include repo? (Sessions can share
+        a folder; a paused turn hasn't finished, and the agent may be between two writes of one change.)"""
+        running = [store.get_session(s) for s in list(busy) if store.has_session(s)]
+        paused = [s for s in store.list_sessions(limit=1000) if s.pending]  # (one person's sessions: the recent ones)
+        return any(folders.uses(s, repo) for s in running + paused)
 
     async def git_action(request: Request, act) -> Response:
         """Run act(repo, data) for the session's main folder or one of its added folders, as no turn can start in
@@ -1174,7 +1183,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         if not gitwork.is_repo(repo):
             return err(f"{repo.name} isn't the root of a git repository.")
         with busy_lock:
-            if any(store.has_session(s) and folders.uses(store.get_session(s), repo) for s in busy):
+            if working_in(repo):
                 return err("codepilot is working in this folder: wait for the turn to finish.", 409)
             busy.add(sid)
         try:
