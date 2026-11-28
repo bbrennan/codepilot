@@ -76,7 +76,8 @@ function gitRowHtml(r, f, on) {
   const tip = f.from ? `${k.word} from ${f.from}` : k.word;
   return `<div class="row git-row" data-git="${f.kind}" data-gitrow="${esc(path)}">`
     + `<input type="checkbox" class="gtick" data-gtick="${esc(f.path)}" data-groot="${esc(r.key)}" aria-label="Commit ${esc(f.path)}"${on ? " checked" : ""}>`
-    + `<button class="gname" data-gitfile="${esc(path)}" title="${esc(shownPath(path))}: ${esc(tip)}" aria-label="${esc(gitLabel(f.path, f.kind))}">${fileIcon(path)}<span class="name">${esc(f.path)}</span>${gitMark(f.kind)}</button></div>`;
+    + `<button class="gname" data-gitfile="${esc(path)}" title="${esc(shownPath(path))}: ${esc(tip)}" aria-label="${esc(gitLabel(f.path, f.kind))}">${fileIcon(path)}<span class="name">${esc(f.path)}</span>${gitMark(f.kind)}</button>`
+    + `<button class="icon-btn sm gdiscard" data-gdiscard="${esc(path)}" data-grel="${esc(f.path)}" data-groot="${esc(r.key)}" title="Discard changes" aria-label="Discard changes to ${esc(f.path)}">${icon("history")}</button></div>`;
 }
 
 // The count, the tick-all box and Commit with the reason it can't be pressed, from what's ticked and typed: drawn in
@@ -131,9 +132,59 @@ async function gitCommit(key) {
   }
 }
 
+// ---- Discard
+// What it does, in words, before it does it: a file the last commit has goes back to it; one it hasn't leaves for the
+// trash. Undo is in the toast; the open tab follows either way (gitTabFollows).
+function gitDiscardHint(rel, f, tab) {
+  const hint = f.kind === "deleted" ? `${rel} comes back as it was in the last commit.`
+    : f.kind === "renamed" ? `${rel} goes back to ${f.from}, as in the last commit; ${rel} moves to codepilot's trash, and Undo puts it back.`
+    : f.kind === "untracked" || f.kind === "added" ? `${rel} isn't in the last commit, so it moves to codepilot's trash; Undo puts it back.`
+    : `${rel} goes back to the last commit. Your changes move to codepilot's trash; Undo puts them back.`;
+  return hint + (tab?.dirty ? " Your unsaved edits in the open tab are lost too." : "");
+}
+async function gitDiscard(button) {
+  const { groot: key, grel: rel, gdiscard: path } = button.dataset;
+  const f = state.git.files.get(path); if (!f) return;
+  const tab = state.tabs.find((t) => t.id === "file:" + path);
+  if (!(await confirmDialog(`Discard changes to ${rel}?`, gitDiscardHint(rel, f, tab), "Discard"))) return;
+  const sid = state.sid;
+  try {
+    const d = await api(`/api/sessions/${sid}/git/discard`, { method: "POST", body: { ...(key ? { folder: key } : {}), path: rel } });
+    if (state.sid !== sid) return;
+    await gitTabFollows(path, d.gone);
+    toast(`Discarded changes to ${rel}`, false, { label: "Undo", run: () => gitUndo(sid, d.trash_id, path) });
+  } catch (err) { toast(err.message, true); }
+  if (state.sid === sid) loadGit();
+}
+async function gitUndo(sid, trashId, path) {
+  try {
+    const back = await api(`/api/sessions/${sid}/fs`, { method: "POST", body: { op: "restore", trash_id: trashId } });
+    if (state.sid !== sid) return;
+    await gitTabFollows(path, false);
+    toast(`Put back ${shownPath(back.path)}`);
+  } catch (err) { toast(err.message, true); } // (refused: the file changed since, and the kept copy stays in the trash)
+  if (state.sid === sid) loadGit();
+}
+// The open tab of a file whose changes were just discarded or put back: its unsaved edits went with them, so the draft
+// is forgotten (tabstate.js keeps one only while a tab is dirty, and is told at once), and it shows the file as it now
+// is, through the editor's handle when it's in Edit mode; or it closes, without asking, when the file is gone.
+async function gitTabFollows(path, gone) {
+  const tab = state.tabs.find((t) => t.id === "file:" + path); if (!tab) return;
+  tab.dirty = false; tab.draft = null;
+  if (gone) { await closeTab(tab.id); saveTabs(); return; }
+  const f = await api(`/api/sessions/${state.sid}/files?path=${encodeURIComponent(path)}`).catch(() => null);
+  if (f && f.content != null) {
+    Object.assign(tab, { content: f.content, mtime: f.mtime, encoding: f.encoding }, tab.editing ? { draft: f.content } : {});
+    if (tab.ed) tab.ed.setText(f.content); // editor.js: in place, so the caret and the scroll stay
+    else if (state.active === tab.id) renderEditor();
+  }
+  renderTabs(); saveTabs();
+}
+
 $("#gitList").addEventListener("click", (e) => {
   if (e.target.closest("#openGitDiff")) return openGitDiff();
   const c = e.target.closest("[data-gcommit]"); if (c) return gitCommit(c.dataset.gcommit);
+  const x = e.target.closest("[data-gdiscard]"); if (x) return gitDiscard(x);
   const r = e.target.closest("[data-gitfile]"); if (!r) return;
   const path = r.dataset.gitfile;
   // What was deleted is shown as a diff: there's no file to open.
