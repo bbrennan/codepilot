@@ -99,15 +99,3 @@ def rebased(path: str, old_main: Path, new_main: Path) -> str:
     otherwise point at the new main folder's file of the same name), and one in the new main folder a relative one."""
     full = Path(path) if Path(path).is_absolute() else old_main / path
     return str(full.relative_to(new_main)) if inside(full, [new_main]) and full != new_main else str(full)
-
-
-def git_status(out: str) -> list[dict]:
-    """`git status --porcelain=v1 -z` as {path, code} entries: real names (no quoting), and a rename's or copy's new
-    name, in either status column (its old name, the next NUL-separated field, is skipped)."""
-    entries, files, i = out.split("\0"), [], 0
-    while i < len(entries):
-        entry = entries[i]
-        if len(entry) > 3:
-            files.append({"path": entry[3:], "code": entry[:2].strip()})
-        i += 2 if any(c in "RC" for c in entry[:2]) else 1
-    return files

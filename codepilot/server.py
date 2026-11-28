@@ -32,8 +32,8 @@ from starlette.websockets import WebSocket
 from starlette.routing import Mount, Route, WebSocketRoute
 
 from .http_input import HANDLERS, json_body
-from . import (checkpoints, checks, diagnostics, folders, github, images, mentions, models, modes, plans, skills,
-               spec_runs, specs, steering, textfile, traces, uploads, verification, version)
+from . import (checkpoints, checks, diagnostics, folders, github, gitwork, images, mentions, models, modes, plans,
+               skills, spec_runs, specs, steering, textfile, traces, uploads, verification, version)
 from .agent import Agent, history_events
 from .config import TIER_CHOICES, TIERS, Config
 from .static_files import RevalidatedStaticFiles
@@ -845,6 +845,10 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                 out["files"][rel] = str(path.stat().st_mtime_ns) if path.is_file() else None
             except (ToolError, OSError):
                 out["files"][rel] = None
+        # git's own state (gitwork.stamp): a commit, staging or a reset in the terminal changes no working file.
+        repos = {".": ctx.root, **{str(f): f for f in ctx.folders}}
+        out["git"] = {key: gitwork.stamp(repos[key]) if key in repos else None
+                      for key in [str(k) for k in list(data.get("git") or [])[:20]]}
         return out
 
     async def upload(request: Request) -> Response:
@@ -1122,35 +1126,37 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
     def git_view(request: Request) -> Response:  # blocking I/O: runs in a worker thread
         ctx = ctx_for(request.path_params["sid"])
 
-        def run(*args: str) -> str:
-            proc = subprocess.run(["git", "--no-pager", "-C", str(ctx.root), *args], capture_output=True,
-                                  text=True, timeout=60, errors="replace")
+        def run(*args: str, at: Path = ctx.root) -> str:  # (in the background: never git's optional locks)
+            proc = subprocess.run(["git", "--no-pager", "--no-optional-locks", "-C", str(at), *args],
+                                  capture_output=True, text=True, timeout=60, errors="replace")
             return proc.stdout if proc.returncode == 0 else ""  # never show git's error text as data
 
-        def git_of(folder: Path) -> dict:  # an added folder: its branch and changed files, under its own heading
-            if not (folder / ".git").exists():
-                return {"path": str(folder), "git": False}
-            def out(*args: str) -> subprocess.CompletedProcess:
-                return subprocess.run(["git", "--no-pager", "-C", str(folder), *args], capture_output=True, text=True,
-                                      timeout=60, errors="replace")
+        def changed(folder: Path) -> dict:  # gitwork.py: each file by its real name, with its kind
+            try:
+                return gitwork.status(folder) or {}
+            except gitwork.GitError:
+                return {"files": [], "total": 0, "dirs": []}
 
-            branch = out("symbolic-ref", "--short", "-q", "HEAD").stdout.strip() \
-                or out("rev-parse", "--short", "HEAD").stdout.strip()
-            # NUL-separated porcelain: the real names (no quoting of spaces or accents; a rename's new name).
-            status = out("status", "--porcelain=v1", "-z")
-            files = folders.git_status(status.stdout) if status.returncode == 0 else []
-            return {"path": str(folder), "git": True, "branch": branch, "files": files}
+        def branch_of(folder: Path) -> str:  # works before the first commit too; a detached HEAD shows its hash
+            return run("symbolic-ref", "--short", "-q", "HEAD", at=folder).strip() \
+                or run("rev-parse", "--short", "HEAD", at=folder).strip()
+
+        def git_of(folder: Path) -> dict:  # an added folder: its branch and changed files, under its own heading
+            if not gitwork.is_repo(folder):
+                return {"path": str(folder), "git": False}
+            return {"path": str(folder), "git": True, "branch": branch_of(folder), **changed(folder)}
 
         added = [git_of(f) for f in ctx.folders if f.is_dir()]
-        if not (ctx.root / ".git").exists():
+        if not gitwork.is_repo(ctx.root):
             return JSONResponse({"git": False, "folders": added})
-        # symbolic-ref works before the first commit too; a detached HEAD shows its short hash.
-        branch = run("symbolic-ref", "--short", "-q", "HEAD").strip() or run("rev-parse", "--short", "HEAD").strip()
-        return JSONResponse({"git": True, "branch": branch, "folders": added,
-                             "status": run("status", "--short"),
+        return JSONResponse({"git": True, "branch": branch_of(ctx.root), "folders": added, **changed(ctx.root),
                              # The page reads names from a/ and b/: settings like diff.noprefix mustn't change them.
+                             # Against the last commit, staged or not (there's no staging area here): a `git rm`'d
+                             # file is in it too. Before the first commit there's nothing to compare with but the index.
                              "diff": run("-c", "diff.noprefix=false", "-c", "diff.mnemonicPrefix=false", "diff",
-                                         "--src-prefix=a/", "--dst-prefix=b/")[:MAX_VIEW_BYTES]})
+                                         "--src-prefix=a/", "--dst-prefix=b/",
+                                         *(["HEAD"] if run("rev-parse", "--verify", "-q", "HEAD") else []))
+                             [:MAX_VIEW_BYTES]})
 
     async def notes(request: Request) -> Response:
         sess = store.get_session(request.path_params["sid"])

@@ -246,6 +246,7 @@ def test_a_messages_edit_retry_and_undo_are_reached_with_tab_and_shown_while_foc
 # Every visible element that looks clickable (a pointer cursor, or grab for a row you can drag) must be focusable
 # itself or sit inside something focusable. A <label> around a switch or checkbox is fine: its control is inside it.
 AUDIT = """(allowed) => {
+  a11yFlush(); // what a key meets: a11y.js decorates what was drawn before it handles one (a list can redraw any time)
   const FOCUSABLE = 'a[href], button, input, select, textarea, summary, [tabindex], [contenteditable]';
   const found = new Set();
   for (const el of document.querySelectorAll('body *')) {

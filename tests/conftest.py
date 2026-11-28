@@ -9,6 +9,7 @@ from codepilot.store import Store
 
 
 from fakes import FakeLLM, tool_use  # noqa: F401  (re-exported for older imports)
+from gitrepos import make_git_repo
 
 
 @pytest.fixture
@@ -34,6 +35,22 @@ def repo(tmp_path):
     for key, value in (("user.name", "Test"), ("user.email", "test@example.invalid")):  # CI has no global identity
         subprocess.run(["git", "-C", str(root), "config", key, value], check=True)
     return root
+
+
+@pytest.fixture
+def git_isolated(tmp_path, monkeypatch):
+    """No global or system git config reaches git in this test (an identity, signing, hooks, status settings): git
+    runs in this process and in the in-process servers' threads, so the environment is enough."""
+    empty = tmp_path / "empty.gitconfig"
+    empty.write_text("")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(empty))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+
+@pytest.fixture
+def git_repo(repo, git_isolated):
+    """The sample repo, committed: what the Changes view's actions work on."""
+    return make_git_repo(repo)
 
 
 @pytest.fixture
