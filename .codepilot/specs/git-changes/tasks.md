@@ -3,23 +3,41 @@
 One branch and PR per numbered task. After keyboard-access task 2 (the tree's rows) and ui-review-fixes task 7
 (colours).
 
-- [ ] 1. Git state in the Explorer and a plainer Changes list (`feature/git-marks`)
-  - [ ] 1.1 `gitwork.status`, and the main folder listed from it
+- [x] 1. Git state in the Explorer and a plainer Changes list (`feature/git-marks`)
+  - [x] 1.1 `gitwork.status`, and the main folder listed from it
     - Test first (unit): kinds; a name with a space and an accent; a rename; the `git` endpoint's `files`.
     - `codepilot/gitwork.py` (new), `server.py` (`git_view` wiring); `docs/architecture.md` (module table).
     - _Requirements: 2.2, 1.4_
-  - [ ] 1.2 The Changes list moves to `gitview.js` with letters, tooltips and deleted files that open a diff
+    - _Tests: tests/test_gitwork.py (each kind named, a conflict, spaces and accents, each file of a new folder even
+      with `status.showUntrackedFiles=no`, a very large untracked tree counted not listed, no optional locks: the index
+      isn't rewritten where plain `git status` would, a rename keeps its old name, not a repository); tests/test_server.py
+      (the main folder's `files` by real name and kind, `total`, `dirs`; an added folder's files carry their kind).
+      `folders.git_status`'s test moved to test_gitwork.py with the parser_
+  - [x] 1.2 The Changes list moves to `gitview.js` with letters, tooltips and deleted files that open a diff
     - Test first (Playwright): the letters and their tooltips; the file with spaces opens; a deleted file opens the
       diff.
     - `static/gitview.js` (new: `renderGitView`), `index.html`, `app.js` (`loadGit` calls it; `openGitDiff(path)`),
       `folders.js` (`addedGit` uses the same renderer), `app.css`.
     - _Requirements: 2.1, 2.2, 2.3_
-  - [ ] 1.3 Marks on files and folders in the Explorer
+    - _Tests: tests/e2e/test_git_changes_ui.py (each letter with its word as a tooltip and in the name, "new.py,
+      untracked"; a name with spaces opens by click and by Enter; a deleted file, on disk or `git rm`'d, opens the diff
+      scrolled to it, and a reload reopens it there; a clean tree says so; an added folder's rows read the same way;
+      the keyboard audit on the list; rows fit at 1024×700 with a 180 and a 200px sidebar);
+      test_multi_folder_ui.py (an added folder's new folder is listed file by file);
+      test_keyboard_access_ui.py's audit decorates what was just drawn first, as a key would_
+  - [x] 1.3 Marks on files and folders in the Explorer
     - Test first (Playwright): marks and the folder dot; a mark appears after a save and after an applied change, and
       goes after Undo; an added folder's marks; each mark's text alternative.
     - `static/gitview.js` (`state.git`, `markTree`), `app.js` (`renderTree` ends with one call; `checkDisk` calls
       `loadGitSoon` when an open file's mtime changes), `app.css`.
     - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5_
+    - _Tests: tests/e2e/test_git_changes_ui.py (letters, colours by `data-git`, a dot on open and closed folders,
+      "core.py, modified" and "agent, contains changes" as names; one roving Tab stop and type-ahead unchanged, and the
+      audit; a save, an applied change and its Undo; a commit and a reset in the terminal, seen at the next disk check;
+      an open file changed in place; an added folder's marks and its root's dot; marks fit at 180 and 200px. They failed
+      with `markTree` stubbed out, as it came with `renderGitView` in 1.2); tests/test_gitwork.py (the stamp changes
+      with staging and a commit made outside, never reads outside the repository); tests/test_server.py (`/stat`
+      answers each of the session's repositories' stamps, null for another folder)_
 - [ ] 2. Commit (`feature/git-commit`)
   - [ ] 2.1 `gitwork.commit` and its endpoint
     - Test first (unit): the cases in design.md; the endpoint; 409 while busy; a path not in status.
