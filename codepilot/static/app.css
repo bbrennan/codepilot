@@ -197,7 +197,7 @@ input[type="checkbox"][role="switch"]:focus-visible { outline: 2px solid var(--a
 [data-git="deleted"] .gname .name { text-decoration: line-through; }
 .gmark.dot { color: var(--warn); font-size: 8px; }
 /* A Changes row holds controls, so the row isn't the button: its name is (one Tab stop each). */
-.row.git-row { cursor: default; padding-left: 10px; }
+.row.git-row { cursor: default; }
 .gname { all: unset; display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; cursor: pointer; border-radius: 4px; }
 .gname:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .git-more { padding: 0 14px; }
