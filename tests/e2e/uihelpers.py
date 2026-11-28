@@ -83,6 +83,17 @@ def editor_top_line(page):
     return page.eval_on_selector(EDITOR, f"(host) => Math.floor(({SCROLLER})(host).scrollTop / 20) + 1")
 
 
+def wait_editor_top_line(page, n):
+    """The editor comes to show line n at its top. A mount puts its place back in CodeMirror's next measure, a frame
+    after the editor is ready, so a read straight after wait_editor can see line 1 on a slow runner."""
+    wait_editor(page)
+    try:
+        page.wait_for_function(f"(n) => Math.floor(({SCROLLER})(document.querySelector('{EDITOR}')).scrollTop / 20) + 1"
+                               " === n", arg=n, timeout=5000)
+    except Exception:  # the editor settled somewhere else: say where (no assert rewriting in a helper module)
+        raise AssertionError(f"the editor's top line is {editor_top_line(page)}, not {n}") from None
+
+
 def scroll_editor_to_line(page, n):
     wait_editor(page)
     page.eval_on_selector(EDITOR, f"""(host, n) => {{ const el = ({SCROLLER})(host); el.scrollTop = (n - 1) * 20;

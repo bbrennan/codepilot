@@ -6,7 +6,7 @@ import sys
 import pytest
 from test_keyboard_access_ui import audit
 from uihelpers import (editor_caret_line, editor_has_focus, editor_open, editor_text, editor_top_line, focus_editor,
-                       open_app, type_in_editor, wait_editor)
+                       open_app, type_in_editor, wait_editor, wait_editor_top_line)
 
 BUNDLE = "**/static/vendor/codemirror.min.js"
 
@@ -492,8 +492,8 @@ def test_switching_tabs_keeps_the_editors_caret_and_top_line(page, server, sessi
     page.evaluate("openFile('agent/core.py')")
     page.locator("#editor .code-view").wait_for()
     page.locator("#editorTabs [data-tab='file:long.py']").click()
-    wait_editor(page)
-    assert editor_caret_line(page) == 150 and editor_top_line(page) == top
+    wait_editor_top_line(page, top)
+    assert editor_caret_line(page) == 150
 
 
 def test_the_editors_caret_and_draft_come_back_after_a_reload(page, server, session):
