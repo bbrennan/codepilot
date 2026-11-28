@@ -201,6 +201,9 @@ input[type="checkbox"][role="switch"]:focus-visible { outline: 2px solid var(--a
 .gname { all: unset; display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; cursor: pointer; border-radius: 4px; }
 .gname:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .git-more { padding: 0 14px; }
+/* Discard: seen on hover and on focus, but always there, so it's a Tab stop in both directions. */
+.git-row .gdiscard { flex: none; margin: -4px 0; opacity: 0; }
+.git-row:hover .gdiscard, .git-row:focus-within .gdiscard { opacity: 1; }
 /* Commit (gitview.js): a tick box per file, a count above them, and a message box with Commit under them. */
 .git-head { display: flex; align-items: center; gap: 6px; min-height: 24px; padding: 2px 10px 2px 14px;
   color: var(--muted); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }

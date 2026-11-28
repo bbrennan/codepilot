@@ -69,18 +69,33 @@ One branch and PR per numbered task. After keyboard-access task 2 (the tree's ro
       only; focus stays on a tick box, a name and the message box (with its selection) through a redraw, and moves to
       the next row's tick box when its row is committed elsewhere; the audit; the count and the box fit at 1024×700
       with a 180 and a 200px sidebar)_
-- [ ] 3. Discard (`feature/git-discard`)
-  - [ ] 3.1 `gitwork.discard`, the kept copy, and Undo through the trash
+- [x] 3. Discard (`feature/git-discard`)
+  - [x] 3.1 `gitwork.discard`, the kept copy, and Undo through the trash
     - Test first (unit): each kind of change; Undo; Undo refused after the file changed.
     - `codepilot/gitwork.py`, `server.py` (route; `restore` for `kind: "discard"`).
     - _Requirements: 4.2, 4.3, 5.1, 5.3_
-  - [ ] 3.2 Discard in the list, with its confirmation, Undo and the open tab following
+    - _Tests: tests/test_gitwork.py (modified, staged and changed, new staged and not, deleted, renamed and conflicted
+      files each go back or leave; only `a*.txt` of `a*.txt` and `ab.txt`; a path git doesn't list refused with nothing
+      moved; the kept copy is the same inode, moved; a symlink kept as a link, its target untouched; a git failure puts
+      the file back; Undo of a modified, a renamed and a deleted file; Undo refused once the file changed, the copy
+      kept); tests/test_server.py (the endpoint and Undo through `fs` restore; refused once changed; an added folder's
+      own repository, named by full path; another workspace's discard refused; a path git doesn't list, bad bodies,
+      another folder, a missing header and a turn waiting for approval refused; a path through a link out of the
+      folder refused by the path check alone, which fails without it)_
+  - [x] 3.2 Discard in the list, with its confirmation, Undo and the open tab following
     - Test first (Playwright): the confirmation's wording for tracked, untracked and a tab with unsaved edits; the tab
       reloads or closes; Undo.
     - `static/gitview.js`.
     - _Requirements: 4.1, 4.2, 4.3, 4.4_
-  - [ ] 3.3 Docs
+    - _Tests: tests/e2e/test_git_changes_ui.py (the question names the file and what's lost, for a modified, a new and
+      a deleted file, and Cancel changes nothing; Discard, the toast, Undo and "Put back"; Undo refused once the file
+      changed; an open tab shows the last commit's version; a tab in the editor with a stored draft: named in the
+      question, the editor shows the file as it now is, the draft is gone from storage and a reload doesn't bring it
+      back; a gone file's tab closes without asking; by keyboard, its own Tab stop, and focus on the next row's
+      Discard after; the audit; an added folder's file)_
+  - [x] 3.3 Docs
     - `docs/usage.md` (Changes: a new "Committing and discarding" part; Files and folders: the marks),
       `docs/security.md` (what the UI's git actions can and can't do, and that the model can't reach them),
       `README.md` feature list if it names Changes. Marked done as untested (documentation only).
     - _Requirements: 3.5, 5.1_
+    - _Tests: none (documentation only)_

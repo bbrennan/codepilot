@@ -5,6 +5,7 @@
 - [Talking to it](#talking-to-it)
 - [Modes](#modes)
 - [Changes: proposals, Apply, Undo](#changes-proposals-apply-undo)
+  - [Committing and discarding](#committing-and-discarding)
 - [Approvals: commands, tests, checks](#approvals-commands-tests-checks)
 - [Common workflows](#common-workflows)
 - [Traces and logs](#traces-and-logs)
@@ -157,6 +158,14 @@ reach outside the workspace folder.
 terminal, your other editor, git) shows up within about two seconds, and right after each agent step. An
 open file reloads in place. If you have unsaved edits in it, they're kept and you're told it changed;
 saving then asks before replacing the newer file. The ↻ button still forces a full reload.
+
+**Git marks.** In a folder that is a git repository's root, a changed file has a letter at the end of its row and a
+name in a matching colour: **M** modified, **U** untracked (new), **A** added, **R** renamed, **!** a conflict. A folder
+that holds a change has a dot, open or closed, and so does an added folder's own row when its repository has changes.
+Hover a letter for the word; a screen reader hears it ("core.py, modified"). Marks follow saves, applied and undone
+changes, and commits, staging or resets you make in the terminal, within a disk check (about two seconds). One case
+waits for the next reload of the list: a file that is neither open nor already changed, edited in place by a program
+outside codepilot. ↻ in the Changes view reloads it.
 
 ### Tabs come back
 
@@ -381,7 +390,35 @@ codepilot **never commits, pushes or changes branches on its own**. Its git tool
 commit, branch, merge or push, it runs the git command with `run_command`, so you approve each one. Before it does,
 the turn context tells it whether the branch is behind its upstream, and whether a merge or rebase is half done with
 conflicted files. Commands run without a terminal: an editor or password prompt fails at once instead of hanging.
-The **Changes** view shows the working tree diff.
+
+### Committing and discarding
+
+The **Changes** view lists each repository's changed files under its own heading (the main folder, then each added
+folder that is a repository's root), with the same letters as the Explorer and the words in a tooltip. Deleted files
+are listed too (**D**). Click a file to open it; click a deleted one to see what was deleted, in the working-tree diff
+(against the last commit, staged or not). Each file of a new folder is listed on its own. A very large untracked
+folder (an un-ignored `node_modules`) shows its first 2,000 files and says how many there are; that folder usually
+belongs in `.gitignore`.
+
+**Commit.** Every file has a tick box, ticked by default, and the list says how many are ticked ("3 of 4"); the box
+beside the count ticks or unticks them all. Write a message under the list and press **Commit** (or
+<kbd>⌘</kbd><kbd>Enter</kbd> in the message box). It commits the ticked files as they are on disk, new and deleted ones
+included, on the current branch, with your message exactly as you typed it and your own git identity. Anything you
+staged in the terminal and didn't tick stays staged. Your hooks run. A toast shows the short hash and the subject.
+- Commit can't be pressed with no message, nothing ticked, or while codepilot is working in that folder (in any
+  session on it, including a turn waiting for your approval). The line under the button says which.
+- If git refuses (a failing hook, no identity set, a merge in progress with only some files ticked), git's own words
+  appear under the box, your message is kept, and the files and what's staged are exactly as they were. With every
+  file ticked, a commit concludes a merge.
+- <kbd>⌘</kbd><kbd>Enter</kbd> in the message box only ever commits; it never approves a command that's waiting.
+- There is no staging area here, and no amend, push, pull, branches or stash: use the terminal for those.
+
+**Discard.** Each file has a Discard button (shown on hover or focus). It asks first, naming the file and what is lost:
+a file the last commit has goes back to it, staged changes included; a new file moves to codepilot's trash. If the file
+is open with unsaved edits, those are lost too, and it says so. What you had is kept in `~/.codepilot/trash`, and
+**Undo** in the notification puts it back, unless the file has changed since (then it says so and leaves the newer
+file alone). Undo puts back the files, not what was staged: a staged file comes back unstaged. Afterwards an open tab
+shows the file as it now is, or closes if the file is gone.
 
 ## Approvals: commands, tests, checks
 

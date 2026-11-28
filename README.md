@@ -45,8 +45,9 @@ assistant's replies in them are scripted so the demo is reproducible.</sub>
 
 ## What it does
 
-- **Works like an IDE:** file explorer, tabs with syntax highlighting, search, a ⌘P file palette, git
-  changes, terminals (as many as you like, and they survive page reloads), and chat docked on the right.
+- **Works like an IDE:** file explorer with git marks, tabs with syntax highlighting, search, a ⌘P file palette,
+  git changes you can commit or discard, terminals (as many as you like, and they survive page reloads), and chat
+  docked on the right.
   Reference code with `@file` or `@file:10-40`, drag files in, or select lines and **Add to chat**.
 - **Edit files yourself, too:** a File menu, new file and folder, rename, delete with undo, and a code
   editor with highlighting, line numbers, find and replace, go to line, and Save.

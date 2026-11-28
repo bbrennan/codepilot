@@ -52,7 +52,7 @@ def test_each_change_has_a_letter_and_says_it_in_words(page, server, session):
     for path, (letter, word) in want.items():
         mark = row(page, path).locator(".gmark")
         assert mark.inner_text() == letter and mark.get_attribute("title") == word
-    assert "Renamed from tests/test_core.py" in row(page, "tests/test_add.py").locator("button").get_attribute("title")
+    assert "Renamed from tests/test_core.py" in row(page, "tests/test_add.py").locator("button.gname").get_attribute("title")
     assert page.locator("#gitList .git-row").count() == 4  # no "??", nothing twice
     assert row(page, "new.py").get_by_role("button", name="new.py, untracked", exact=True).count() == 1  # (as read)
     audit(page, "Changes with git rows")
@@ -62,7 +62,7 @@ def test_a_name_with_spaces_opens_its_own_file(page, server, session):
     (server.repo / "notes with spaces.txt").write_text("the real one\n")
     open_app(page)
     changes(page)
-    row(page, "notes with spaces.txt").locator("button").click()
+    row(page, "notes with spaces.txt").locator("button.gname").click()
     page.locator("#editor code", has_text="the real one").wait_for()
     assert page.evaluate("state.active") == "file:notes with spaces.txt"
 
@@ -71,7 +71,7 @@ def test_a_name_with_spaces_opens_by_keyboard_too(page, server, session):
     (server.repo / "notes with spaces.txt").write_text("the real one\n")
     open_app(page)
     changes(page)
-    row(page, "notes with spaces.txt").locator("button").focus()
+    row(page, "notes with spaces.txt").locator("button.gname").focus()
     page.keyboard.press("Enter")
     page.locator("#editor code", has_text="the real one").wait_for()
 
@@ -85,7 +85,7 @@ def test_a_deleted_file_opens_what_was_deleted_as_a_diff(page, server, session, 
     (server.repo / "agent" / "core.py").write_text("def add(a, b):\n    return a + b\n")  # (another file's diff above)
     open_app(page)
     changes(page)
-    row(page, "Makefile").locator("button").click()
+    row(page, "Makefile").locator("button.gname").click()
     page.locator("#editorTabs [data-tab='gitdiff']").wait_for()
     head = page.locator("#editor .f", has_text="Makefile")
     head.wait_for()
@@ -112,7 +112,7 @@ def test_an_added_folders_changes_read_the_same_way(page, server, session, tmp_p
     changes(page)
     full = str(api.resolve())
     assert row(page, f"{full}/README.md").locator(".gmark").get_attribute("title") == "Modified"
-    row(page, f"{full}/my file é.py").locator("button").click()
+    row(page, f"{full}/my file é.py").locator("button.gname").click()
     page.locator("#editor code", has_text="y = 2").wait_for()
 
 
@@ -513,3 +513,153 @@ def test_a_late_answer_for_a_session_you_left_is_not_drawn(page, server, session
     held[0].continue_()  # the first session's, late
     page.evaluate("() => window.__late")  # that loadGit has finished: whatever it would draw is drawn
     assert row(page, "Makefile").count() == 0 and row(page, "README.md").count() == 1
+
+
+# -- task 3.2: Discard in the list ------------------------------------------------------------------------------------
+
+
+def discard_button(page, path):
+    return page.locator(f"#gitList button[data-gdiscard='{path}']")
+
+
+def ask_discard(page, path):
+    """Press Discard and wait for its question: (title, hint)."""
+    discard_button(page, path).click()
+    page.locator("#dialog").wait_for()
+    return page.locator("#dialogTitle").inner_text(), page.locator("#dialogHint").inner_text()
+
+
+def toast_text(toast):
+    return toast.evaluate("(t) => t.firstChild.textContent")
+
+
+@pytest.mark.parametrize("what", ["modified", "untracked", "deleted"])
+def test_discard_asks_first_naming_the_file_and_what_is_lost(page, server, session, what):
+    path = {"modified": "agent/core.py", "untracked": "new.py", "deleted": "Makefile"}[what]
+    if what == "deleted":
+        (server.repo / path).unlink()
+    else:
+        changed(server, path)
+    open_app(page)
+    changes(page)
+    assert discard_button(page, path).get_attribute("aria-label") == f"Discard changes to {path}"
+    title, hint = ask_discard(page, path)
+    assert title == f"Discard changes to {path}?"
+    assert hint == {
+        "modified": f"{path} goes back to the last commit. Your changes move to codepilot's trash; Undo puts them back.",
+        "untracked": f"{path} isn't in the last commit, so it moves to codepilot's trash; Undo puts it back.",
+        "deleted": f"{path} comes back as it was in the last commit.",
+    }[what]
+    page.click("#dialogCancel")  # and nothing happens
+    assert git(server.repo, "status", "--porcelain").strip().endswith(path)
+
+
+def test_discard_then_undo(page, server, session):
+    changed(server, "agent/core.py", "Makefile")
+    open_app(page)
+    changes(page)
+    ask_discard(page, "agent/core.py")
+    page.click("#dialogOk")
+    toast = page.locator(".toast", has_text="Discarded")
+    toast.wait_for()
+    assert toast_text(toast) == "Discarded changes to agent/core.py"
+    assert (server.repo / "agent" / "core.py").read_text() == "def add(a, b):\n    return a - b\n"
+    page.wait_for_function("() => !document.querySelector(\"#gitList [data-gitrow='agent/core.py']\")")
+    toast.locator("button", has_text="Undo").click()
+    page.locator(".toast", has_text="Put back agent/core.py").wait_for()
+    assert (server.repo / "agent" / "core.py").read_text() == "agent/core.py changed\n"
+    row(page, "agent/core.py").wait_for()
+
+
+def test_undo_says_so_when_the_file_has_changed_since(page, server, session):
+    changed(server, "new.py")
+    page.expected_errors.append("409 (Conflict)")
+    open_app(page)
+    changes(page)
+    ask_discard(page, "new.py")
+    page.click("#dialogOk")
+    toast = page.locator(".toast", has_text="Discarded")
+    toast.wait_for()
+    (server.repo / "new.py").write_text("made again\n")
+    toast.locator("button", has_text="Undo").click()
+    page.locator(".toast.err", has_text="changed since").wait_for()
+    assert (server.repo / "new.py").read_text() == "made again\n"
+
+
+def test_the_open_tab_shows_the_file_as_it_now_is(page, server, session):
+    changed(server, "agent/core.py")
+    open_app(page)
+    page.evaluate("openFile('agent/core.py')")
+    page.locator("#editor code", has_text="agent/core.py changed").wait_for()
+    changes(page)
+    ask_discard(page, "agent/core.py")
+    page.click("#dialogOk")
+    page.locator("#editor code", has_text="a - b").wait_for()  # the last commit's, in the tab that was open
+
+
+def test_unsaved_edits_are_named_in_the_question_and_gone_after(page, server, session):
+    """The editor (#134) with a draft stored for restore (#125): after the discard the editor shows the file as it now
+    is, the draft is forgotten, and a reload doesn't bring it back."""
+    from uihelpers import editor_text, set_editor_text, wait_editor
+    changed(server, "agent/core.py")
+    open_app(page)
+    page.evaluate("openFile('agent/core.py')")
+    page.locator("#fEdit").click()
+    wait_editor(page)
+    set_editor_text(page, "my unsaved draft\n")
+    page.wait_for_function("() => Object.values(localStorage).some((v) => v.includes('my unsaved draft'))")
+    changes(page)
+    title, hint = ask_discard(page, "agent/core.py")
+    assert hint.endswith(" Your unsaved edits in the open tab are lost too.")
+    page.click("#dialogOk")
+    page.locator(".toast", has_text="Discarded").wait_for()
+    page.wait_for_function("() => codeEditor()?.text() === 'def add(a, b):\\n    return a - b\\n'")
+    assert not page.evaluate("document.querySelector('.tab.on').classList.contains('dirty')")
+    page.wait_for_function("() => !Object.values(localStorage).some((v) => v.includes('my unsaved draft'))")
+    page.reload()
+    wait_editor(page)
+    assert editor_text(page) == "def add(a, b):\n    return a - b\n"
+
+
+def test_the_tab_of_a_file_that_is_gone_closes(page, server, session):
+    changed(server, "new.py")
+    open_app(page)
+    page.evaluate("openFile('new.py')")
+    page.locator("#editorTabs [data-tab='file:new.py']").wait_for()
+    changes(page)
+    ask_discard(page, "new.py")
+    page.click("#dialogOk")
+    page.locator(".toast", has_text="Discarded").wait_for()
+    page.wait_for_function("() => !document.querySelector(\"#editorTabs [data-tab='file:new.py']\")")
+    assert page.locator("#dialog").is_hidden()  # (closed without asking: there's nothing left to keep)
+
+
+def test_discard_by_keyboard_and_focus_after(page, server, session):
+    changed(server, "Makefile", "agent/core.py", "new.py")
+    open_app(page)
+    changes(page)
+    page.locator("#gitList button[data-gitfile='agent/core.py']").focus()
+    page.keyboard.press("Tab")  # the row's own Discard, its own tab stop
+    assert page.evaluate("document.activeElement.dataset.gdiscard") == "agent/core.py"
+    assert discard_button(page, "agent/core.py").evaluate("(b) => getComputedStyle(b).opacity") == "1"
+    page.keyboard.press("Enter")
+    page.locator("#dialog").wait_for()
+    page.keyboard.press("Tab")  # (the dialog starts on Cancel: something destructive)
+    page.keyboard.press("Enter")
+    page.locator(".toast", has_text="Discarded").wait_for()
+    page.wait_for_function("() => document.activeElement?.dataset?.gdiscard && "
+                           "document.activeElement.dataset.gdiscard !== 'agent/core.py'")  # the next row's Discard
+    audit(page, "Changes with Discard")
+
+
+def test_discard_in_an_added_folder(page, server, session, tmp_path):
+    api = make_git_repo(_api_folder(tmp_path))
+    full = str(api.resolve())
+    (api / "README.md").write_text("changed\n")
+    server.store.update_session(session.id, folders=[full])
+    open_app(page)
+    changes(page)
+    ask_discard(page, f"{full}/README.md")
+    page.click("#dialogOk")
+    page.locator(".toast", has_text="Discarded").wait_for()
+    assert (api / "README.md").read_text() == "api\n"

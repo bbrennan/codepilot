@@ -18,7 +18,7 @@ add `ab.txt`, and `:notes.txt` wouldn't match at all; a path the user ticked is 
 | `status(repo)` | What the page gets: `{files, total, dirs}`, None when the folder isn't a repository's root. At most `LIMIT` (2,000) files, tracked changes first; `total` counts them all and `dirs` holds every folder that contains a change (the shallowest first, at most 10,000). **A very large untracked tree** (an un-ignored `node_modules` or `.venv`: 50,000 files is 0.3 s and 2 MB of git output) is counted, not listed: the list says "2,000 of 51,204 changed files shown" and that such a folder usually belongs in `.gitignore`; its folders still carry their dot. Commit and Discard check paths against `changes`, not this capped list |
 | `stamp(repo)` | For the disk poll: the size and mtime of the index, `HEAD`, the branch `HEAD` names (`refs/heads/<branch>`; a commit moves that, not `.git/HEAD`) and `packed-refs`. Stat only, no git process, never a path outside the repository's git directory (a worktree's `.git` file and `commondir` are followed) |
 | `commit(repo, message, paths)` | Checks every path is in `changes` (5.3; never the page's capped list) and the message isn't blank. A rename's old name goes with it. `git add --all -- <the names on disk or in the index>`, then `git commit --quiet --cleanup=verbatim --message <message> -- <paths>`; when the paths are **all** the changed files, no pathspec, so a merge can be concluded. **The message is yours, exactly:** `--cleanup=verbatim` (git would otherwise strip `#` lines, trailing spaces and blank lines, whatever `commit.cleanup` says), nothing appended (no trailer, no sign-off), and your own git identity (no `-c user.*`, no `GIT_AUTHOR_*`). Returns `{hash, subject}` from `git log -1 --format=%h%x00%s` |
-| `discard(repo, path, keep)` | Checks the path is in `status`. `keep(bytes) -> trash_id` saves the current content first (when the file exists). Untracked or added: unstage if staged, then the file goes to the trash. Otherwise `git restore --source=HEAD --staged --worktree -- <path>` (a rename: both names, and the new file to the trash). Returns `{path, trash_id, gone}` |
+| `discard(repo, path, kept)` | Checks the path is in `changes`. `kept` (`gitkeep.Kept`) first **moves** the file, if there, into codepilot's trash: never reads it into memory, never follows a symlink (the link itself moves), and resolves names through the server's own `workspace_path`, as every other file operation does. Then, by whether the **last commit has each name** (`ls-tree HEAD`, not the status letter): a name it hasn't (untracked, added, a rename's new name) leaves the index (`rm --cached --ignore-unmatch`); a name it has goes back, index and working tree (`restore --source=HEAD --staged --worktree`). A rename: both names. If git fails, the file is put back. A folder (a submodule) is refused. Returns `{path, names, were_absent, gone}` |
 | `GitError` | Carries git's stderr, trimmed to 2,000 characters, for 3.4 |
 
 Never passed: `--no-verify`, `--amend`, `push`, `checkout <branch>`. Hooks run with a 120 s timeout; a timeout is a
@@ -45,9 +45,13 @@ conflict's three stages. `procenv.run` takes an optional `input` for this; stdin
   folder, and a turn in another one may be between two writes too. **A turn paused for an approval counts as
   working**: it hasn't finished (the server no longer marks it busy, so `pending` is checked too). `GitError` is a 409
   with git's text. The `/git` answer carries `working` per repository, so the page can say why before you press.
-- Discard's `keep` writes a trash slot like `move_to_trash` (same folder, `meta.json` with `kind: "discard"` and the
-  file's mtime after the discard). `fs`'s `restore` operation, for that kind, writes the content back when the file's
-  mtime still equals the recorded one, or the file is still absent; otherwise 409 "changed since" (4.3).
+- Discard's kept copy is a trash slot like `move_to_trash`'s (same folder; `codepilot/gitkeep.py`, not more of
+  `server.py`): the moved item, and `meta.json` with `kind: "discard"`, the repository, the name as the tree shows it,
+  each touched name's state after the discard (its mtime and size, or absent), and the names it brought back from the
+  last commit. `fs`'s `restore` operation, for that kind, checks the repository is still one of the session's folders,
+  then puts the item back and removes what the discard brought back, only if every touched name is as the discard
+  left it; otherwise 409 "changed since", and the kept copy stays (4.3). Undo restores files, not the index: a staged
+  file comes back unstaged.
 - After either action `retire_stale_proposals` runs, as after any file operation.
 
 ## Front end: `static/gitview.js` (new, loaded after `app.js`)
@@ -92,10 +96,15 @@ conflict's three stages. `procenv.run` takes an optional `input` for this; stdin
   in place on each tick and keystroke, never by redrawing. **Focus through a redraw** (a tick, a commit, a discard, a
   poll): the focused control is found again by its data attribute, a message box keeps its selection, and a control
   whose row went moves to the same control in the row that took its place, else to the message box.
-- **Discard (4.x):** `confirmDialog("Discard changes to X?", …, "Discard")`; the hint says "back to the last commit"
-  or "moved to codepilot's trash", and adds "Your unsaved edits in the open tab are lost too" when `tab.dirty`. Then
-  the request; then `toast("Discarded changes to X", false, { label: "Undo", run })`; the open tab reloads
-  (`tab.content = null; openFile`) or closes when `gone`.
+- **Discard (4.x):** a button per row (`aria-label="Discard changes to X"`), seen on hover and focus but always there
+  (opacity, not `display`), so it's a Tab stop in both directions. `confirmDialog("Discard changes to X?", …,
+  "Discard")`, starting on Cancel; the hint says "goes back to the last commit", "moves to codepilot's trash", "comes
+  back as it was in the last commit" (a deleted file) or both (a rename), and adds "Your unsaved edits in the open tab
+  are lost too" when `tab.dirty`. Then the request; then `toast("Discarded changes to X", false, { label: "Undo", run
+  })`. **The open tab follows** (`gitTabFollows`): its draft is forgotten (`tab.dirty = false`, `saveTabs()` at once,
+  so the draft stored for restore by #125 goes too), and it shows the file as it now is, through the editor's handle
+  (`tab.ed.setText`) in Edit mode (#134), or closes without asking when `gone`. Undo does the same with what comes
+  back. Focus goes to the next row's Discard.
 - Colours: `--warn` modified, `--ok` untracked and added, `--err` deleted and conflicts, from the tokens fixed in
   ui-review-fixes task 7.
 
@@ -147,6 +156,13 @@ The spec was written before roadmap items 1–6 merged. What changed, and why:
 - **A commit is yours:** the message verbatim (`--cleanup=verbatim`), nothing appended, your git identity.
 - **A refusal restores the index exactly** (saved entries written back), not by resetting what was staged; a hook
   stopped on its timeout leaves no lock behind.
+- **Discard's kept copy is moved, not read** (`keep(bytes)` would have read every file into memory), through the same
+  path checks as the other file operations, and a symlink is moved as a link. Whether a name goes back or leaves is
+  decided by the last commit, not the status letter (a conflict, a staged deletion and a rename all fit).
+- **The open tab after a discard** forgets its stored draft and shows the file through the editor's handle, rather
+  than `tab.content = null; openFile` (which kept the draft, and with it the unsaved edits, for the next reload).
+- **A late git answer for a session you've left is dropped** (`loadGit`): drawn, it showed the old folder's files, or
+  threw while the page had no folder.
 - **Known limit (1.3):** an in-place edit, in the terminal, of a file that is neither open nor already changed changes
   no folder's stamp and no git state, so its mark waits for the next thing that reloads the list (a save, a turn, a
   tree change, the Changes view, ↻). Running `git status` on every poll would cover it, at a cost that grows with the

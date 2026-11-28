@@ -32,8 +32,8 @@ from starlette.websockets import WebSocket
 from starlette.routing import Mount, Route, WebSocketRoute
 
 from .http_input import HANDLERS, json_body
-from . import (checkpoints, checks, diagnostics, folders, github, gitwork, images, mentions, models, modes, plans,
-               skills, spec_runs, specs, steering, textfile, traces, uploads, verification, version)
+from . import (checkpoints, checks, diagnostics, folders, github, gitkeep, gitwork, images, mentions, models, modes,
+               plans, skills, spec_runs, specs, steering, textfile, traces, uploads, verification, version)
 from .agent import Agent, history_events
 from .config import TIER_CHOICES, TIERS, Config
 from .static_files import RevalidatedStaticFiles
@@ -955,6 +955,17 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
     def restore_from_trash(ctx: ToolContext, trash_id: str) -> dict:
         if not re.fullmatch(r"[\w-]+", trash_id):
             raise FileOpError("Bad trash id.")
+        discarded = gitkeep.read(cfg.home / "trash", trash_id)
+        if discarded is not None:  # the Changes view's Discard (gitkeep.py): back unless the file has changed since
+            repo = Path(discarded["root"])
+            if repo != ctx.root and repo not in ctx.folders:
+                raise FileOpError("That discard belongs to another workspace.", 409)
+            try:
+                back = gitkeep.undo(cfg.home / "trash", trash_id,
+                                    lambda name: workspace_path(ctx, in_folder(ctx, repo, name)))
+            except gitkeep.ChangedSince as exc:
+                raise FileOpError(str(exc), 409) from None
+            return {**back, "dir": False}
         slot = cfg.home / "trash" / trash_id
         try:
             meta = json.loads((slot / "meta.json").read_text())
@@ -1187,7 +1198,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                 return err("codepilot is working in this folder: wait for the turn to finish.", 409)
             busy.add(sid)
         try:
-            result = await run_in_threadpool(act, repo, data)
+            result = await run_in_threadpool(act, ctx, repo, data)
         except gitwork.GitError as exc:
             return err(str(exc), 409)
         finally:
@@ -1197,12 +1208,34 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         return JSONResponse(result)
 
     async def git_commit(request: Request) -> Response:
-        def act(repo: Path, data: dict) -> dict:
+        def act(ctx: ToolContext, repo: Path, data: dict) -> dict:
             message, paths = data.get("message"), data.get("paths")
             if not isinstance(message, str) or not isinstance(paths, list) \
                     or not all(isinstance(p, str) for p in paths):
                 raise gitwork.GitError("A commit needs a message and a list of paths.")
             return gitwork.commit(repo, message, paths)
+        return await git_action(request, act)
+
+    def in_folder(ctx: ToolContext, repo: Path, name: str) -> str:
+        """A repository's file as the session names it: relative in the main folder, else by its full path."""
+        return name if repo == ctx.root else str(repo / name)
+
+    async def git_discard(request: Request) -> Response:
+        def act(ctx: ToolContext, repo: Path, data: dict) -> dict:
+            path = data.get("path")
+            if not isinstance(path, str) or not path:
+                raise gitwork.GitError("Name the file to discard.")
+
+            def resolve(name: str) -> Path:  # the file operations' own check: inside, and a link is never followed
+                try:
+                    return workspace_path(ctx, in_folder(ctx, repo, name))
+                except (FileOpError, ToolError) as exc:
+                    raise gitwork.GitError(str(exc)) from None
+
+            kept = gitkeep.Kept(cfg.home / "trash", repo, resolve)
+            done = gitwork.discard(repo, path, kept)
+            trash_id = kept.seal(done["names"], done["were_absent"], shown=in_folder(ctx, repo, path))
+            return {"path": in_folder(ctx, repo, path), "gone": done["gone"], "trash_id": trash_id}
         return await git_action(request, act)
 
     async def notes(request: Request) -> Response:
@@ -1299,6 +1332,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         Route("/api/sessions/{sid}/find", needs_workspace(find)),
         Route("/api/sessions/{sid}/git", needs_workspace(git_view)),
         Route("/api/sessions/{sid}/git/commit", needs_workspace(git_commit), methods=["POST"]),
+        Route("/api/sessions/{sid}/git/discard", needs_workspace(git_discard), methods=["POST"]),
         Route("/api/sessions/{sid}/fs", needs_workspace(fs), methods=["POST"]),
         Route("/api/sessions/{sid}/upload", needs_workspace(upload), methods=["PUT"]),
         Route("/api/sessions/{sid}/raw", needs_workspace(raw_file)),

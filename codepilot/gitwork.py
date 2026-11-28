@@ -212,3 +212,44 @@ def commit(repo: Path, message: str, paths: list[str], run: Runner = procenv.run
         raise
     hash_, _, subject = _git(run, repo, ["log", "-1", "--format=%h%x00%s"]).rstrip("\n").partition("\0")
     return {"hash": hash_, "subject": subject}
+
+
+# -- Discard -----------------------------------------------------------------------------------------------------------
+
+
+def _in_head(repo: Path, run: Runner, names: list[str]) -> set[str]:
+    """Which of names the last commit has (none before the first commit)."""
+    try:
+        _git(run, repo, ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"])
+    except GitError:
+        return set()
+    return {n for n in _git(run, repo, ["ls-tree", "-z", "--name-only", "HEAD", "--", *names]).split("\0") if n}
+
+
+def discard(repo: Path, path: str, kept, run: Runner = procenv.run) -> dict:
+    """Throw away one file's changes: a file the last commit has goes back to it (in the index too), and one it doesn't
+    (untracked, added, a rename's new name) leaves. Either way what was there is first moved into the trash by
+    `kept` (gitkeep.Kept), and put back if git then fails. A rename takes both its names back.
+
+    Returns {path, names, were_absent, gone}: `names` it touched, those absent before (that it brought back from the
+    last commit), and whether `path` is gone now, for Undo and the open tab."""
+    entries = _checked(repo, [path], run, "discard")
+    names = list(dict.fromkeys(n for n in (path, entries[path].get("from")) if n))
+    in_head = _in_head(repo, run, names)
+    were_absent = [n for n in names if not ((repo / n).exists() or (repo / n).is_symlink())]
+    try:
+        kept.keep(path)
+    except ValueError as exc:
+        raise GitError(str(exc)) from None
+    try:
+        new = [n for n in names if n not in in_head]
+        if new:  # out of the index (if it's there at all); the file itself is already in the trash
+            _git(run, repo, ["rm", "--cached", "--quiet", "--ignore-unmatch", "--", *new])
+        old = [n for n in names if n in in_head]
+        if old:
+            _git(run, repo, ["restore", "--source=HEAD", "--staged", "--worktree", "--", *old])
+    except GitError:
+        kept.put_back()
+        raise
+    return {"path": path, "names": names, "were_absent": were_absent,
+            "gone": not ((repo / path).exists() or (repo / path).is_symlink())}
