@@ -105,6 +105,11 @@ function mountEditor(host, tab, opts) {
       if (view.state.readOnly) return;
       view.dispatch(view.state.replaceSelection(t), { scrollIntoView: true, userEvent: "input.paste" });
     },
+    // The caret to the start of line n (clamped to the text) and that line in view, as Ctrl+G's prompt does it.
+    goToLine(n) {
+      const at = editorLinePos(view.state.doc, n);
+      view.dispatch({ selection: { anchor: at }, effects: CM.EditorView.scrollIntoView(at, { y: "center" }) });
+    },
     owns: (el) => view.contentDOM.contains(el), // the text, not a panel of the editor's (find has its own boxes)
     editable: () => !view.state.readOnly,
     focus: () => view.focus(),

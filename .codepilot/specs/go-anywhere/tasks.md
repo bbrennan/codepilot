@@ -12,11 +12,20 @@ One branch, `feature/go-anywhere`, one PR. After ui-review-fixes task 8 (`keys.j
     folder), test_keyboard_access_ui.py (the palette is a dialog that gives focus back, the welcome page's Go to file,
     the File menu's Go to File…, a file gone by the time it opens, the audit), test_code_editor_ui.py (⌘P from inside
     the editor), test_design_tokens_ui.py (the palette's focus ring), test_chat_input_ui.py (Ctrl+V on a Mac)_
-- [ ] 2. Recent files, and `name:line`
+- [x] 2. Recent files, and `name:line`
   - Test first (Playwright): the recent order and the two-file switch; a deleted recent file; `core.py:2`; `:1`.
-  - `palette.js` (modes table, `fileItems`, `recentFiles`, `noteRecent`, `lineItems`), `app.js` (`renderEditor`: one
-    call; `openPalette` without a folder).
+  - `palette.js` (modes table, `fileItems`, `recentFiles`, `noteRecent`, `lineItems`, `palGoTo`; the list a listbox
+    with headings), `app.js` (`renderEditor`: one call), `editor.js` (`goToLine` on the handle), `tabstate.js`
+    (`pruneTabRecords` takes the key prefix), `index.html` (the combobox's roles), `app.css`.
   - _Requirements: 1.1, 1.2, 1.3_
+  - _Tests: tests/e2e/test_palette_ui.py (an empty ⌘P lists the files you were in, the one before on top, and ⌘P,
+    Enter switches two files; the current option is the box's active descendant and a heading names its group; a file
+    deleted on disk isn't listed; the list survives a reload; each folder has its own, also across a session switch;
+    redrawing the same file writes nothing; folders not opened for 30 days, and all but the 20 most recent, are
+    forgotten; a recent file in an added folder opens, and is left out once the folder is removed; `long.py:40` opens
+    with line 40 flashed; `:60` goes to line 60 in the file shown; `:5` with no file lists nothing; in Edit mode `:50`
+    and `long.py:20` move the caret, keep the draft and leave focus in the editor; the handle's `goToLine`, past the
+    end too; with no folder ⌘P opens and says to open one)_
 - [ ] 3. Commands
   - Test first (Playwright): `>` filtering, key labels, Enter runs, ⇧⌘P, `when`, the list in 2.3, a registered command.
   - `palette.js` (`registerCommand`, `commandItems`, the built-in registrations), `app.js` (one `keydown` branch).

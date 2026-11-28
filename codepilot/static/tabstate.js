@@ -145,11 +145,12 @@ function reopenSpec(r) {
   if (tab) tab.view = r.view || null;
 }
 
-// At startup: forget folders not opened for 30 days, and all but the 20 most recent.
-function pruneTabRecords(now = Date.now() / 1000) {
+// At startup: forget folders not opened for 30 days, and all but the 20 most recent. prefix: another per-folder
+// record kept by the same rule (palette.js: recent files).
+function pruneTabRecords(now = Date.now() / 1000, prefix = TABS_KEY) {
   try {
     const at = (k) => { try { return +JSON.parse(localStorage.getItem(k)).at || 0; } catch { return 0; } };
-    const recs = Object.keys(localStorage).filter((k) => k.startsWith(TABS_KEY)).map((k) => [k, at(k)]);
+    const recs = Object.keys(localStorage).filter((k) => k.startsWith(prefix)).map((k) => [k, at(k)]);
     recs.sort((a, b) => b[1] - a[1]);
     recs.forEach(([k, t], i) => { if (i >= TABS_MAX_FOLDERS || now - t > TABS_MAX_AGE) localStorage.removeItem(k); });
   } catch { /* storage blocked: nothing stored either */ }

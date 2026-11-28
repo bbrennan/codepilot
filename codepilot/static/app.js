@@ -555,6 +555,7 @@ function renderEditor() {
   else if (tab.kind === "binary") renderBinaryTab(tab); // filekinds.js
   else if (tab.kind === "spec") renderSpecTab(tab);
   $$("#tree .row[data-file]").forEach((r) => r.classList.toggle("on", "file:" + r.dataset.file === state.active));
+  noteRecent(tab); // palette.js: the files ⌘P starts from
 }
 function welcomeHtml() {
   const recent = (state.sessionList || []).slice(0, 5).map((s) => `<div class="link" data-open-session="${s.id}">${icon("history")}${esc(s.title || "New session")} <span class="muted">${esc(s.repo ? base(s.repo) : "")}</span></div>`).join("");
