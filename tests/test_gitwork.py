@@ -341,3 +341,162 @@ def test_never_skips_hooks_amends_pushes_or_changes_branch(git_repo):
         assert argv[:4] == ["git", "--no-pager", "--no-optional-locks", "--literal-pathspecs"], argv
         assert not banned & set(argv[4:]), argv
         assert "--hard" not in argv
+
+
+# -- task 3.1: Discard ---------------------------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def kept(git_repo, tmp_path):
+    """Discard's kept copy, in a trash folder of the test's own (the server's resolve is workspace_path)."""
+    from codepilot import gitkeep
+    return gitkeep.Kept(tmp_path / "trash", git_repo, lambda name: git_repo / name)
+
+
+def kept_text(kept):
+    return (kept.slot / "item").read_text() if kept.slot and (kept.slot / "item").exists() else None
+
+
+def test_a_modified_file_goes_back_to_the_last_commit_and_what_you_had_is_kept(git_repo, kept):
+    core = git_repo / "agent" / "core.py"
+    core.write_text("mine\n")
+    got = gitwork.discard(git_repo, "agent/core.py", kept)
+    assert core.read_text() == "def add(a, b):\n    return a - b\n" and kept_text(kept) == "mine\n"
+    assert got["gone"] is False and kinds(git_repo) == {}
+
+
+def test_a_staged_and_changed_file_goes_back_to_the_last_commit_in_the_index_too(git_repo, kept):
+    core = git_repo / "agent" / "core.py"
+    core.write_text("staged\n")
+    git(git_repo, "add", "agent/core.py")
+    core.write_text("staged and more\n")
+    gitwork.discard(git_repo, "agent/core.py", kept)
+    assert kinds(git_repo) == {} and kept_text(kept) == "staged and more\n"
+
+
+@pytest.mark.parametrize("staged", [False, True])
+def test_a_new_file_moves_to_the_trash(git_repo, kept, staged):
+    (git_repo / "new.py").write_text("x = 1\n")
+    if staged:
+        git(git_repo, "add", "new.py")
+    got = gitwork.discard(git_repo, "new.py", kept)
+    assert not (git_repo / "new.py").exists() and kept_text(kept) == "x = 1\n" and got["gone"] is True
+    assert kinds(git_repo) == {}
+
+
+def test_a_deleted_file_comes_back(git_repo, kept):
+    (git_repo / "Makefile").unlink()
+    got = gitwork.discard(git_repo, "Makefile", kept)
+    assert (git_repo / "Makefile").read_text() == "eval-bedrock:\n\techo eval\n" and got["gone"] is False
+    assert kept_text(kept) is None and kinds(git_repo) == {}
+
+
+def test_a_rename_is_undone_both_ways(git_repo, kept):
+    git(git_repo, "mv", "Makefile", "build.mk")
+    got = gitwork.discard(git_repo, "build.mk", kept)
+    assert (git_repo / "Makefile").exists() and not (git_repo / "build.mk").exists() and kinds(git_repo) == {}
+    assert sorted(got["names"]) == ["Makefile", "build.mk"] and got["were_absent"] == ["Makefile"]
+
+
+def test_a_conflicted_file_goes_back_to_the_last_commit(git_repo, kept):
+    _conflict(git_repo)
+    gitwork.discard(git_repo, "Makefile", kept)
+    assert (git_repo / "Makefile").read_text() == "ours\n" and "Makefile" not in kinds(git_repo)
+
+
+def test_a_star_in_a_name_discards_only_that_file(git_repo, kept):
+    for name in ("a*.txt", "ab.txt"):
+        (git_repo / name).write_text("one\n")
+    git(git_repo, "add", "-A")
+    git(git_repo, "commit", "-qm", "both")
+    for name in ("a*.txt", "ab.txt"):
+        (git_repo / name).write_text("two\n")
+    gitwork.discard(git_repo, "a*.txt", kept)
+    assert (git_repo / "a*.txt").read_text() == "one\n" and kinds(git_repo) == {"ab.txt": "modified"}
+
+
+def test_a_path_git_doesnt_list_as_changed_is_refused_and_nothing_moves(git_repo, kept):
+    with pytest.raises(gitwork.GitError, match="no changes"):
+        gitwork.discard(git_repo, "agent/core.py", kept)
+    assert (git_repo / "agent" / "core.py").exists() and kept.slot is None
+
+
+def test_the_kept_copy_is_the_file_moved_not_read(git_repo, kept):
+    big = git_repo / "big.bin"
+    big.write_bytes(b"\0" * 1024)
+    inode = big.stat().st_ino
+    gitwork.discard(git_repo, "big.bin", kept)
+    assert (kept.slot / "item").stat().st_ino == inode  # (same filesystem: renamed, never copied through memory)
+
+
+def test_a_symlink_is_kept_as_a_link_and_never_followed(git_repo, kept, tmp_path):
+    outside = tmp_path / "outside.txt"
+    outside.write_text("not yours to move\n")
+    (git_repo / "link").symlink_to(outside)
+    gitwork.discard(git_repo, "link", kept)
+    assert (kept.slot / "item").is_symlink() and outside.read_text() == "not yours to move\n"
+    assert not (git_repo / "link").is_symlink()
+
+
+def test_when_git_fails_the_file_is_put_back(git_repo, kept):
+    def failing(argv, cwd, timeout, **kw):
+        if "restore" in argv:
+            return 1, "", "fatal: Unable to create '.git/index.lock': File exists."
+        return procenv.run(argv, cwd, timeout, **kw)
+
+    core = git_repo / "agent" / "core.py"
+    core.write_text("mine\n")
+    with pytest.raises(gitwork.GitError, match="index.lock"):
+        gitwork.discard(git_repo, "agent/core.py", kept, run=failing)
+    assert core.read_text() == "mine\n" and not (kept.slot / "item").exists()
+
+
+# -- task 3.1: Undo ------------------------------------------------------------------------------------------------------
+
+
+def discard_and_seal(repo, path, kept):
+    got = gitwork.discard(repo, path, kept)
+    return kept.seal(got["names"], got["were_absent"], shown=path)
+
+
+def test_undo_puts_a_modified_file_back(git_repo, kept, tmp_path):
+    from codepilot import gitkeep
+    core = git_repo / "agent" / "core.py"
+    core.write_text("mine\n")
+    trash_id = discard_and_seal(git_repo, "agent/core.py", kept)
+    meta = gitkeep.read(tmp_path / "trash", trash_id)
+    assert meta["kind"] == "discard" and meta["root"] == str(git_repo) and meta["path"] == "agent/core.py"
+    assert gitkeep.undo(tmp_path / "trash", trash_id, lambda name: git_repo / name) == {"path": "agent/core.py"}
+    assert core.read_text() == "mine\n" and not (tmp_path / "trash" / trash_id).exists()
+
+
+def test_undo_puts_a_new_file_back_and_a_restored_one_away(git_repo, kept, tmp_path):
+    from codepilot import gitkeep
+    git(git_repo, "mv", "Makefile", "build.mk")
+    trash_id = discard_and_seal(git_repo, "build.mk", kept)
+    gitkeep.undo(tmp_path / "trash", trash_id, lambda name: git_repo / name)
+    assert (git_repo / "build.mk").exists() and not (git_repo / "Makefile").exists()
+
+
+def test_undo_deletes_a_deleted_file_again(git_repo, kept, tmp_path):
+    from codepilot import gitkeep
+    (git_repo / "Makefile").unlink()
+    trash_id = discard_and_seal(git_repo, "Makefile", kept)
+    gitkeep.undo(tmp_path / "trash", trash_id, lambda name: git_repo / name)
+    assert not (git_repo / "Makefile").exists()
+
+
+@pytest.mark.parametrize("what", ["modified", "untracked", "deleted"])
+def test_undo_refuses_once_the_file_has_changed_since(git_repo, kept, tmp_path, what):
+    from codepilot import gitkeep
+    path = {"modified": "agent/core.py", "untracked": "new.py", "deleted": "Makefile"}[what]
+    target = git_repo / path
+    if what == "deleted":
+        target.unlink()
+    else:
+        target.write_text("mine\n")
+    trash_id = discard_and_seal(git_repo, path, kept)
+    target.write_text("newer, since\n")
+    with pytest.raises(gitkeep.ChangedSince, match=path):
+        gitkeep.undo(tmp_path / "trash", trash_id, lambda name: git_repo / name)
+    assert target.read_text() == "newer, since\n" and (tmp_path / "trash" / trash_id).exists()  # (still kept)

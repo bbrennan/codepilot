@@ -371,6 +371,102 @@ def test_commit_refuses_a_blank_message_and_nothing_ticked(cfg, store, git_repo)
     assert "Makefile" in _git_out(git_repo, "status", "--porcelain")
 
 
+# -- git-changes task 3: Discard ---------------------------------------------------------------------------------------
+
+
+def test_discard_puts_a_file_back_and_undo_puts_your_changes_back(cfg, store, git_repo):
+    client = _git_client(cfg, store)
+    sid = client.post("/api/sessions", json={"repo": str(git_repo)}, headers=H).json()["id"]
+    core = git_repo / "agent" / "core.py"
+    core.write_text("mine\n")
+    r = client.post(f"/api/sessions/{sid}/git/discard", json={"path": "agent/core.py"}, headers=H)
+    assert r.status_code == 200 and r.json()["gone"] is False and r.json()["trash_id"]
+    assert core.read_text() == "def add(a, b):\n    return a - b\n"
+    assert (cfg.home / "trash" / r.json()["trash_id"] / "item").read_text() == "mine\n"  # (codepilot's own trash)
+    back = client.post(f"/api/sessions/{sid}/fs", json={"op": "restore", "trash_id": r.json()["trash_id"]}, headers=H)
+    assert back.status_code == 200 and back.json()["path"] == "agent/core.py" and core.read_text() == "mine\n"
+
+
+def test_undo_of_a_discard_is_refused_once_the_file_changed(cfg, store, git_repo):
+    client = _git_client(cfg, store)
+    sid = client.post("/api/sessions", json={"repo": str(git_repo)}, headers=H).json()["id"]
+    (git_repo / "new.py").write_text("mine\n")
+    trash_id = client.post(f"/api/sessions/{sid}/git/discard", json={"path": "new.py"}, headers=H).json()["trash_id"]
+    (git_repo / "new.py").write_text("made again since\n")
+    r = client.post(f"/api/sessions/{sid}/fs", json={"op": "restore", "trash_id": trash_id}, headers=H)
+    assert r.status_code == 409 and "changed since" in r.json()["error"]
+    assert (git_repo / "new.py").read_text() == "made again since\n"
+
+
+def test_discard_in_an_added_folder_and_its_undo(cfg, store, git_repo, tmp_path):
+    from gitrepos import make_git_repo
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "a.txt").write_text("a\n")
+    make_git_repo(other)
+    client = _git_client(cfg, store)
+    sid = client.post("/api/sessions", json={"repo": str(git_repo)}, headers=H).json()["id"]
+    store.update_session(sid, folders=[str(other.resolve())])
+    (other / "a.txt").write_text("mine\n")
+    r = client.post(f"/api/sessions/{sid}/git/discard", headers=H, json={"folder": str(other.resolve()), "path": "a.txt"})
+    assert r.status_code == 200 and (other / "a.txt").read_text() == "a\n"
+    back = client.post(f"/api/sessions/{sid}/fs", json={"op": "restore", "trash_id": r.json()["trash_id"]}, headers=H)
+    assert back.status_code == 200 and (other / "a.txt").read_text() == "mine\n"
+    assert back.json()["path"] == str(other.resolve() / "a.txt")  # (as the tree names it)
+
+
+def test_undo_of_a_discard_is_refused_in_another_workspace(cfg, store, git_repo, tmp_path):
+    from gitrepos import make_git_repo
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "a.txt").write_text("a\n")
+    make_git_repo(other)
+    client = _git_client(cfg, store)
+    here = client.post("/api/sessions", json={"repo": str(git_repo)}, headers=H).json()["id"]
+    there = client.post("/api/sessions", json={"repo": str(other)}, headers=H).json()["id"]
+    (git_repo / "Makefile").write_text("mine\n")
+    trash_id = client.post(f"/api/sessions/{here}/git/discard", json={"path": "Makefile"}, headers=H).json()["trash_id"]
+    r = client.post(f"/api/sessions/{there}/fs", json={"op": "restore", "trash_id": trash_id}, headers=H)
+    assert r.status_code == 409 and (cfg.home / "trash" / trash_id).exists()
+
+
+def test_discard_refuses_what_commit_refuses(cfg, store, git_repo, tmp_path):
+    client = _git_client(cfg, store)
+    sid = client.post("/api/sessions", json={"repo": str(git_repo)}, headers=H).json()["id"]
+    (git_repo / "Makefile").write_text("mine\n")
+    r = client.post(f"/api/sessions/{sid}/git/discard", json={"path": "agent/core.py"}, headers=H)
+    assert r.status_code == 409 and "no changes" in r.json()["error"]  # (not in git's list)
+    for body in ({"path": ""}, {"path": 5}, {}):
+        assert client.post(f"/api/sessions/{sid}/git/discard", json=body, headers=H).status_code in (400, 409), body
+    r = client.post(f"/api/sessions/{sid}/git/discard", json={"folder": str(tmp_path), "path": "Makefile"}, headers=H)
+    assert r.status_code == 400
+    assert client.post(f"/api/sessions/{sid}/git/discard", json={"path": "Makefile"}).status_code == 403
+    store.update_session(sid, pending={"awaiting": ["t1"]})  # (a turn waiting for approval)
+    assert client.post(f"/api/sessions/{sid}/git/discard", json={"path": "Makefile"}, headers=H).status_code == 409
+    assert (git_repo / "Makefile").read_text() == "mine\n"
+
+
+def test_discard_never_moves_anything_through_a_folder_that_leads_outside(cfg, store, git_repo, tmp_path, monkeypatch):
+    """The kept copy goes through the file operations' own path check, a second line behind git's list: git never
+    lists a path through a link, so here it's made to, and the check alone refuses it."""
+    from codepilot import gitwork
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("not yours\n")
+    (git_repo / "data").symlink_to(outside)
+    client = _git_client(cfg, store)
+    sid = client.post("/api/sessions", json={"repo": str(git_repo)}, headers=H).json()["id"]
+    real = gitwork.changes
+    monkeypatch.setattr(gitwork, "changes", lambda repo, run=None: [
+        {"path": "data/secret.txt", "code": "M", "kind": "modified"}])
+    r = client.post(f"/api/sessions/{sid}/git/discard", json={"path": "data/secret.txt"}, headers=H)
+    assert r.status_code == 409 and (outside / "secret.txt").read_text() == "not yours\n"
+    assert not list((cfg.home / "trash").glob("*/item")) if (cfg.home / "trash").exists() else True
+    monkeypatch.setattr(gitwork, "changes", real)
+    r = client.post(f"/api/sessions/{sid}/git/discard", json={"path": "data"}, headers=H)  # the link itself: untracked
+    assert r.status_code == 200 and not (git_repo / "data").is_symlink() and (outside / "secret.txt").exists()
+
+
 def test_a_turn_keeps_running_when_the_page_goes_away_and_can_be_followed(cfg, store, repo):
     import threading
     import time
