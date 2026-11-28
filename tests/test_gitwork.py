@@ -3,6 +3,8 @@
 import os
 import subprocess
 
+import pytest
+
 from codepilot import gitwork
 
 
@@ -92,3 +94,28 @@ def test_a_rename_in_either_status_column_keeps_its_old_name():
 
 def test_a_folder_that_isnt_a_repository_has_no_status(tmp_path):
     assert gitwork.status(tmp_path) is None
+
+
+# -- task 1.3: what the disk poll watches ------------------------------------------------------------------------------
+
+
+def test_the_stamp_changes_with_a_commit_or_staging_made_in_the_terminal(git_repo):
+    """A commit changes no working file, and not .git/HEAD either: the branch it names."""
+    first = gitwork.stamp(git_repo)
+    assert first and gitwork.stamp(git_repo) == first
+    (git_repo / "agent" / "core.py").write_text("changed\n")
+    git(git_repo, "add", "-A")
+    staged = gitwork.stamp(git_repo)
+    assert staged != first
+    git(git_repo, "commit", "-qm", "in the terminal")
+    assert gitwork.stamp(git_repo) != staged
+
+
+def test_a_folder_that_isnt_a_repository_has_no_stamp(tmp_path):
+    assert gitwork.stamp(tmp_path) is None
+
+
+@pytest.mark.parametrize("head", ["ref: ../../../etc/passwd\n", "ref: refs/heads/../../../../x\n"])
+def test_the_stamp_never_reads_outside_the_repository(git_repo, head):
+    (git_repo / ".git" / "HEAD").write_text(head)
+    assert gitwork.stamp(git_repo)  # (stamped without the ref)

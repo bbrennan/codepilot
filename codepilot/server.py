@@ -845,6 +845,10 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                 out["files"][rel] = str(path.stat().st_mtime_ns) if path.is_file() else None
             except (ToolError, OSError):
                 out["files"][rel] = None
+        # git's own state (gitwork.stamp): a commit, staging or a reset in the terminal changes no working file.
+        repos = {".": ctx.root, **{str(f): f for f in ctx.folders}}
+        out["git"] = {key: gitwork.stamp(repos[key]) if key in repos else None
+                      for key in [str(k) for k in list(data.get("git") or [])[:20]]}
         return out
 
     async def upload(request: Request) -> Response:

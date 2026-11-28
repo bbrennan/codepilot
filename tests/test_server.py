@@ -206,6 +206,27 @@ def test_the_main_folders_changes_are_listed_by_their_real_names_and_kinds(cfg, 
     assert [f.get("from") for f in g["files"] if f["kind"] == "renamed"] == ["agent/core.py"]
 
 
+def test_the_disk_check_reports_each_repositorys_git_stamp(cfg, store, git_repo, tmp_path):
+    """Spec git-changes 1.3: a commit in the terminal changes no working file, so the poll watches git's own state."""
+    import subprocess
+
+    from gitrepos import make_git_repo
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "a.txt").write_text("a\n")
+    make_git_repo(other)
+    client = TestClient(create_app(replace(cfg, terminal=False), store, Agent(cfg, store, llm=FakeLLM([]))))
+    sid = client.post("/api/sessions", json={"repo": str(git_repo)}, headers=H).json()["id"]
+    store.update_session(sid, folders=[str(other.resolve())])
+    ask = {"dirs": [], "files": [], "git": [".", str(other.resolve()), str(tmp_path)]}
+    first = client.post(f"/api/sessions/{sid}/stat", json=ask, headers=H).json()["git"]
+    assert first["."] and first[str(other.resolve())] and first[str(tmp_path)] is None  # (not one of its folders)
+    (git_repo / "Makefile").write_text("changed\n")
+    subprocess.run(["git", "-C", str(git_repo), "commit", "-qam", "in the terminal"], check=True)
+    now = client.post(f"/api/sessions/{sid}/stat", json=ask, headers=H).json()["git"]
+    assert now["."] != first["."] and now[str(other.resolve())] == first[str(other.resolve())]
+
+
 def test_a_turn_keeps_running_when_the_page_goes_away_and_can_be_followed(cfg, store, repo):
     import threading
     import time

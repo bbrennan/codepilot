@@ -90,3 +90,47 @@ def status(repo: Path, run: Runner = procenv.run) -> dict | None:
         dirs.update("/".join(parts[:n]) for n in range(1, len(parts) + 1))
     shallow = sorted(dirs, key=lambda d: (d.count("/"), d))[:LIMIT * 5]  # (the folders you see first keep their dot)
     return {"files": files[:LIMIT], "total": len(files), "dirs": shallow}
+
+
+def _gitdir(repo: Path) -> Path | None:
+    dot = repo / ".git"
+    if dot.is_dir():
+        return dot
+    try:  # a worktree's or a submodule's: "gitdir: <path>"
+        text = dot.read_text(errors="replace")
+    except OSError:
+        return None
+    if not text.startswith("gitdir: "):
+        return None
+    found = (repo / text[len("gitdir: "):].strip()).resolve()
+    return found if found.is_dir() else None
+
+
+def stamp(repo: Path) -> str | None:
+    """What changes when git's state does without any working file changing (a commit, staging, a reset, a checkout,
+    all of which can be made in the terminal): the index, HEAD, the branch HEAD names, and packed refs. A commit leaves
+    .git/HEAD as it was; it moves the branch. Stat only, no git process: the page asks every two seconds."""
+    gitdir = _gitdir(repo)
+    if gitdir is None:
+        return None
+    try:
+        common = (gitdir / (gitdir / "commondir").read_text().strip()).resolve()
+    except OSError:
+        common = gitdir
+    watched = [gitdir / "index", gitdir / "HEAD", common / "packed-refs"]
+    try:
+        head = (gitdir / "HEAD").read_text(errors="replace").strip()
+    except OSError:
+        head = ""
+    if head.startswith("ref: "):
+        ref = (common / head[len("ref: "):]).resolve()
+        if common in ref.parents:  # (never a path outside the repository's own refs)
+            watched.append(ref)
+    parts = []
+    for path in watched:
+        try:
+            st = path.stat()
+            parts.append(f"{st.st_mtime_ns}:{st.st_size}")
+        except OSError:
+            parts.append("-")
+    return " ".join(parts)
