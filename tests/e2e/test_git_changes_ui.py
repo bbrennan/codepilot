@@ -492,3 +492,24 @@ def test_the_count_and_the_commit_box_fit_a_narrow_sidebar(page, server, session
                box: inside('#gitList .git-commit, #gitList .git-commit textarea, #gitList .git-commit button'),
                rows: inside('#gitList .git-row, #gitList .git-row > *') }; }"""
     assert page.evaluate(fits) == {"head": True, "oneLine": True, "box": True, "rows": True}
+
+
+def test_a_late_answer_for_a_session_you_left_is_not_drawn(page, server, session, tmp_path):
+    """A git answer that arrives after you've opened another session belongs to the one you left: drawn, it showed the
+    old folder's files under the new one (or threw, while the page had no folder to name it by)."""
+    changed(server, "Makefile")
+    other = make_git_repo(_api_folder(tmp_path))
+    (other / "README.md").write_text("changed\n")
+    held = []
+    open_app(page)
+    changes(page)
+    row(page, "Makefile").wait_for()  # the first session's
+    second = server.store.create_session(str(other), "main")  # (made now: the page opens the newest session)
+    page.route("**/git", lambda route: held.append(route) if not held else route.continue_())
+    with page.expect_request("**/git"):
+        page.evaluate("() => { window.__late = loadGit(); }")  # (not awaited here: its answer is held)
+    page.evaluate(f"openSession('{second.id}')")
+    row(page, "README.md").wait_for()  # the second session's own answer, drawn
+    held[0].continue_()  # the first session's, late
+    page.evaluate("() => window.__late")  # that loadGit has finished: whatever it would draw is drawn
+    assert row(page, "Makefile").count() == 0 and row(page, "README.md").count() == 1

@@ -1070,7 +1070,9 @@ function renderProposalList() {
 $("#proposalList").addEventListener("click", (e) => { const r = e.target.closest("[data-prop-open]"); if (r) openProposal(r.dataset.propOpen); });
 async function loadGit() {
   if (!state.sid || !state.workspace) { $("#gitList").innerHTML = ""; $("#sbBranch").innerHTML = ""; $("#gitBranch").textContent = ""; renderGitView(null); return; }
-  const g = await api(`/api/sessions/${state.sid}/git`).catch(() => null);
+  const sid = state.sid, folder = state.workspace;
+  const g = await api(`/api/sessions/${sid}/git`).catch(() => null);
+  if (state.sid !== sid || state.workspace !== folder) return; // you've moved on: that session's own loadGit draws it
   $("#gitBranch").textContent = g?.git ? "· " + g.branch : "";
   $("#sbBranch").innerHTML = g?.git ? `${icon("branch")}${esc(g.branch)}` : "";
   renderGitView(g); // gitview.js: each repository's list, and the Explorer's marks
