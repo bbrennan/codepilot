@@ -8,6 +8,8 @@ each path literally: `a*.txt` or `:notes` is a file's name, never a pattern.
 
 from __future__ import annotations
 
+import subprocess
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -17,7 +19,7 @@ from . import procenv
 # carry a dot, but its files aren't sent: thousands of rows help nobody, and the answer would be megabytes.
 LIMIT = 2000
 
-Runner = Callable[[list[str], Path, float], tuple[int, str, str]]
+Runner = Callable[..., tuple[int, str, str]]  # procenv.run's: (argv, cwd, timeout, input=None) -> (code, out, err)
 GIT = ["git", "--no-pager", "--no-optional-locks", "--literal-pathspecs"]
 
 
@@ -33,8 +35,8 @@ def is_repo(root: Path) -> bool:
     return (root / ".git").exists()
 
 
-def _git(run: Runner, repo: Path, args: list[str], timeout: float = 60) -> str:
-    code, out, err = run([*GIT, "-C", str(repo), *args], repo, timeout)
+def _git(run: Runner, repo: Path, args: list[str], timeout: float = 60, input: str | None = None) -> str:
+    code, out, err = run([*GIT, "-C", str(repo), *args], repo, timeout, **({} if input is None else {"input": input}))
     if code != 0:
         raise GitError(err or out)
     return out
@@ -134,3 +136,79 @@ def stamp(repo: Path) -> str | None:
         except OSError:
             parts.append("-")
     return " ".join(parts)
+
+
+# -- Commit ------------------------------------------------------------------------------------------------------------
+
+HOOK_TIMEOUT = 120  # s: a commit runs your hooks (a linter, the tests), which can take a while
+
+
+def _checked(repo: Path, paths: list[str], run: Runner, what: str) -> dict[str, dict]:
+    """The entries for paths, each one git lists as changed (5.3): a path the page sends is never trusted as is."""
+    entries = {f["path"]: f for f in changes(repo, run)}
+    for p in paths:
+        if p not in entries:
+            raise GitError(f"{p} has no changes to {what} (git doesn't list it as changed).")
+    return entries
+
+
+def _staged(repo: Path, run: Runner, names: list[str]) -> str:
+    """The index's entries for names, stage numbers included (a conflict has three), as update-index reads them."""
+    return _git(run, repo, ["ls-files", "-s", "-z", "--", *names])
+
+
+def _put_back(repo: Path, run: Runner, names: list[str], saved: str) -> None:
+    """The index's entries for names as they were: each name taken out, then what was there written back."""
+    zero = "0" * (64 if _git(run, repo, ["rev-parse", "--show-object-format"]).strip() == "sha256" else 40)
+    lines = [f"0 {zero}\t{n}" for n in names] + [e for e in saved.split("\0") if e]
+    _git(run, repo, ["update-index", "-z", "--index-info"], input="\0".join(lines) + "\0")
+
+
+def _drop_stale_locks(repo: Path, since: float) -> None:
+    """A commit stopped on its timeout leaves its index locks, and every git command after it would fail ("Another
+    git process seems to be running"). Only the ones made since it started go: never a lock someone else holds."""
+    gitdir = _gitdir(repo)
+    for lock in [*(gitdir.glob("index.lock") if gitdir else []), *(gitdir.glob("next-index-*.lock") if gitdir else [])]:
+        try:
+            if lock.stat().st_mtime >= since:
+                lock.unlink()
+        except OSError:
+            pass
+
+
+def commit(repo: Path, message: str, paths: list[str], run: Runner = procenv.run,
+           hook_timeout: float = HOOK_TIMEOUT) -> dict:
+    """Commit the ticked files as they are on disk, new and deleted ones included, on the current branch, with the
+    message exactly as typed and the user's own git identity. Never skips hooks, amends, pushes or changes branch.
+
+    When every changed file is ticked there's no pathspec, so a merge can be concluded; with some, git commits only
+    those (and refuses during a merge, in its own words). A refusal leaves the index as it was: the ticked paths'
+    entries are saved before `git add` and written back."""
+    if not message.strip():
+        raise GitError("Write a commit message first.")
+    if not paths:
+        raise GitError("Tick at least one file to commit.")
+    entries = _checked(repo, paths, run, "commit")
+    names = list(dict.fromkeys(n for p in paths for n in (p, entries[p].get("from")) if n))  # (a rename: both)
+    every = {n for f in entries.values() for n in (f["path"], f.get("from")) if n}
+    saved = _staged(repo, run, names)
+    since = time.time() - 1
+    in_index = {e.split("\t", 1)[1] for e in saved.split("\0") if "\t" in e}
+    # A name that's on disk or in the index is added (or its deletion staged); a staged rename's old name is in
+    # neither, and git would refuse it, but the commit below still names it.
+    there = [n for n in names if (repo / n).exists() or (repo / n).is_symlink() or n in in_index]
+    if there:
+        _git(run, repo, ["add", "--all", "--", *there])
+    try:
+        # --cleanup=verbatim: as typed (git would strip "#" lines and trailing spaces, whatever commit.cleanup says).
+        _git(run, repo, ["commit", "--quiet", "--cleanup=verbatim", "--message", message,
+                         *([] if set(names) >= every else ["--", *names])], timeout=hook_timeout)
+    except subprocess.TimeoutExpired:
+        _drop_stale_locks(repo, since)
+        _put_back(repo, run, names, saved)
+        raise GitError(f"git commit took longer than {hook_timeout:g} s (a hook?) and was stopped.") from None
+    except GitError:
+        _put_back(repo, run, names, saved)
+        raise
+    hash_, _, subject = _git(run, repo, ["log", "-1", "--format=%h%x00%s"]).rstrip("\n").partition("\0")
+    return {"hash": hash_, "subject": subject}

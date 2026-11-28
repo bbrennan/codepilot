@@ -1144,12 +1144,14 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         def git_of(folder: Path) -> dict:  # an added folder: its branch and changed files, under its own heading
             if not gitwork.is_repo(folder):
                 return {"path": str(folder), "git": False}
-            return {"path": str(folder), "git": True, "branch": branch_of(folder), **changed(folder)}
+            return {"path": str(folder), "git": True, "branch": branch_of(folder), "working": working_in(folder),
+                    **changed(folder)}
 
         added = [git_of(f) for f in ctx.folders if f.is_dir()]
         if not gitwork.is_repo(ctx.root):
             return JSONResponse({"git": False, "folders": added})
         return JSONResponse({"git": True, "branch": branch_of(ctx.root), "folders": added, **changed(ctx.root),
+                             "working": working_in(ctx.root),
                              # The page reads names from a/ and b/: settings like diff.noprefix mustn't change them.
                              # Against the last commit, staged or not (there's no staging area here): a `git rm`'d
                              # file is in it too. Before the first commit there's nothing to compare with but the index.
@@ -1157,6 +1159,51 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                                          "--src-prefix=a/", "--dst-prefix=b/",
                                          *(["HEAD"] if run("rev-parse", "--verify", "-q", "HEAD") else []))
                              [:MAX_VIEW_BYTES]})
+
+    # -- the user's own git actions (gitwork.py): never offered to the model ------------------------------------------
+
+    def working_in(repo: Path) -> bool:
+        """Is a turn running, or paused for an approval, in a session whose folders include repo? (Sessions can share
+        a folder; a paused turn hasn't finished, and the agent may be between two writes of one change.)"""
+        running = [store.get_session(s) for s in list(busy) if store.has_session(s)]
+        paused = [s for s in store.list_sessions(limit=1000) if s.pending]  # (one person's sessions: the recent ones)
+        return any(folders.uses(s, repo) for s in running + paused)
+
+    async def git_action(request: Request, act) -> Response:
+        """Run act(repo, data) for the session's main folder or one of its added folders, as no turn can start in
+        this session, and refused while any session whose folders include that repository is working (the agent may be
+        between two writes of one change). git's own refusal is a 409 with its words."""
+        sid = request.path_params["sid"]
+        ctx = ctx_for(sid)
+        data = await json_body(request)
+        try:
+            repo = folders.repo_for(ctx.root, ctx.folders, data.get("folder"))
+        except ValueError as exc:
+            return err(str(exc))
+        if not gitwork.is_repo(repo):
+            return err(f"{repo.name} isn't the root of a git repository.")
+        with busy_lock:
+            if working_in(repo):
+                return err("codepilot is working in this folder: wait for the turn to finish.", 409)
+            busy.add(sid)
+        try:
+            result = await run_in_threadpool(act, repo, data)
+        except gitwork.GitError as exc:
+            return err(str(exc), 409)
+        finally:
+            with busy_lock:
+                busy.discard(sid)
+        await run_in_threadpool(retire_stale_proposals, store, sid, ctx.root)
+        return JSONResponse(result)
+
+    async def git_commit(request: Request) -> Response:
+        def act(repo: Path, data: dict) -> dict:
+            message, paths = data.get("message"), data.get("paths")
+            if not isinstance(message, str) or not isinstance(paths, list) \
+                    or not all(isinstance(p, str) for p in paths):
+                raise gitwork.GitError("A commit needs a message and a list of paths.")
+            return gitwork.commit(repo, message, paths)
+        return await git_action(request, act)
 
     async def notes(request: Request) -> Response:
         sess = store.get_session(request.path_params["sid"])
@@ -1251,6 +1298,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         Route("/api/sessions/{sid}/stat", needs_workspace(disk_stat), methods=["POST"]),
         Route("/api/sessions/{sid}/find", needs_workspace(find)),
         Route("/api/sessions/{sid}/git", needs_workspace(git_view)),
+        Route("/api/sessions/{sid}/git/commit", needs_workspace(git_commit), methods=["POST"]),
         Route("/api/sessions/{sid}/fs", needs_workspace(fs), methods=["POST"]),
         Route("/api/sessions/{sid}/upload", needs_workspace(upload), methods=["PUT"]),
         Route("/api/sessions/{sid}/raw", needs_workspace(raw_file)),

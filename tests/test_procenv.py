@@ -76,3 +76,11 @@ def test_a_timeout_returns_even_if_a_child_escaped_the_process_group(ctx, tmp_pa
                 os.kill(int(pidfile.read_text()), 9)
             except ProcessLookupError:
                 pass
+
+
+def test_input_can_be_given_and_is_all_a_command_reads():
+    """gitwork writes index entries back through `git update-index --index-info`, which reads them from stdin."""
+    code, out, _ = procenv.run(["cat"], None, 10, input="a\0b\n")
+    assert code == 0 and out == "a\0b\n"
+    code, out, _ = procenv.run(["cat"], None, 10)  # (and without it, still nothing to read)
+    assert code == 0 and out == ""

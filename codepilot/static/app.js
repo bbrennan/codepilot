@@ -897,6 +897,7 @@ function renderReviewBar() {
     $("#rbApplyAll").onclick = () => bulkProposals("apply");
     $("#rbRejectAll").onclick = () => bulkProposals("reject");
   }
+  window.gitBusyChanged?.(); // gitview.js: a turn waiting for approval hasn't finished, so Commit waits too
 }
 // When you've decided every change codepilot was waiting on (and applied at least one), it carries on by itself.
 const REVIEW_DONE = "I've reviewed your proposed changes (the outcome of each is above). Continue: verify what was applied, for example by running the relevant tests, then carry on with the task. If nothing is left to do, say so briefly.";
@@ -1069,7 +1070,9 @@ function renderProposalList() {
 $("#proposalList").addEventListener("click", (e) => { const r = e.target.closest("[data-prop-open]"); if (r) openProposal(r.dataset.propOpen); });
 async function loadGit() {
   if (!state.sid || !state.workspace) { $("#gitList").innerHTML = ""; $("#sbBranch").innerHTML = ""; $("#gitBranch").textContent = ""; renderGitView(null); return; }
-  const g = await api(`/api/sessions/${state.sid}/git`).catch(() => null);
+  const sid = state.sid, folder = state.workspace;
+  const g = await api(`/api/sessions/${sid}/git`).catch(() => null);
+  if (state.sid !== sid || state.workspace !== folder) return; // you've moved on: that session's own loadGit draws it
   $("#gitBranch").textContent = g?.git ? "· " + g.branch : "";
   $("#sbBranch").innerHTML = g?.git ? `${icon("branch")}${esc(g.branch)}` : "";
   renderGitView(g); // gitview.js: each repository's list, and the Explorer's marks
@@ -1500,6 +1503,7 @@ function updateBusy() {
   $("#sbBusy").innerHTML = busy ? '<span class="spinner"></span>working…' : "";
   window.renderPinnedPlan?.(); // plan.js: the plan spins only while a turn runs
   window.a11y?.turnState(busy ? "busy" : "idle"); // a11y.js: "codepilot is working", once a turn
+  window.gitBusyChanged?.(); // gitview.js: Commit waits for the turn
 }
 // body === null follows a turn that's already running (the page was opened or reloaded while it ran).
 async function streamTo(sid, url, body) {

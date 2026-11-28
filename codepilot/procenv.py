@@ -29,14 +29,16 @@ def env(base: dict | None = None) -> dict:
     return e
 
 
-def run(argv: list[str], cwd: Path | str | None, timeout: float, environ: dict | None = None
-        ) -> tuple[int, str, str]:
-    """(exit code, stdout, stderr). Raises subprocess.TimeoutExpired after killing the whole process group."""
-    proc = subprocess.Popen(argv, cwd=cwd, env=env() if environ is None else environ, stdin=subprocess.DEVNULL,
+def run(argv: list[str], cwd: Path | str | None, timeout: float, environ: dict | None = None,
+        input: str | None = None) -> tuple[int, str, str]:
+    """(exit code, stdout, stderr). Raises subprocess.TimeoutExpired after killing the whole process group. stdin is
+    closed unless `input` is given, which is then all the command reads (never a person typing)."""
+    proc = subprocess.Popen(argv, cwd=cwd, env=env() if environ is None else environ,
+                            stdin=subprocess.DEVNULL if input is None else subprocess.PIPE,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors="replace",
                             start_new_session=True)  # no controlling terminal either: ssh can't prompt on it
     try:
-        out, err = proc.communicate(timeout=timeout)
+        out, err = proc.communicate(input, timeout=timeout)
     except subprocess.TimeoutExpired:
         try:
             os.killpg(proc.pid, signal.SIGKILL)

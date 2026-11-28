@@ -300,3 +300,216 @@ def test_changes_rows_fit_a_narrow_sidebar(page, server, session, side):
     changes(page)
     got = page.evaluate(ROW_FITS, f"#gitList .git-row[data-gitrow='agent/{name}']")
     assert got == {"inList": True, "partsIn": True, "oneLine": True, "side": got["side"]} and 180 <= got["side"] <= side
+
+
+# -- task 2.2: tick boxes, the message box and Commit -----------------------------------------------------------------
+
+
+def box(page, folder=""):
+    """A repository's commit box: the main folder's, or an added folder's by its full path."""
+    return page.locator(f"#gitList .git-commit[data-groot='{folder}']")
+
+
+def tick(page, path):
+    return page.locator(f"#gitList input[data-gtick='{path}']")
+
+
+def why(page, folder=""):
+    return box(page, folder).locator(".git-why").inner_text()
+
+
+def changed(server, *names):
+    for name in names:
+        path = server.repo / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{name} changed\n")
+
+
+def test_every_file_is_ticked_and_the_list_counts_them(page, server, session):
+    changed(server, "Makefile", "agent/core.py", "new.py", "docs/a.md")
+    open_app(page)
+    changes(page)
+    count = page.locator("#gitList .git-count").first
+    assert count.inner_text() == "4 of 4" and all(t.is_checked() for t in page.locator("#gitList .gtick").all())
+    tick(page, "new.py").uncheck()
+    assert count.inner_text() == "3 of 4"
+    tick_all = page.locator("#gitList .gtick-all").first
+    assert tick_all.evaluate("(b) => b.indeterminate") and not tick_all.is_checked()
+    tick_all.check()
+    assert count.inner_text() == "4 of 4"
+    tick_all.uncheck()
+    assert count.inner_text() == "0 of 4"
+    assert tick(page, "new.py").get_attribute("aria-label") == "Commit new.py"
+    page.evaluate("loadGit()")  # a redraw keeps the ticks
+    page.wait_for_function("() => document.querySelector('#gitList .git-count').textContent === '0 of 4'")
+
+
+def test_commit_the_ticked_files_with_a_message(page, server, session):
+    changed(server, "Makefile", "agent/core.py")
+    open_app(page)
+    changes(page)
+    tick(page, "agent/core.py").uncheck()
+    box(page).locator("textarea").fill("Say more in the eval")
+    box(page).locator("button.gcommit").click()
+    toast = page.locator(".toast", has_text="Committed")
+    toast.wait_for()
+    hash_ = git(server.repo, "rev-parse", "--short", "HEAD").strip()
+    assert toast.inner_text() == f"Committed {hash_}: Say more in the eval"
+    assert git(server.repo, "log", "-1", "--format=%s") == "Say more in the eval\n"
+    assert git(server.repo, "show", "--name-only", "--format=", "HEAD").split() == ["Makefile"]
+    page.wait_for_function("() => !document.querySelector(\"#gitList [data-gitrow='Makefile']\")")
+    assert page.locator("#gitList .git-row").count() == 1 and row(page, "agent/core.py").count() == 1
+    assert box(page).locator("textarea").input_value() == ""  # cleared
+    assert page.evaluate("document.activeElement.matches('#gitList .git-commit textarea')")  # where you were
+    page.evaluate("setView('explorer')")
+    wait_mark(page, "Makefile", "")  # and the Explorer follows
+
+
+def test_commit_says_why_it_is_unavailable(page, server, session):
+    from test_ui import send
+    changed(server, "Makefile")
+    open_app(page)
+    changes(page)
+    button = box(page).locator("button.gcommit")
+    assert button.is_disabled() and why(page) == "Write a message to commit."
+    assert button.get_attribute("aria-describedby") == box(page).locator(".git-why").get_attribute("id")
+    box(page).locator("textarea").fill("   ")
+    assert button.is_disabled() and why(page) == "Write a message to commit."
+    box(page).locator("textarea").fill("Ready")
+    assert button.is_enabled() and why(page) == "" and button.inner_text() == "Commit 1"
+    tick(page, "Makefile").uncheck()
+    assert button.is_disabled() and why(page) == "Tick at least one file to commit."
+    tick(page, "Makefile").check()
+    send(page, "run ls")  # a turn that waits for your approval: the session is working
+    page.locator("#reviewBar .rb-approval").wait_for()
+    page.wait_for_function("() => document.querySelector('#gitList .git-commit .git-why').textContent"
+                           " === 'codepilot is working: commit when the turn is done.'")
+    assert button.is_disabled()
+
+
+def test_a_refused_commit_shows_gits_words_and_changes_nothing(page, server, session):
+    hook = server.repo / ".git" / "hooks" / "pre-commit"
+    hook.write_text("#!/bin/sh\necho 'lint: 2 problems in Makefile' >&2\nexit 1\n")
+    hook.chmod(0o755)
+    changed(server, "Makefile")
+    page.expected_errors.append("409 (Conflict)")
+    open_app(page)
+    changes(page)
+    box(page).locator("textarea").fill("Will be refused")
+    box(page).locator("button.gcommit").click()
+    banner = box(page).locator(".banner.error")
+    banner.wait_for()
+    assert "lint: 2 problems in Makefile" in banner.inner_text() and banner.get_attribute("role") == "alert"
+    assert git(server.repo, "status", "--porcelain") == " M Makefile\n"
+    assert box(page).locator("textarea").input_value() == "Will be refused"  # kept, to try again
+
+
+def test_cmd_enter_in_the_message_box_commits(page, server, session):
+    changed(server, "Makefile")
+    open_app(page)
+    changes(page)
+    box(page).locator("textarea").fill("By keyboard")
+    box(page).locator("textarea").press("ControlOrMeta+Enter")
+    page.locator(".toast", has_text="Committed").wait_for()
+    assert git(server.repo, "log", "-1", "--format=%s") == "By keyboard\n"
+
+
+def test_cmd_enter_in_the_message_box_never_approves_a_waiting_command(page, server, session):
+    from test_ui import send, wait_idle
+    changed(server, "Makefile")
+    open_app(page)
+    changes(page)
+    send(page, "run ls")
+    page.locator("#reviewBar .rb-approval").wait_for()
+    box(page).locator("textarea").fill("Not now")
+    box(page).locator("textarea").press("ControlOrMeta+Enter")
+    assert page.evaluate("!!state.approval") and page.locator("#reviewBar .rb-approval").is_visible()
+    assert git(server.repo, "log", "-1", "--format=%s") == "start\n"  # and nothing committed either
+    assert box(page).locator("textarea").input_value() == "Not now"
+    assert box(page).locator("button.gcommit").is_disabled() and "working" in why(page)
+    page.click("#rbApprove")  # approved from its own button: the turn finishes, and Commit is there again
+    wait_idle(page)
+    page.wait_for_function("() => !document.querySelector('#gitList .gcommit').disabled")
+    box(page).locator("textarea").press("ControlOrMeta+Enter")
+    page.locator(".toast", has_text="Committed").wait_for()
+    assert git(server.repo, "log", "-1", "--format=%s") == "Not now\n"
+
+
+def test_an_added_folder_commits_to_its_own_repository(page, server, session, tmp_path):
+    api = make_git_repo(_api_folder(tmp_path))
+    full = str(api.resolve())
+    (api / "README.md").write_text("changed\n")
+    changed(server, "Makefile")
+    server.store.update_session(session.id, folders=[full])
+    open_app(page)
+    changes(page)
+    assert box(page, full).locator("textarea").get_attribute("aria-label") == "Commit message for api"
+    box(page, full).locator("textarea").fill("In api")
+    box(page, full).locator("button.gcommit").click()
+    page.locator(".toast", has_text="Committed").wait_for()
+    assert git(api, "log", "-1", "--format=%s") == "In api\n"
+    assert git(server.repo, "log", "-1", "--format=%s") == "start\n"
+    assert git(server.repo, "status", "--porcelain") == " M Makefile\n"
+
+
+def test_focus_stays_on_its_control_when_the_list_redraws(page, server, session):
+    changed(server, "Makefile", "agent/core.py", "new.py")
+    open_app(page)
+    changes(page)
+    for target in ("input[data-gtick='agent/core.py']", "button[data-gitfile='agent/core.py']",
+                   ".git-commit[data-groot=''] textarea"):
+        page.locator(f"#gitList {target}").focus()
+        page.evaluate("loadGit()")
+        page.wait_for_function("(sel) => document.activeElement === document.querySelector(sel)",
+                               arg=f"#gitList {target}")
+    box(page).locator("textarea").fill("abc")
+    box(page).locator("textarea").evaluate("(t) => t.setSelectionRange(1, 2)")
+    page.evaluate("loadGit()")
+    assert box(page).locator("textarea").evaluate("(t) => [t.value, t.selectionStart, t.selectionEnd]") == ["abc", 1, 2]
+    # A committed row is gone: focus goes to the same control of the row that took its place.
+    tick(page, "agent/core.py").focus()
+    git(server.repo, "add", "agent/core.py")
+    git(server.repo, "commit", "-qm", "elsewhere", "--", "agent/core.py")
+    page.evaluate("loadGit()")
+    page.wait_for_function("() => document.activeElement?.matches?.('#gitList input.gtick')")
+    assert page.evaluate("document.activeElement.dataset.gtick") in ("Makefile", "new.py")
+    audit(page, "Changes with tick boxes and a commit box")
+
+
+@pytest.mark.parametrize("side", [180, 200])
+def test_the_count_and_the_commit_box_fit_a_narrow_sidebar(page, server, session, side):
+    changed(server, "Makefile", "agent/core.py", "a_file_with_a_long_name_that_will_not_fit_in_the_sidebar.py")
+    page.set_viewport_size({"width": 1024, "height": 700})
+    page.add_init_script(f"localStorage.setItem('cp--sidebar-w', '{side}px')")
+    open_app(page)
+    changes(page)
+    box(page).locator("textarea").fill("x")
+    fits = """() => { const list = document.querySelector('#gitList').getBoundingClientRect();
+      const inside = (sel) => [...document.querySelectorAll(sel)].every((el) => { const r = el.getBoundingClientRect();
+        return r.width > 0 && r.left >= list.left - 0.5 && r.right <= list.right + 0.5; });
+      const head = document.querySelector('#gitList .git-head').getBoundingClientRect();
+      return { head: inside('#gitList .git-head, #gitList .git-head > *'), oneLine: head.height < 30,
+               box: inside('#gitList .git-commit, #gitList .git-commit textarea, #gitList .git-commit button'),
+               rows: inside('#gitList .git-row, #gitList .git-row > *') }; }"""
+    assert page.evaluate(fits) == {"head": True, "oneLine": True, "box": True, "rows": True}
+
+
+def test_a_late_answer_for_a_session_you_left_is_not_drawn(page, server, session, tmp_path):
+    """A git answer that arrives after you've opened another session belongs to the one you left: drawn, it showed the
+    old folder's files under the new one (or threw, while the page had no folder to name it by)."""
+    changed(server, "Makefile")
+    other = make_git_repo(_api_folder(tmp_path))
+    (other / "README.md").write_text("changed\n")
+    held = []
+    open_app(page)
+    changes(page)
+    row(page, "Makefile").wait_for()  # the first session's
+    second = server.store.create_session(str(other), "main")  # (made now: the page opens the newest session)
+    page.route("**/git", lambda route: held.append(route) if not held else route.continue_())
+    with page.expect_request("**/git"):
+        page.evaluate("() => { window.__late = loadGit(); }")  # (not awaited here: its answer is held)
+    page.evaluate(f"openSession('{second.id}')")
+    row(page, "README.md").wait_for()  # the second session's own answer, drawn
+    held[0].continue_()  # the first session's, late
+    page.evaluate("() => window.__late")  # that loadGit has finished: whatever it would draw is drawn
+    assert row(page, "Makefile").count() == 0 and row(page, "README.md").count() == 1

@@ -227,6 +227,150 @@ def test_the_disk_check_reports_each_repositorys_git_stamp(cfg, store, git_repo,
     assert now["."] != first["."] and now[str(other.resolve())] == first[str(other.resolve())]
 
 
+# -- git-changes task 2: Commit ----------------------------------------------------------------------------------------
+
+
+def _git_client(cfg, store, llm=None):
+    return TestClient(create_app(replace(cfg, terminal=False), store, Agent(cfg, store, llm=llm or FakeLLM([]))))
+
+
+def _git_out(repo, *args):
+    import subprocess
+    return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True).stdout
+
+
+def test_commit_commits_the_ticked_files_of_the_main_folder(cfg, store, git_repo):
+    client = _git_client(cfg, store)
+    sid = client.post("/api/sessions", json={"repo": str(git_repo)}, headers=H).json()["id"]
+    (git_repo / "Makefile").write_text("changed\n")
+    (git_repo / "new.py").write_text("x\n")
+    r = client.post(f"/api/sessions/{sid}/git/commit", json={"message": "Ship it", "paths": ["new.py"]}, headers=H)
+    assert r.status_code == 200 and r.json()["subject"] == "Ship it"
+    assert r.json()["hash"] == _git_out(git_repo, "rev-parse", "--short", "HEAD").strip()
+    assert _git_out(git_repo, "show", "--name-only", "--format=", "HEAD").split() == ["new.py"]
+
+
+def test_commit_in_an_added_folder_commits_to_its_own_repository(cfg, store, git_repo, tmp_path):
+    from gitrepos import make_git_repo
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "a.txt").write_text("a\n")
+    make_git_repo(other)
+    client = _git_client(cfg, store)
+    sid = client.post("/api/sessions", json={"repo": str(git_repo)}, headers=H).json()["id"]
+    store.update_session(sid, folders=[str(other.resolve())])
+    (other / "a.txt").write_text("changed\n")
+    (git_repo / "Makefile").write_text("changed too\n")
+    main_head = _git_out(git_repo, "rev-parse", "HEAD")
+    r = client.post(f"/api/sessions/{sid}/git/commit", headers=H,
+                    json={"folder": str(other.resolve()), "message": "theirs", "paths": ["a.txt"]})
+    assert r.status_code == 200 and _git_out(other, "log", "-1", "--format=%s") == "theirs\n"
+    assert _git_out(git_repo, "rev-parse", "HEAD") == main_head
+
+
+def test_commit_refuses_a_folder_that_isnt_the_sessions(cfg, store, git_repo, tmp_path):
+    from gitrepos import make_git_repo
+    stranger = tmp_path / "stranger"
+    stranger.mkdir()
+    (stranger / "a.txt").write_text("a\n")
+    make_git_repo(stranger)
+    (stranger / "a.txt").write_text("changed\n")
+    client = _git_client(cfg, store)
+    sid = client.post("/api/sessions", json={"repo": str(git_repo)}, headers=H).json()["id"]
+    for folder in (str(stranger), str(git_repo / "agent"), "../stranger"):
+        r = client.post(f"/api/sessions/{sid}/git/commit", headers=H,
+                        json={"folder": folder, "message": "x", "paths": ["a.txt"]})
+        assert r.status_code == 400 and "folder" in r.json()["error"], folder
+    assert "a.txt" in _git_out(stranger, "status", "--porcelain")
+
+
+def test_commit_shows_gits_own_refusal_as_a_409(cfg, store, git_repo):
+    hook = git_repo / ".git" / "hooks" / "pre-commit"
+    hook.write_text("#!/bin/sh\necho 'tests failed: 2' >&2\nexit 1\n")
+    hook.chmod(0o755)
+    client = _git_client(cfg, store)
+    sid = client.post("/api/sessions", json={"repo": str(git_repo)}, headers=H).json()["id"]
+    (git_repo / "Makefile").write_text("changed\n")
+    r = client.post(f"/api/sessions/{sid}/git/commit", json={"message": "x", "paths": ["Makefile"]}, headers=H)
+    assert r.status_code == 409 and "tests failed: 2" in r.json()["error"]
+    r = client.post(f"/api/sessions/{sid}/git/commit", json={"message": "x", "paths": ["nope.py"]}, headers=H)
+    assert r.status_code == 409 and "nope.py" in r.json()["error"]
+
+
+def test_commit_needs_the_apps_own_header(cfg, store, git_repo):
+    client = _git_client(cfg, store)
+    sid = client.post("/api/sessions", json={"repo": str(git_repo)}, headers=H).json()["id"]
+    (git_repo / "Makefile").write_text("changed\n")
+    r = client.post(f"/api/sessions/{sid}/git/commit", json={"message": "x", "paths": ["Makefile"]})
+    assert r.status_code == 403 and "Makefile" in _git_out(git_repo, "status", "--porcelain")
+
+
+def test_commit_is_refused_while_any_session_on_that_repository_is_working(cfg, store, git_repo):
+    """3.2: the agent may be between two writes of one change, in this session or another one on the same folder."""
+    import threading
+
+    gate = threading.Event()
+
+    class SlowLLM(FakeLLM):
+        def stream(self, *args, **kwargs):
+            gate.wait(10)
+            yield from super().stream(*args, **kwargs)
+
+    client = _git_client(cfg, store, SlowLLM([[{"text": "done"}]]))
+    working = client.post("/api/sessions", json={"repo": str(git_repo)}, headers=H).json()["id"]
+    other = client.post("/api/sessions", json={"repo": str(git_repo)}, headers=H).json()["id"]
+    elsewhere = client.post("/api/sessions", json={"repo": str(git_repo.parent)}, headers=H).json()["id"]
+    (git_repo / "Makefile").write_text("changed\n")
+    reader = threading.Thread(target=lambda: client.post(f"/api/sessions/{working}/chat", json={"message": "go"},
+                                                         headers=H), daemon=True)
+    reader.start()
+    try:
+        for _ in range(100):
+            if client.get(f"/api/sessions/{working}").json().get("busy"):
+                break
+            threading.Event().wait(0.05)
+        body = {"message": "x", "paths": ["Makefile"]}
+        for sid in (working, other):
+            r = client.post(f"/api/sessions/{sid}/git/commit", json=body, headers=H)
+            assert r.status_code == 409 and "working" in r.json()["error"], sid
+        store.update_session(elsewhere, folders=[str(git_repo)])  # (the repository as an added folder)
+        r = client.post(f"/api/sessions/{elsewhere}/git/commit", headers=H,
+                        json={**body, "folder": str(git_repo.resolve())})
+        assert r.status_code == 409
+    finally:
+        gate.set()
+        reader.join(10)
+    r = client.post(f"/api/sessions/{other}/git/commit", json={"message": "x", "paths": ["Makefile"]}, headers=H)
+    assert r.status_code == 200
+
+
+def test_commit_is_refused_while_a_turn_on_that_repository_waits_for_approval(cfg, store, git_repo):
+    """A turn paused for an approval hasn't finished: the agent may be between two writes of one change."""
+    client = _git_client(cfg, store)
+    paused = client.post("/api/sessions", json={"repo": str(git_repo)}, headers=H).json()["id"]
+    other = client.post("/api/sessions", json={"repo": str(git_repo)}, headers=H).json()["id"]
+    (git_repo / "Makefile").write_text("changed\n")
+    assert client.get(f"/api/sessions/{other}/git").json()["working"] is False
+    store.update_session(paused, pending={"awaiting": ["t1"]})
+    assert client.get(f"/api/sessions/{other}/git").json()["working"] is True  # (the page says why up front)
+    r = client.post(f"/api/sessions/{other}/git/commit", json={"message": "x", "paths": ["Makefile"]}, headers=H)
+    assert r.status_code == 409 and "working" in r.json()["error"]
+    store.update_session(paused, pending=None)
+    r = client.post(f"/api/sessions/{other}/git/commit", json={"message": "x", "paths": ["Makefile"]}, headers=H)
+    assert r.status_code == 200
+
+
+def test_commit_refuses_a_blank_message_and_nothing_ticked(cfg, store, git_repo):
+    client = _git_client(cfg, store)
+    sid = client.post("/api/sessions", json={"repo": str(git_repo)}, headers=H).json()["id"]
+    (git_repo / "Makefile").write_text("changed\n")
+    for body in ({"message": "  ", "paths": ["Makefile"]}, {"message": "x", "paths": []}, {"message": "x"},
+                 {"message": 5, "paths": ["Makefile"]}, {"message": "x", "paths": "Makefile"}):
+        r = client.post(f"/api/sessions/{sid}/git/commit", json=body, headers=H)
+        assert r.status_code in (400, 409), body
+    assert "Makefile" in _git_out(git_repo, "status", "--porcelain")
+
+
 def test_a_turn_keeps_running_when_the_page_goes_away_and_can_be_followed(cfg, store, repo):
     import threading
     import time
