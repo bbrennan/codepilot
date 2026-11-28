@@ -1158,6 +1158,44 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
                                          *(["HEAD"] if run("rev-parse", "--verify", "-q", "HEAD") else []))
                              [:MAX_VIEW_BYTES]})
 
+    # -- the user's own git actions (gitwork.py): never offered to the model ------------------------------------------
+
+    async def git_action(request: Request, act) -> Response:
+        """Run act(repo, data) for the session's main folder or one of its added folders, as no turn can start in
+        this session, and refused while any session whose folders include that repository is working (the agent may be
+        between two writes of one change). git's own refusal is a 409 with its words."""
+        sid = request.path_params["sid"]
+        ctx = ctx_for(sid)
+        data = await json_body(request)
+        try:
+            repo = folders.repo_for(ctx.root, ctx.folders, data.get("folder"))
+        except ValueError as exc:
+            return err(str(exc))
+        if not gitwork.is_repo(repo):
+            return err(f"{repo.name} isn't the root of a git repository.")
+        with busy_lock:
+            if any(store.has_session(s) and folders.uses(store.get_session(s), repo) for s in busy):
+                return err("codepilot is working in this folder: wait for the turn to finish.", 409)
+            busy.add(sid)
+        try:
+            result = await run_in_threadpool(act, repo, data)
+        except gitwork.GitError as exc:
+            return err(str(exc), 409)
+        finally:
+            with busy_lock:
+                busy.discard(sid)
+        await run_in_threadpool(retire_stale_proposals, store, sid, ctx.root)
+        return JSONResponse(result)
+
+    async def git_commit(request: Request) -> Response:
+        def act(repo: Path, data: dict) -> dict:
+            message, paths = data.get("message"), data.get("paths")
+            if not isinstance(message, str) or not isinstance(paths, list) \
+                    or not all(isinstance(p, str) for p in paths):
+                raise gitwork.GitError("A commit needs a message and a list of paths.")
+            return gitwork.commit(repo, message, paths)
+        return await git_action(request, act)
+
     async def notes(request: Request) -> Response:
         sess = store.get_session(request.path_params["sid"])
         if not sess.repo:
@@ -1251,6 +1289,7 @@ def create_app(cfg: Config, store: Store | None = None, agent: Agent | None = No
         Route("/api/sessions/{sid}/stat", needs_workspace(disk_stat), methods=["POST"]),
         Route("/api/sessions/{sid}/find", needs_workspace(find)),
         Route("/api/sessions/{sid}/git", needs_workspace(git_view)),
+        Route("/api/sessions/{sid}/git/commit", needs_workspace(git_commit), methods=["POST"]),
         Route("/api/sessions/{sid}/fs", needs_workspace(fs), methods=["POST"]),
         Route("/api/sessions/{sid}/upload", needs_workspace(upload), methods=["PUT"]),
         Route("/api/sessions/{sid}/raw", needs_workspace(raw_file)),

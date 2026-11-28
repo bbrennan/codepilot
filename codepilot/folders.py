@@ -99,3 +99,23 @@ def rebased(path: str, old_main: Path, new_main: Path) -> str:
     otherwise point at the new main folder's file of the same name), and one in the new main folder a relative one."""
     full = Path(path) if Path(path).is_absolute() else old_main / path
     return str(full.relative_to(new_main)) if inside(full, [new_main]) and full != new_main else str(full)
+
+
+def repo_for(main: Path, added: Sequence[Path], folder) -> Path:
+    """The folder a git action from the Changes view is for: the main folder when none is named, else one of the
+    session's added folders, by its full path (each has its own message box and commits to its own repository).
+    ValueError for anything else: never a folder inside one, or a path the page made up."""
+    if folder in (None, ""):
+        return main
+    if not isinstance(folder, str) or not Path(folder).is_absolute():
+        raise ValueError("That folder isn't one of this session's.")
+    path = Path(folder).expanduser().resolve()
+    if path != main and path not in added:
+        raise ValueError("That folder isn't one of this session's.")
+    return path
+
+
+def uses(sess, root: Path) -> bool:
+    """Is root this session's main folder or one of its added ones? (A turn there may be writing to it.)"""
+    main = [Path(sess.repo).expanduser().resolve()] if getattr(sess, "repo", None) else []
+    return root in [*main, *added(sess)]

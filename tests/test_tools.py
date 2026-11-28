@@ -392,3 +392,32 @@ def test_a_name_the_filesystem_rejects_is_an_error_not_a_missing_file(ctx):
         ctx.resolve("missing.txt")
     with pytest.raises(ToolError, match="does not exist"):
         ctx.resolve("agent/core.py/below-a-file")
+
+
+# -- git-changes 5.1: Commit and Discard are the user's, never the model's -------------------------------------------
+
+
+@pytest.mark.parametrize("args", ["commit -m x", "commit -am x", "add -A", "add agent/core.py", "restore agent/core.py",
+                                  "restore --staged agent/core.py", "reset --hard", "reset -q", "rm --cached Makefile",
+                                  "update-index --index-info", "checkout -- agent/core.py"])
+def test_the_models_git_tool_still_refuses_what_the_changes_view_does(ctx, repo, args):
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "init")
+    (repo / "agent" / "core.py").write_text("changed\n")
+    before = _git(repo, "status", "--porcelain"), _git(repo, "rev-parse", "HEAD")
+    with pytest.raises(ToolError, match="read-only|only"):
+        git(ctx, args)
+    assert (_git(repo, "status", "--porcelain"), _git(repo, "rev-parse", "HEAD")) == before
+
+
+@pytest.mark.parametrize("module", ["tools.py", "gitcmd.py", "agent.py"])
+def test_nothing_the_model_can_reach_imports_the_users_git_actions(module):
+    """gitwork.py commits and discards for the user; what the model runs must not be able to grow into it."""
+    import ast
+    from pathlib import Path
+
+    import codepilot
+    tree = ast.parse((Path(codepilot.__file__).parent / module).read_text())
+    names = {a.name for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom)) for a in n.names}
+    froms = {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
+    assert "gitwork" not in names and not any("gitwork" in m for m in froms), module

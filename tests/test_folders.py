@@ -311,3 +311,29 @@ def test_changing_the_main_folder_and_the_added_ones_at_once_is_refused(repo, ap
 
 def test_list_files_matches_a_pattern_in_an_added_folder(ctx, api):
     assert str((api / "src" / "app.py").resolve()) in list_files(ctx, str(api), pattern="src/*.py")
+
+
+# -- git-changes 5.2: which repository a Commit or Discard is for ------------------------------------------------------
+
+
+def test_an_action_is_for_the_main_folder_or_one_of_the_added_ones(repo, api):
+    main, added = repo.resolve(), [api.resolve()]
+    assert folders.repo_for(main, added, None) == main and folders.repo_for(main, added, "") == main
+    assert folders.repo_for(main, added, str(api)) == api.resolve()
+
+
+@pytest.mark.parametrize("folder", ["elsewhere", "/", "agent", "../api", 5])
+def test_an_action_for_any_other_folder_is_refused(repo, api, tmp_path, folder):
+    raw = str(tmp_path / "elsewhere") if folder == "elsewhere" else str(repo / "agent") if folder == "agent" else folder
+    with pytest.raises(ValueError, match="folder"):
+        folders.repo_for(repo.resolve(), [api.resolve()], raw)
+
+
+def test_a_session_uses_its_main_folder_and_its_added_ones(repo, api, tmp_path):
+    class Sess:
+        def __init__(self, main, added):
+            self.repo, self.folders = str(main), [str(a) for a in added]
+
+    assert folders.uses(Sess(repo, [api]), repo.resolve()) and folders.uses(Sess(repo, [api]), api.resolve())
+    assert not folders.uses(Sess(repo, []), api.resolve()) and not folders.uses(Sess(api, []), repo.resolve())
+    assert not folders.uses(Sess(repo, []), (repo / "agent").resolve())  # (a folder inside isn't the repository)
