@@ -308,6 +308,22 @@ def test_nothing_you_can_click_is_out_of_reach_of_the_keyboard(page, server, ses
     audit(page, "Steering")
 
 
+def test_the_palette_is_in_reach_of_the_keyboard_in_each_mode(page, server, session):
+    server.store.update_session(session.id, title="go anywhere")
+    open_app(page)
+    page.evaluate("openFile('agent/core.py')")
+    page.locator("#gutter").wait_for()
+    page.evaluate("openFile('Makefile')")
+    page.wait_for_function("() => state.active === 'file:Makefile'")
+    for text, screen in [("", "recent files"), ("core", "files found"), (":1", "a line"), (">", "commands"),
+                         ("anywhere", "sessions")]:
+        page.evaluate("(t) => openPalette(t)", text)
+        page.wait_for_function("(t) => pal.shown === t && document.querySelector('#paletteList [role=option]')",
+                               arg=text)
+        audit(page, f"the palette: {screen}")
+        page.keyboard.press("Escape")
+
+
 # The ring on a focused row against what's behind it (the row's fill over the surface beneath), 3:1 or more: WCAG's
 # minimum for something that isn't text. Translucent fills (a selected row's) are composited as the page draws them.
 RING = """() => {
@@ -792,7 +808,8 @@ def test_go_to_file_and_the_report_are_dialogs_that_give_focus_back(page, server
     into_tree(page)
     page.keyboard.press("ControlOrMeta+p")
     page.locator("#palette").wait_for()
-    assert dialog_state(page, "#palette") == {"role": "dialog", "modal": "true", "name": "Go to file", "inside": True}
+    assert dialog_state(page, "#palette") == {"role": "dialog", "modal": "true", "name": "Go to file or command",
+                                              "inside": True}
     page.keyboard.press("Escape")
     page.wait_for_function("() => document.querySelector('#palette').hidden")
     wait_focus(page, "#tree [data-dir='agent']")

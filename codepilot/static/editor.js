@@ -18,7 +18,8 @@ function loadEditor() {
 // app.js and a11y.js listen for their shortcuts on the document, and a key CodeMirror handles still gets there (it
 // prevents the key's default, it doesn't stop it). So a CodeMirror binding for one of the app's keys is left out, and
 // ⌘Enter approves a waiting command without also inserting a line. Shift doesn't count, as the app's handlers don't
-// look at it: ⇧⌘L would otherwise select every match and go to the chat.
+// look at it: ⇧⌘L would otherwise select every match and go to the chat. (⌘P's does, ⇧⌘P being the palette's
+// commands, and "Mod-p" leaves both to the app.)
 const EDITOR_APP_KEYS = ["Mod-p", "Mod-b", "Mod-j", "Mod-l", "Mod-.", "Mod-s", "Mod-Enter", "Alt-w", "F6", "Ctrl-`",
   ...(isMac ? ["Ctrl-v"] : [])]; // on a Mac Ctrl+V pastes (app.js); CodeMirror's Emacs-style keys make it page down
 const EDITOR_PLATFORM = isMac ? "mac" : /Win/.test(navigator.platform) ? "win" : "linux";

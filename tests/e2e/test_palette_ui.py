@@ -6,7 +6,7 @@ import time
 
 from test_multi_folder_ui import api_folder
 from test_restore_tabs_ui import lib_session, long_file, switch
-from uihelpers import SCROLLER, editor_caret_line, editor_text, open_app, set_editor_text, wait_editor
+from uihelpers import SCROLLER, editor_caret_line, editor_text, focus_editor, open_app, set_editor_text, wait_editor
 
 ACTIVE = "() => document.querySelector('#editorTabs .tab.on')?.dataset.tab"
 
@@ -246,3 +246,335 @@ def test_the_palette_opens_without_a_folder_and_says_to_open_one(page, server):
     open_palette(page)
     assert listed(page, "") == []
     assert "Open a folder" in page.text_content("#paletteList")
+
+
+# -- task 3: commands --------------------------------------------------------------------------------------------------
+
+TABS = "() => [...document.querySelectorAll('#editorTabs .tab')].map((t) => t.dataset.tab)"
+FIND = "#codeEdit input[aria-label='Find']"  # (test_code_editor_ui: the find panel by its box's name)
+PANE = ".term-pane:not([hidden])"
+
+
+def wait_closed(page):
+    page.wait_for_function("() => document.querySelector('#palette').hidden")
+
+
+def focus_is(page, sel):
+    return page.evaluate("(s) => !!document.activeElement?.matches(s)", sel)
+
+
+def key_label(page, combo):
+    return page.evaluate("(c) => keyLabel(c)", combo)
+
+
+def test_typed_words_find_a_command_with_its_shortcut_and_enter_runs_it(page, server, session):
+    open_app(page)
+    open_palette(page, ">tog side")
+    assert listed(page) == ["Toggle sidebar"]
+    assert page.text_content("#paletteList .opt.on kbd") == key_label(page, "mod+b")
+    page.keyboard.press("Enter")
+    wait_closed(page)
+    assert not page.evaluate("layoutShown(ide, 'sidebar')")
+    open_palette(page, ">SIDE Tog")  # any order, any case
+    assert listed(page) == ["Toggle sidebar"]
+    page.keyboard.press("Escape")
+    open_palette(page, ">no such thing")
+    assert listed(page) == [] and "No matching commands" in page.text_content("#paletteList")
+
+
+def test_shortcuts_beside_commands_are_written_by_keyLabel(page, server, session):
+    open_app(page)
+    open_files(page, "agent/core.py")
+    open_palette(page, ">")
+    listed(page)
+    shown = dict(zip(page.locator("#paletteList [role=option]:has(kbd) .n").all_text_contents(),
+                     page.locator("#paletteList [role=option] kbd").all_text_contents()))
+    for title, combo in {"Toggle sidebar": "mod+b", "Toggle bottom panel": "mod+j", "Focus chat": "mod+l",
+                         "Close Tab": "alt+w"}.items():
+        assert shown[title] == key_label(page, combo), title
+
+
+def test_shift_mod_p_opens_the_palette_on_commands(page, server, session):
+    open_app(page)
+    open_palette(page, keys="ControlOrMeta+Shift+p")
+    assert page.input_value("#paletteInput") == ">"
+    assert "Toggle sidebar" in listed(page, ">")
+    page.keyboard.press("Escape")
+    wait_closed(page)
+    open_palette(page)  # ⌘P is still files
+    assert page.input_value("#paletteInput") == ""
+
+
+def test_shift_mod_p_works_from_the_editor_its_find_panel_and_the_terminal(page, server, session):
+    page.add_init_script("localStorage.setItem('cp-no-panel', '0')")
+    open_app(page)
+    open_files(page, "agent/core.py")
+    page.click("#fEdit")
+    before = editor_text(page)
+    focus_editor(page)
+    open_palette(page, keys="ControlOrMeta+Shift+p")
+    assert page.input_value("#paletteInput") == ">"
+    page.keyboard.press("Escape")
+    wait_closed(page)
+    assert editor_text(page) == before
+    focus_editor(page)
+    page.keyboard.press("ControlOrMeta+f")
+    page.locator(FIND).wait_for()
+    page.wait_for_function("(s) => document.activeElement === document.querySelector(s)", arg=FIND)
+    open_palette(page, keys="ControlOrMeta+Shift+p")
+    assert page.input_value("#paletteInput") == ">"
+    page.keyboard.press("Escape")
+    wait_closed(page)
+    page.evaluate("newTerminal()")
+    page.locator(f"{PANE} .xterm-screen").wait_for()
+    page.wait_for_function("(p) => document.activeElement?.closest(p)", arg=PANE)
+    open_palette(page, keys="ControlOrMeta+Shift+p")
+    assert page.input_value("#paletteInput") == ">"
+    assert editor_text(page) == before
+
+
+def test_save_and_stop_are_listed_only_when_they_can_run(page, server, session):
+    open_app(page)
+    open_files(page, "agent/core.py")
+    open_palette(page, ">save")
+    assert "Save" not in listed(page)
+    page.keyboard.press("Escape")
+    page.click("#fEdit")
+    wait_editor(page)
+    open_palette(page, ">save")
+    assert "Save" in listed(page)
+    assert page.text_content("#paletteList .opt.on kbd") == key_label(page, "mod+s")
+    page.keyboard.press("Escape")
+    open_palette(page, ">stop")
+    assert "Stop" not in listed(page)
+    page.keyboard.press("Escape")
+    page.fill("#input", "very slow")
+    page.press("#input", "Enter")
+    page.locator("#stopBtn").wait_for()
+    open_palette(page, ">stop")
+    assert listed(page) == ["Stop"]
+    page.keyboard.press("Enter")
+    page.wait_for_function("() => document.querySelector('#stopBtn').hidden")
+
+
+def test_the_commands_cover_the_app(page, server, session):
+    (server.repo / ".codepilot/modes").mkdir(parents=True)
+    (server.repo / ".codepilot/modes/perf.md").write_text(
+        "---\nname: perf\nlabel: Perf\ndescription: Find and fix performance problems\n---\nMeasure first.\n")
+    server.store.add_proposal(session.id, "Makefile", "echo eval", "echo evaluate", "say more")
+    open_app(page)
+    open_files(page, "agent/core.py", "Makefile")
+    open_palette(page, ">")
+    titles = listed(page)
+    views = page.evaluate("""() => [...document.querySelectorAll('#activitybar button[data-view]')]
+      .filter((b) => !b.hidden).map((b) => 'Show ' + b.title.split(':')[0])""")
+    modes = page.evaluate("() => state.wsInfo.modes.map((m) => 'Mode: ' + m.label)")
+    assert "Mode: Perf" in modes  # (the folder's own mode, from its file)
+    expected = ["Toggle sidebar", "Toggle bottom panel", "Toggle chat", "Toggle theme", *views,
+                "Start a new session on this folder", "New File…", "New Folder…", "Add folder…", "New Terminal",
+                "Close Tab", "Close other tabs", "Run tests", "Run checks", "Review changes", "Apply all changes",
+                "Compact now", *modes, "Model: auto", "Model: fast", "Model: main", "Model: hard",
+                "Report a problem", "Restart the codepilot server (loads updated code)"]
+    assert [t for t in expected if t not in titles] == []
+    assert len(titles) == len(set(titles)), "a command is listed twice"
+    assert "Go to File…" not in titles  # (the File menu's way here)
+
+
+def test_a_mode_and_a_model_from_the_palette(page, server, session):
+    open_app(page)
+    open_palette(page, ">mode ask")
+    assert listed(page) == ["Mode: Ask"]
+    page.keyboard.press("Enter")
+    page.wait_for_function("() => document.querySelector('#modeSelect').value === 'ask'")
+    open_palette(page, ">model hard")
+    assert listed(page) == ["Model: hard"]
+    page.keyboard.press("Enter")
+    page.wait_for_function("() => document.querySelector('#tier').value === 'tier:hard'")
+
+
+def test_a_script_adds_a_command_by_registering_it(page, server, session):
+    open_app(page)
+    page.evaluate("""registerCommand({ id: 'test.hello', title: 'Say hello', keys: 'mod+shift+h',
+      run: () => toast('hello from a command') })""")
+    open_palette(page, ">say hel")
+    assert listed(page) == ["Say hello"]
+    assert page.text_content("#paletteList .opt.on kbd") == key_label(page, "mod+shift+h")
+    page.keyboard.press("Enter")
+    page.locator(".toast", has_text="hello from a command").wait_for()
+    page.evaluate("registerCommand({ id: 'test.later', title: 'Not yet', when: () => window.__ready, run: () => {} })")
+    open_palette(page, ">not yet")
+    assert listed(page) == []
+    page.keyboard.press("Escape")
+    page.evaluate("window.__ready = true")
+    open_palette(page, ">not yet")
+    assert listed(page) == ["Not yet"]
+
+
+def test_new_file_from_the_palette_makes_one_file_and_the_palette_stays_shut(page, server, session):
+    open_app(page)
+    before = sorted(p.name for p in server.repo.iterdir())
+    page.focus("#paletteBtn")  # opened from its button: where focus goes back to when the prompt closes
+    page.keyboard.press("Enter")
+    page.locator("#palette").wait_for()
+    page.keyboard.type(">new file")
+    assert listed(page)[0] == "New File…"
+    page.keyboard.press("Enter")
+    page.locator("#dialog").wait_for()
+    page.wait_for_function("() => document.activeElement === document.querySelector('#dialogInput')")
+    page.keyboard.type("notes.txt")
+    page.keyboard.press("Enter")
+    wait_editor(page)
+    page.wait_for_function("() => codeEditor().owns(document.activeElement)")  # the new file, ready to type in
+    page.wait_for_timeout(300)  # (anything that would go wrong after the key has had its chance)
+    assert page.evaluate("() => document.querySelector('#palette').hidden && document.querySelector('#dialog').hidden")
+    assert sorted(p.name for p in server.repo.iterdir()) == sorted([*before, "notes.txt"])
+    assert page.evaluate("() => codeEditor().owns(document.activeElement)")
+
+
+def test_focus_chat_from_the_palette_leaves_focus_in_the_message_box_with_nothing_typed(page, server, session):
+    open_app(page)
+    open_files(page, "agent/core.py")
+    open_palette(page, ">focus chat")
+    assert listed(page) == ["Focus chat"]
+    page.keyboard.press("Enter")
+    page.wait_for_function("() => document.activeElement === document.querySelector('#input')")
+    page.wait_for_timeout(300)
+    assert focus_is(page, "#input") and page.input_value("#input") == ""
+
+
+def test_new_terminal_from_the_palette_ends_with_focus_in_the_terminal(page, server, session):
+    page.add_init_script("localStorage.setItem('cp-no-panel', '0')")
+    open_app(page)
+    open_palette(page, ">new terminal")
+    assert listed(page)[0] == "New Terminal"
+    page.keyboard.press("Enter")
+    page.locator(f"{PANE} .xterm-screen").wait_for()
+    page.wait_for_function("(p) => document.activeElement?.closest(p)", arg=PANE)
+    page.wait_for_timeout(300)
+    assert page.evaluate("(p) => !!document.activeElement?.closest(p)", PANE)
+
+
+def test_close_other_tabs_asks_about_unsaved_ones_as_closing_one_does(page, server, session):
+    open_app(page)
+    open_files(page, "agent/core.py")
+    page.click("#fEdit")
+    set_editor_text(page, "# changed\n")
+    page.wait_for_function("() => document.querySelector('.tab.on').classList.contains('dirty')")
+    open_files(page, "tests/test_core.py", "Makefile")
+    open_palette(page, ">close other")
+    assert listed(page) == ["Close other tabs"]
+    page.keyboard.press("Enter")
+    page.locator("#dialog").wait_for()
+    assert page.text_content("#dialogTitle") == "Discard changes to core.py?"
+    page.click("#dialogCancel")
+    page.wait_for_function(f"() => ({TABS})().join() === 'file:agent/core.py,file:Makefile'")
+    open_palette(page, ">close other")
+    listed(page)
+    page.keyboard.press("Enter")
+    page.locator("#dialog").wait_for()
+    page.click("#dialogOk")
+    page.wait_for_function(f"() => ({TABS})().join() === 'file:Makefile'")
+    open_palette(page, ">close other")
+    assert listed(page) == []  # one tab: nothing to close
+
+
+def test_close_tab_closes_any_tab_once(page, server, session):
+    server.store.add_proposal(session.id, "Makefile", "echo eval", "echo evaluate", "say more")
+    open_app(page)
+    open_files(page, "agent/core.py")
+    open_palette(page, ">close tab")
+    assert listed(page) == ["Close Tab"]  # (the File menu's, for a file)
+    page.keyboard.press("Escape")
+    page.evaluate("openReview()")
+    page.wait_for_function("() => state.active === 'review'")
+    open_palette(page, ">close tab")
+    titles = listed(page)
+    assert titles[0] == "Close Tab" and titles.count("Close Tab") == 1  # and for any other tab, as ⌥W
+    assert page.text_content("#paletteList .opt.on kbd") == key_label(page, "alt+w")
+    page.keyboard.press("Enter")
+    page.wait_for_function(f"() => ({TABS})().join() === 'file:agent/core.py'")
+
+
+# -- task 4: sessions and the placeholder ------------------------------------------------------------------------------
+
+
+def group(page, heading):
+    """The titles of the options under heading."""
+    return page.locator(f"#paletteList [role=group]:has(> .pal-head:text-is('{heading}')) [role=option] .n") \
+        .all_text_contents()
+
+
+def test_typed_text_lists_matching_sessions_under_their_heading_and_enter_opens_one(page, server, session):
+    found = server.store.create_session(str(server.repo), "main")
+    server.store.update_session(found.id, title="export bug")
+    other = server.store.create_session(str(server.repo), "main")
+    server.store.update_session(other.id, title="hello")
+    server.store.update_session(session.id, title="first")
+    open_app(page)
+    page.wait_for_function("() => (state.sessionList || []).length === 3")
+    open_palette(page, "export")
+    assert listed(page) == ["export bug"]  # (no file is called that)
+    assert group(page, "Sessions") == ["export bug"]
+    assert "No matching files." in page.text_content("#paletteList")
+    page.keyboard.press("Enter")
+    page.wait_for_function("(sid) => state.sid === sid", arg=found.id)
+    page.wait_for_function("() => document.querySelector('#chatTitle').textContent === 'export bug'")
+
+
+def test_sessions_come_after_the_files_and_are_five_at_most(page, server, session):
+    for i in range(7):
+        s = server.store.create_session(str(server.repo), "main")
+        server.store.update_session(s.id, title=f"core work {i}")
+    open_app(page)
+    page.wait_for_function("() => (state.sessionList || []).length === 8")
+    open_palette(page, "core")
+    titles = listed(page)
+    files, sessions = group(page, "Files"), group(page, "Sessions")
+    assert "core.py" in files and len(sessions) == 5 and titles == files + sessions
+    assert page.locator("#paletteList .pal-head").all_text_contents() == ["Files", "Sessions"]
+    page.keyboard.press("Escape")
+    open_palette(page, "target")  # the folder's name finds its sessions too
+    listed(page)
+    assert len(group(page, "Sessions")) == 5
+
+
+def test_the_placeholder_says_what_can_be_typed(page, server, session):
+    open_app(page)
+    open_palette(page)
+    placeholder = page.get_attribute("#paletteInput", "placeholder")
+    assert placeholder.startswith("Go to file") and "> commands" in placeholder and ": line" in placeholder
+    assert page.text_content("#paletteBtn").startswith("Search files")
+
+
+def test_in_a_480px_window_a_title_keeps_one_line_and_its_description_gives_way(page, server, session):
+    page.set_viewport_size({"width": 480, "height": 800})
+    open_app(page, wait_tree=False)
+    page.wait_for_function("() => state.workspace")
+    open_palette(page, ">mode")
+    assert "Mode: Spec" in listed(page)
+    lines = page.evaluate("""() => [...document.querySelectorAll('#paletteList [role=option] .n')].map((n) => {
+      const r = document.createRange(); r.selectNodeContents(n);
+      return [n.textContent, new Set([...r.getClientRects()].map((b) => Math.round(b.top))).size,
+              n.scrollWidth <= n.clientWidth]; })""")
+    assert [t for t, n, _ in lines if n != 1] == []
+    assert [t for t, _, whole in lines if not whole] == []  # and not cut short
+    box = page.locator("#paletteList").bounding_box()
+    for opt in page.locator("#paletteList [role=option]").all():
+        b = opt.bounding_box()
+        assert b["x"] >= box["x"] - 1 and b["x"] + b["width"] <= box["x"] + box["width"] + 1
+
+
+def test_commands_without_a_folder(page, server):
+    server.store.create_session("", "main")
+    open_app(page, wait_tree=False)
+    page.wait_for_function("() => state.sid && state.workspace === ''")
+    open_palette(page, ">")
+    titles = listed(page)
+    assert "Toggle sidebar" in titles and "Start a new session on this folder" in titles
+    assert "Run tests" not in titles and "Add folder…" not in titles
+    page.keyboard.press("Escape")
+    server.store.update_session(page.evaluate("state.sid"), title="no folder yet")
+    page.evaluate("loadSessions()")
+    open_palette(page, "yet")  # the files say to open a folder; sessions are still found
+    listed(page)
+    assert group(page, "Sessions") == ["no folder yet"] and "Open a folder" in page.text_content("#paletteList")

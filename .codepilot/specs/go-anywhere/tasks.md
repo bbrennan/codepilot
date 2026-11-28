@@ -26,12 +26,30 @@ One branch, `feature/go-anywhere`, one PR. After ui-review-fixes task 8 (`keys.j
     with line 40 flashed; `:60` goes to line 60 in the file shown; `:5` with no file lists nothing; in Edit mode `:50`
     and `long.py:20` move the caret, keep the draft and leave focus in the editor; the handle's `goToLine`, past the
     end too; with no folder ⌘P opens and says to open one)_
-- [ ] 3. Commands
+- [x] 3. Commands
   - Test first (Playwright): `>` filtering, key labels, Enter runs, ⇧⌘P, `when`, the list in 2.3, a registered command.
-  - `palette.js` (`registerCommand`, `commandItems`, the built-in registrations), `app.js` (one `keydown` branch).
+  - `palette.js` (`registerCommand`, `registerCommands` for the app's tables, `commandItems`, `closeOtherTabs`, the
+    built-in registrations), `app.js` (one `keydown` branch; the terminal leaves ⇧⌘P to the app), `a11y.js` (the
+    dialog's name), `editor.js` (a comment: `Mod-p` already covers ⇧⌘P).
   - _Requirements: 2.1, 2.2, 2.3, 2.4_
-- [ ] 4. Sessions, the placeholder and docs
+  - _Tests: tests/e2e/test_palette_ui.py (`>tog side` lists Toggle sidebar with keyLabel's ⌘B and Enter hides the
+    sidebar, words in any order and case, none matching says so; the shortcuts beside commands are keyLabel's; ⇧⌘P
+    opens on `>` and ⌘P still on files; ⇧⌘P from the editor, its find panel and the terminal, the draft untouched;
+    Save only while editing, Stop only while a turn runs and Enter stops it; every command in 2.3, none twice, with a
+    custom mode's; a mode and a model tier switch; `registerCommand` from the page adds a row that runs, and its
+    `when`; `>new file`, a name, Enter: one file, the palette shut, focus in the new file's editor; Focus chat and New
+    Terminal end with focus where they put it, nothing typed; Close other tabs asks about an unsaved tab and keeps it
+    on Cancel; Close Tab for a file and for the Review tab, once; commands with no folder),
+    test_keyboard_access_ui.py (the audit with the palette open on recent files, files found, a line, commands and
+    sessions; the dialog is named "Go to file or command")_
+- [x] 4. Sessions, the placeholder and docs
   - Test first (Playwright): a matching session is listed under its heading and opens.
-  - `palette.js` (`sessionItems`), `index.html` (placeholder); `docs/usage.md` (The screen, Keyboard shortcuts),
-    `docs/architecture.md` (script list).
+  - `palette.js` (`sessionItems`), `index.html` (placeholder), `app.css` (a title keeps its line; the path or the
+    description gives way); `docs/usage.md` (The screen, Keyboard shortcuts), `docs/architecture.md` (script list,
+    the editor's handle).
   - _Requirements: 3.1, 3.2, 3.3_
+  - _Tests: tests/e2e/test_palette_ui.py ("export" lists "export bug" under Sessions after the files' "No matching
+    files." and Enter opens it; sessions come after the files, five at most, and the folder's name finds them; the
+    placeholder names a file, `>` and `:`, and the title-bar button still says Search files; with no folder the files
+    say to open one and sessions are still found; at 480px each title keeps one line, whole, inside the list),
+    test_keyboard_access_ui.py (the audit with sessions listed)_

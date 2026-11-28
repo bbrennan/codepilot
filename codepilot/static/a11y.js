@@ -352,7 +352,7 @@ const A11Y_DIALOGS = [
   { sel: "#dialog", label: "dialogTitle", cancel: "#dialogCancel" },
   { sel: "#folderDialog", label: "fdTitle", cancel: "#fdCancel" },
   { sel: "#reportDialog", label: "rpHeading", cancel: "#rpClose" },
-  { sel: "#palette", name: "Go to file", close: () => closePalette() },
+  { sel: "#palette", name: "Go to file or command", close: () => closePalette() },
 ];
 const a11yShown = (el) => el.getClientRects().length > 0;
 for (const d of A11Y_DIALOGS) {

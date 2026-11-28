@@ -2509,6 +2509,9 @@ function termView(id) {
     const fit = new FitAddon.FitAddon();
     xterm.loadAddon(fit);
     xterm.open(el);
+    // ⇧⌘P (commands, palette.js) is the app's here too: elsewhere than a Mac the terminal would send it as Ctrl+P.
+    xterm.attachCustomKeyEventHandler((e) =>
+      !(e.shiftKey && (isMac ? e.metaKey : e.ctrlKey) && e.key.toLowerCase() === "p"));
     v = { id, el, xterm, fit, ws: null };
     xterm.onData((data) => {
       if (termInfo(id) && !termInfo(id).alive) return killTerminal(id); // "press any key to close"
@@ -2687,7 +2690,8 @@ document.addEventListener("keydown", (e) => {
   if (isMac && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "v" && isTextBox(e.target)) {
     e.preventDefault(); pasteFromClipboard(e.target); return;
   }
-  if (mod && e.key.toLowerCase() === "p") { e.preventDefault(); openPalette(); }
+  if (mod && e.shiftKey && e.key.toLowerCase() === "p") { e.preventDefault(); openPalette(">"); } // (commands)
+  else if (mod && e.key.toLowerCase() === "p") { e.preventDefault(); openPalette(); }
   else if (mod && e.key.toLowerCase() === "b") { e.preventDefault(); toggleSidebar(); }
   else if (mod && e.key.toLowerCase() === "j") { e.preventDefault(); toggle("no-panel"); }
   else if (mod && e.key.toLowerCase() === "l") { e.preventDefault(); ide.classList.remove("no-chat"); input.focus(); }
