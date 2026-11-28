@@ -191,6 +191,21 @@ def test_git_branch_before_the_first_commit(client_and_llm, repo):
     assert g["git"] and g["branch"] and "fatal" not in g["branch"]  # fresh `git init`, no commits yet
 
 
+def test_the_main_folders_changes_are_listed_by_their_real_names_and_kinds(cfg, store, git_repo):
+    """Spec git-changes 2.2: from `gitwork.status`, not `git status --short` (which quotes and mangles names)."""
+    import subprocess
+    (git_repo / "notes with spaces.txt").write_text("a\n")
+    (git_repo / "Makefile").unlink()
+    subprocess.run(["git", "-C", str(git_repo), "mv", "agent/core.py", "agent/café.py"], check=True)
+    client = TestClient(create_app(replace(cfg, terminal=False), store, Agent(cfg, store, llm=FakeLLM([]))))
+    sid = client.post("/api/sessions", json={"repo": str(git_repo)}, headers=H).json()["id"]
+    g = client.get(f"/api/sessions/{sid}/git").json()
+    assert {(f["path"], f["kind"]) for f in g["files"]} == {
+        ("notes with spaces.txt", "untracked"), ("Makefile", "deleted"), ("agent/café.py", "renamed")}
+    assert g["total"] == 3 and g["dirs"] == ["agent"] and g["branch"] == "main"
+    assert [f.get("from") for f in g["files"] if f["kind"] == "renamed"] == ["agent/core.py"]
+
+
 def test_a_turn_keeps_running_when_the_page_goes_away_and_can_be_followed(cfg, store, repo):
     import threading
     import time
@@ -613,6 +628,7 @@ def test_an_added_folders_changes_are_listed_by_their_real_names(client_and_llm,
     (api / "my file é.py").write_text("y = 2\n")
     [other] = client.get(f"/api/sessions/{sid}/git").json()["folders"]
     assert {(f["path"], f["code"]) for f in other["files"]} >= {("new.py", "R"), ("my file é.py", "??")}
+    assert {(f["path"], f["kind"]) for f in other["files"]} >= {("new.py", "renamed"), ("my file é.py", "untracked")}
 
 
 def test_a_refused_make_main_leaves_the_changes_alone(client_and_llm, store, repo, tmp_path):

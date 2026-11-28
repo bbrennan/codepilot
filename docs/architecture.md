@@ -31,6 +31,7 @@ store.py (SQLite in ~/.codepilot): sessions, messages, proposals, usage, notes
 | `checks.py` | Detects and runs linters, type checkers and security scanners; post-apply quick check |
 | `github.py` | `gh` command classification (read/write/refused) and execution |
 | `gitcmd.py` | What the read-only git tool may run (e.g. `git branch` lists, but never deletes or creates) |
+| `gitwork.py` | Your own git actions from the Changes view, never the model's: what changed (each file by its real name, with its kind), for the list and the Explorer's marks. Every path is literal and the background status takes no optional locks |
 | `gitstate.py` | The git state in each turn context: upstream, ahead/behind, merge or rebase in progress, conflicts |
 | `procenv.py` | How commands run: non-interactive (no editor, prompt, pager or stdin), killed as a process group on timeout |
 | `modes.py` | Built-in and custom modes |
