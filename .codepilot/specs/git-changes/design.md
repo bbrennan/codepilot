@@ -17,14 +17,17 @@ add `ab.txt`, and `:notes.txt` wouldn't match at all; a path the user ticked is 
 | `changes(repo)` | Every changed file: `git status --porcelain=v1 -z --untracked-files=all`, parsed by `parse_status` (moved here from `folders.git_status`, which skipped a rename's old name) with `kind` per file: `modified`, `untracked`, `added`, `deleted`, `renamed`, `conflict`; a rename carries `from`. `--untracked-files=all` is explicit: without it git lists a new folder as one `dir/` entry (marks, ticks and Discard need each file), and a `status.showUntrackedFiles` setting could hide them or change the answer |
 | `status(repo)` | What the page gets: `{files, total, dirs}`, None when the folder isn't a repository's root. At most `LIMIT` (2,000) files, tracked changes first; `total` counts them all and `dirs` holds every folder that contains a change (the shallowest first, at most 10,000). **A very large untracked tree** (an un-ignored `node_modules` or `.venv`: 50,000 files is 0.3 s and 2 MB of git output) is counted, not listed: the list says "2,000 of 51,204 changed files shown" and that such a folder usually belongs in `.gitignore`; its folders still carry their dot. Commit and Discard check paths against `changes`, not this capped list |
 | `stamp(repo)` | For the disk poll: the size and mtime of the index, `HEAD`, the branch `HEAD` names (`refs/heads/<branch>`; a commit moves that, not `.git/HEAD`) and `packed-refs`. Stat only, no git process, never a path outside the repository's git directory (a worktree's `.git` file and `commondir` are followed) |
-| `commit(repo, message, paths)` | Checks every path is in `status` (5.3) and the message isn't blank. `git add -A -- <paths>`, then `git commit -m <message> -- <paths>`; when the paths are **all** the changed files, `git commit -m <message>` with no pathspec, so a merge can be concluded. Returns `{hash, subject}` from `git log -1 --format=%h%x00%s` |
+| `commit(repo, message, paths)` | Checks every path is in `changes` (5.3; never the page's capped list) and the message isn't blank. A rename's old name goes with it. `git add --all -- <the names on disk or in the index>`, then `git commit --quiet --cleanup=verbatim --message <message> -- <paths>`; when the paths are **all** the changed files, no pathspec, so a merge can be concluded. **The message is yours, exactly:** `--cleanup=verbatim` (git would otherwise strip `#` lines, trailing spaces and blank lines, whatever `commit.cleanup` says), nothing appended (no trailer, no sign-off), and your own git identity (no `-c user.*`, no `GIT_AUTHOR_*`). Returns `{hash, subject}` from `git log -1 --format=%h%x00%s` |
 | `discard(repo, path, keep)` | Checks the path is in `status`. `keep(bytes) -> trash_id` saves the current content first (when the file exists). Untracked or added: unstage if staged, then the file goes to the trash. Otherwise `git restore --source=HEAD --staged --worktree -- <path>` (a rename: both names, and the new file to the trash). Returns `{path, trash_id, gone}` |
 | `GitError` | Carries git's stderr, trimmed to 2,000 characters, for 3.4 |
 
 Never passed: `--no-verify`, `--amend`, `push`, `checkout <branch>`. Hooks run with a 120 s timeout; a timeout is a
-`GitError` naming it. Before the add, `commit` notes which of the paths were already staged
-(`git diff --cached --name-only`); if the commit then fails it runs `git reset -q --` on the ones it staged itself, so
-a refusal leaves the index as it found it (3.4).
+`GitError` naming it, and the index locks that the killed commit left (`index.lock`, `next-index-*.lock`, only those
+made since it started) are removed, or every git command after it would fail. **A refusal leaves the index as it found
+it (3.4):** before the add, `commit` saves the ticked paths' index entries (`git ls-files -s -z`, stage numbers and
+all); if git refuses, it writes exactly those back (`git update-index -z --index-info`, each path first taken out).
+Resetting only the paths it staged itself (the first design) would lose a partly staged file's staged version and a
+conflict's three stages. `procenv.run` takes an optional `input` for this; stdin stays closed otherwise.
 
 ## Server (`server.py`, wiring)
 
@@ -35,8 +38,13 @@ a refusal leaves the index as it found it (3.4).
 - `stat_paths` (the disk poll, `/stat`) takes `git: [".", <added folder>, …]` and answers `gitwork.stamp` for each:
   covers a commit, staging, a reset or a checkout made in the terminal (1.3), which change no working file.
 - `POST /api/sessions/{sid}/git/commit` `{folder?, message, paths}` and `POST …/git/discard` `{folder?, path}`.
-  `folder` is the main folder when absent, else must be one of the session's added folders (`folders.added`). Both take
-  `busy_lock` as `restore` does and answer 409 while the session is working (3.2); `GitError` is a 409 with git's text.
+  `folder` is the main folder when absent, else must be one of the session's added folders by its full path
+  (`folders.repo_for`: never a folder inside one, or any other path; a 400). Both go through one `git_action`: it takes
+  `busy_lock` as `restore` does, marks this session busy for the action (no turn starts meanwhile), and answers 409
+  **while any session whose folders include that repository is working** (`folders.uses`): sessions can share a
+  folder, and a turn in another one may be between two writes too. **A turn paused for an approval counts as
+  working**: it hasn't finished (the server no longer marks it busy, so `pending` is checked too). `GitError` is a 409
+  with git's text. The `/git` answer carries `working` per repository, so the page can say why before you press.
 - Discard's `keep` writes a trash slot like `move_to_trash` (same folder, `meta.json` with `kind: "discard"` and the
   file's mtime after the discard). `fs`'s `restore` operation, for that kind, writes the content back when the file's
   mtime still equals the recorded one, or the file is still absent; otherwise 409 "changed since" (4.3).
@@ -72,9 +80,18 @@ a refusal leaves the index as it found it (3.4).
 - **Fit (1024×700):** since #126 the sidebar is 200px wide at 1024×700 (`layout.js` fits it to 186px there) and can be
   180px. Names ellipsize; the letter, the tick box and Discard keep their width; each row stays one line inside the
   list. Tested as geometry (rectangles inside rectangles) at 180 and 200, never a font's width.
-- **Commit box (3.x):** under each repository's list: a two-line `textarea.field` ("Message"), a primary **Commit**
-  button with the count, and a hint line for why it is disabled. ⌘Enter in the box commits. On success: toast
-  ``Committed abc1234: subject``, clear, `loadGit()`. On refusal: git's text in a `.banner.error` under the box.
+- **Commit box (3.x):** under each repository's list: a two-line `textarea.field` ("Message", named "Commit message
+  for api"), a primary **Commit** button with the count ("Commit 3", `aria-describedby` its reason), and a hint line
+  for why it is disabled: "Write a message to commit.", "Tick at least one file to commit.", "codepilot is working:
+  commit when the turn is done." (this session streaming, an approval waiting, or `working` from the server).
+  **⌘Enter in the box commits, or does nothing when Commit is unavailable, and never approves:** `app.js`'s global
+  handler approves a waiting command on ⌘Enter wherever focus is, so the box's own handler stops the event. On
+  success: toast ``Committed abc1234: subject``, clear, `loadGit()`, focus back in the box. On refusal: git's text in a
+  `.banner.error` (`role="alert"`) under the box; the message is kept. Ticks (the unticked, per repository), the
+  message and the refusal live outside the DOM, so a redraw keeps them; the count, the tick-all box and Commit update
+  in place on each tick and keystroke, never by redrawing. **Focus through a redraw** (a tick, a commit, a discard, a
+  poll): the focused control is found again by its data attribute, a message box keeps its selection, and a control
+  whose row went moves to the same control in the row that took its place, else to the message box.
 - **Discard (4.x):** `confirmDialog("Discard changes to X?", …, "Discard")`; the hint says "back to the last commit"
   or "moved to codepilot's trash", and adds "Your unsaved edits in the open tab are lost too" when `tab.dirty`. Then
   the request; then `toast("Discarded changes to X", false, { label: "Undo", run })`; the open tab reloads
@@ -124,6 +141,12 @@ The spec was written before roadmap items 1–6 merged. What changed, and why:
 - **The working-tree diff is against `HEAD`**, so a staged deletion shows (2.3).
 - **The parser moved** from `folders.git_status` (which dropped a rename's old name) to `gitwork.parse_status`.
 - **Rows and focus** (`a11y.js`): see the Changes list and the Explorer marks above.
+- **⌘Enter in a message box** commits or does nothing; it never reaches `app.js`'s approve-on-⌘Enter.
+- **"While the session is working"** means any session whose folders include that repository, running or paused for
+  an approval.
+- **A commit is yours:** the message verbatim (`--cleanup=verbatim`), nothing appended, your git identity.
+- **A refusal restores the index exactly** (saved entries written back), not by resetting what was staged; a hook
+  stopped on its timeout leaves no lock behind.
 - **Known limit (1.3):** an in-place edit, in the terminal, of a file that is neither open nor already changed changes
   no folder's stamp and no git state, so its mark waits for the next thing that reloads the list (a save, a turn, a
   tree change, the Changes view, ↻). Running `git status` on every poll would cover it, at a cost that grows with the

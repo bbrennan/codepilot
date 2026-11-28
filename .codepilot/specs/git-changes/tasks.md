@@ -38,16 +38,37 @@ One branch and PR per numbered task. After keyboard-access task 2 (the tree's ro
       with `markTree` stubbed out, as it came with `renderGitView` in 1.2); tests/test_gitwork.py (the stamp changes
       with staging and a commit made outside, never reads outside the repository); tests/test_server.py (`/stat`
       answers each of the session's repositories' stamps, null for another folder)_
-- [ ] 2. Commit (`feature/git-commit`)
-  - [ ] 2.1 `gitwork.commit` and its endpoint
+- [x] 2. Commit (`feature/git-commit`)
+  - [x] 2.1 `gitwork.commit` and its endpoint
     - Test first (unit): the cases in design.md; the endpoint; 409 while busy; a path not in status.
     - `codepilot/gitwork.py`, `server.py` (route, wiring); `tests/test_tools.py` (the model's tool is unchanged).
     - _Requirements: 3.1, 3.4, 3.5, 5.1, 5.3_
-  - [ ] 2.2 Tick boxes, the message box and Commit
+    - _Tests: tests/test_gitwork.py (only the ticked files: `a*.txt` beside `ab.txt`, and `:colon.txt`, `:(glob)x.txt`,
+      `q?.txt`, `[ab].txt` each commit as themselves; new and deleted files; what was staged and not ticked stays
+      staged; a ticked file as it is on disk; a rename's both names; the message byte for byte, nothing appended; the
+      repository's own identity; `{hash, subject}`; a blank message, nothing ticked and a path git doesn't list
+      refused; a failing hook's words, and the index exactly as before, a partly staged file's staged version too;
+      hooks run; a hook past the timeout stopped, named, and no lock left; a merge concluded with all ticked, git's
+      refusal with some; the first commit, and its refusal; every command `--no-optional-locks --literal-pathspecs`,
+      never `--no-verify`, `--amend`, `push`, a branch change or `-c`); tests/test_server.py (the endpoint; an added
+      folder's own repository; another folder or one inside refused; git's refusal as a 409; the header's 403; 409
+      while a session on that repository works, the same one or another, and while one waits for approval; bad
+      bodies); tests/test_folders.py (`repo_for`, `uses`); tests/test_procenv.py (`input`); tests/test_tools.py (the
+      model's `git` tool still refuses commit, add, restore, reset, rm, update-index and checkout, and leaves the
+      repository as it was; `tools.py`, `gitcmd.py` and `agent.py` don't import `gitwork`)_
+  - [x] 2.2 Tick boxes, the message box and Commit
     - Test first (Playwright): tick and untick, the count, commit of a subset, the toast, the disabled reasons, a
       refused commit, ⌘Enter, an added folder's own box.
     - `static/gitview.js`, `app.css`.
     - _Requirements: 2.4, 3.1, 3.2, 3.3, 3.4, 5.2_
+    - _Tests: tests/e2e/test_git_changes_ui.py (all ticked, "4 of 4", untick, the tick-all box partly and wholly, kept
+      through a redraw; commit of a subset: the toast with hash and subject, the remaining row, the box cleared, focus
+      in it, the Explorer's marks; each reason Commit is unavailable, and while a command waits for approval; a hook's
+      refusal under the box, nothing changed, the message kept; ⌘Enter commits; ⌘Enter with a command waiting for
+      approval neither approves nor commits, and commits once the turn is done; an added folder's own box commits there
+      only; focus stays on a tick box, a name and the message box (with its selection) through a redraw, and moves to
+      the next row's tick box when its row is committed elsewhere; the audit; the count and the box fit at 1024×700
+      with a 180 and a 200px sidebar)_
 - [ ] 3. Discard (`feature/git-discard`)
   - [ ] 3.1 `gitwork.discard`, the kept copy, and Undo through the trash
     - Test first (unit): each kind of change; Undo; Undo refused after the file changed.
